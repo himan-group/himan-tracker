@@ -36,6 +36,7 @@ MVP 不交付：
 
 - [Feature 列表](./features.md)：MVP feature、优先级、依赖和验收标准。
 - [详细技术方案](./technical-plan.md)：模块设计、数据流、实现细节、测试策略和开发顺序。
+- [开发计划](./development-plan.md)：按步骤推进 MVP 开发的任务清单和验收标准。
 
 ## 交付原则
 
