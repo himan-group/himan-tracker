@@ -2,6 +2,16 @@
 
 本文档用于按步骤推进 `himan-tracker` MVP 开发。每一步都应形成可运行、可验证的增量，避免长期停留在半成品状态。
 
+阶段名称：MVP 阶段
+
+需求与技术来源：
+
+- `docs/mvp/features.md`
+- `docs/mvp/technical-plan.md`
+- `docs/technical-design.md`
+- `AGENTS.md`
+- `docs/codex/repo-map.md`
+
 ## 开发原则
 
 - 先打通本地数据闭环，再接入真实 agent。
@@ -30,7 +40,7 @@
 | --- | --- | --- |
 | Step 1：工程骨架与 CLI 基础 | 已完成 | CLI 工程、package scripts、TypeScript、`doctor`、默认路径解析已可运行 |
 | Step 2：配置、路径与事件契约 | 已完成 | 配置、事件类型、schema、normalizer、repo hash、capability classifier 已完成 |
-| Step 3：JSONL Collector | 未开始 | 仅有目录占位 |
+| Step 3：JSONL Collector | 已完成 | JSONL writer、fail-open collector、错误日志和隐私测试已完成 |
 | Step 4：SQLite 与 Ingest | 未开始 | 仅有目录占位 |
 | Step 5：CLI 报表 | 未开始 | 仅有计划中的命令占位 |
 | Step 6：Agent Adapter | 未开始 | 仅有 fixtures 目录占位 |
@@ -39,7 +49,7 @@
 最近验证：
 
 - `pnpm run typecheck`：通过。
-- `pnpm test`：通过，16 个测试全部通过。
+- `pnpm test`：通过，21 个测试全部通过。
 - `pnpm cli -- --help`：通过。
 - `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-doctor-check pnpm cli -- doctor`：通过，SQLite 和 hooks 仍按预期显示未初始化/未配置 warning。
 
@@ -155,19 +165,19 @@ pnpm test
 
 任务清单：
 
-- [ ] 实现一行一 JSON 的 append writer。
-- [ ] 写入前确保父目录存在。
-- [ ] 实现 `events.jsonl` writer。
-- [ ] 实现 `errors.jsonl` writer。
-- [ ] 实现 collector fail-open 行为。
-- [ ] 增加 JSONL writer tests。
-- [ ] 增加 privacy tests。
+- [x] 实现一行一 JSON 的 append writer。
+- [x] 写入前确保父目录存在。
+- [x] 实现 `events.jsonl` writer。
+- [x] 实现 `errors.jsonl` writer。
+- [x] 实现 collector fail-open 行为。
+- [x] 增加 JSONL writer tests。
+- [x] 增加 privacy tests。
 
 验收标准：
 
-- [ ] 连续写入多条事件后每行都可以独立解析。
-- [ ] 写入失败不会让 collector 崩溃。
-- [ ] error record 不包含敏感原文。
+- [x] 连续写入多条事件后每行都可以独立解析。
+- [x] 写入失败不会让 collector 崩溃。
+- [x] error record 不包含敏感原文。
 
 建议验证：
 

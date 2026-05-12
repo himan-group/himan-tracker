@@ -14,3 +14,4 @@ All notable changes to this project will be documented in this file.
 - Added privacy-first local configuration and tracker path resolution.
 - Added normalized event contracts, runtime validation, repo path hashing, token normalization, and capability classification.
 - Added MVP development progress plan and initial normalizer/config test coverage.
+- Added append-only JSONL event collection with fail-open error logging and privacy tests.
