@@ -7,8 +7,8 @@
 Current implementation status:
 
 - CLI skeleton and `doctor` command are implemented.
-- Config/path resolution, user config defaults, normalized event contracts, schema validation, repo path hashing, token normalization, capability classification, JSONL collection, SQLite migrations, JSONL ingest, daily stats aggregation, CLI reports, and fixture-first agent adapters are implemented.
-- Final MVP documentation and README/user-guide updates remain.
+- Config/path resolution, user config defaults, normalized event contracts, schema validation, repo path hashing, token normalization, capability classification, JSONL collection, SQLite migrations, JSONL ingest, daily stats aggregation, CLI reports, fixture-first agent adapters, and MVP documentation are implemented.
+- Real hook installation, package release, and richer real-world adapter fixtures remain future work.
 
 ## Commands
 
@@ -208,6 +208,7 @@ Current test files:
 - `tests/collector/jsonlWriter.test.ts`
 - `tests/config/paths.test.ts`
 - `tests/config/userConfig.test.ts`
+- `tests/normalizer/eventSchema.test.ts`
 - `tests/normalizer/normalizeEvent.test.ts`
 - `tests/normalizer/capabilityClassifier.test.ts`
 - `tests/reports/formatTable.test.ts`

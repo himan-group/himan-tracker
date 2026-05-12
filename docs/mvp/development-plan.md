@@ -44,17 +44,17 @@
 | Step 4：SQLite 与 Ingest | 已完成 | SQLite schema、migration runner、幂等 ingest、`--from`、`--rebuild` 和 daily stats 已完成 |
 | Step 5：CLI 报表 | 已完成 | `summary`、`agents`、`capabilities`、`unused`、表格输出、筛选排序和空状态已完成 |
 | Step 6：Agent Adapter | 已完成 | Codex/Claude Code 构造 fixture、adapter 解析和 normalized fixture 测试已完成 |
-| Step 7：测试与 MVP 收口 | 未开始 | 已有 Step 1/2 的局部测试，MVP 收口测试尚未开始 |
+| Step 7：测试与 MVP 收口 | 已完成 | schema、JSONL、aggregator、CLI、privacy、adapter fixture 测试和 README/docs 同步已完成 |
 
 最近验证：
 
 - `pnpm run typecheck`：通过。
-- `pnpm test`：通过，32 个测试全部通过。
+- `pnpm test`：通过，34 个测试全部通过。
 - `pnpm run build`：通过。
 - `pnpm cli -- --help`：通过。
-- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-ingest-check-3ac4f99 pnpm cli -- doctor`：通过，SQLite 可初始化并应用 `001_initial` migration，hooks 仍按预期显示未配置 warning。
-- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-ingest-check-3ac4f99 pnpm cli -- ingest --rebuild`：通过，空事件日志可重建 SQLite 投影。
-- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-report-check-9b56998 pnpm cli -- summary --since 7d`：通过，空数据库输出明确空状态。
+- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-final-check-95ad7ef pnpm cli -- doctor`：通过，SQLite 可初始化并应用 `001_initial` migration，hooks 仍按预期显示未配置 warning。
+- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-final-check-95ad7ef pnpm cli -- ingest --rebuild`：通过，空事件日志可重建 SQLite 投影。
+- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-final-check-95ad7ef pnpm cli -- summary --since 7d`：通过，空数据库输出明确空状态。
 - `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-report-check-9b56998 pnpm cli -- agents --date 2026-05-12`：通过，空数据库输出明确空状态。
 - `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-report-check-9b56998 pnpm cli -- capabilities --since 30d`：通过，空数据库输出明确空状态。
 - `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-report-check-9b56998 pnpm cli -- unused --since 30d`：通过，空数据库输出明确空状态。
@@ -353,24 +353,24 @@ pnpm test
 
 任务清单：
 
-- [ ] 补齐 schema tests。
-- [ ] 补齐 JSONL tests。
-- [ ] 补齐 aggregator idempotency tests。
-- [ ] 补齐 CLI snapshot tests。
-- [ ] 补齐 privacy tests。
-- [ ] 更新 README 安装和命令说明。
-- [ ] 同步 docs 与实际实现。
-- [ ] 整体运行 typecheck 和 tests。
+- [x] 补齐 schema tests。
+- [x] 补齐 JSONL tests。
+- [x] 补齐 aggregator idempotency tests。
+- [x] 补齐 CLI snapshot tests。
+- [x] 补齐 privacy tests。
+- [x] 更新 README 安装和命令说明。
+- [x] 同步 docs 与实际实现。
+- [x] 整体运行 typecheck 和 tests。
 
 验收标准：
 
-- [ ] `himan-tracker doctor` 可运行并报告本地状态。
-- [ ] Codex 和 Claude Code fixture 可以生成 normalized events。
-- [ ] `events.jsonl` 可以作为事实源重建 SQLite。
-- [ ] `summary`、`agents`、`capabilities`、`unused` 可以基于 fixture 数据输出报表。
-- [ ] 重复 ingest 不产生重复统计。
-- [ ] 默认事件不包含 prompt、response、代码内容或明文 repo path。
-- [ ] 测试覆盖核心数据路径和隐私约束。
+- [x] `himan-tracker doctor` 可运行并报告本地状态。
+- [x] Codex 和 Claude Code fixture 可以生成 normalized events。
+- [x] `events.jsonl` 可以作为事实源重建 SQLite。
+- [x] `summary`、`agents`、`capabilities`、`unused` 可以基于 fixture 数据输出报表。
+- [x] 重复 ingest 不产生重复统计。
+- [x] 默认事件不包含 prompt、response、代码内容或明文 repo path。
+- [x] 测试覆盖核心数据路径和隐私约束。
 
 建议验证：
 

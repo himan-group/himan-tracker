@@ -26,28 +26,31 @@
 
 | Agent | 支持方式 |
 | --- | --- |
-| Codex | Hooks、wrapper 或本地日志适配 |
-| Claude Code | Hooks 适配 |
+| Codex | Fixture-first hook payload parser |
+| Claude Code | Fixture-first hook payload parser |
 
 ## 安装
 
-当前尚未发布可安装版本。正式发布后，本节会提供对应的安装命令。
+当前尚未发布可安装版本。可以从源码运行 MVP：
+
+```bash
+pnpm install
+pnpm cli -- --help
+```
 
 ## 快速开始
 
-发布后，典型使用流程如下：
+当前 MVP 的典型本地使用流程如下：
 
-1. 安装 `himan-tracker` CLI。
-2. 为 Codex 或 Claude Code 启用本地采集适配。
-3. 使用 `doctor` 检查本地配置和数据目录。
-4. 正常使用 AI coding agent。
-5. 使用 `ingest` 将原始事件聚合到 SQLite。
-6. 使用报表命令查看 agent、模型和 capability 使用情况。
+1. 使用 `doctor` 检查本地配置和数据目录。
+2. 将 normalized events 写入 `events.jsonl`，或使用 adapter fixture 验证解析链路。
+3. 使用 `ingest` 将 JSONL 事件聚合到 SQLite。
+4. 使用报表命令查看 agent、模型和 capability 使用情况。
 
 ```bash
-himan-tracker doctor
-himan-tracker ingest
-himan-tracker summary --since 7d
+pnpm cli -- doctor
+pnpm cli -- ingest
+pnpm cli -- summary --since 7d
 ```
 
 ## 命令手册
@@ -57,7 +60,7 @@ himan-tracker summary --since 7d
 检查本地配置、数据目录、事件日志、SQLite 数据库和 hook 状态。
 
 ```bash
-himan-tracker doctor
+pnpm cli -- doctor
 ```
 
 ### `ingest`
@@ -65,19 +68,19 @@ himan-tracker doctor
 将 JSONL 原始事件导入 SQLite 聚合数据库。
 
 ```bash
-himan-tracker ingest
+pnpm cli -- ingest
 ```
 
 从指定 JSONL 文件导入：
 
 ```bash
-himan-tracker ingest --from ./events.jsonl
+pnpm cli -- ingest --from ./events.jsonl
 ```
 
 重建本地聚合数据库：
 
 ```bash
-himan-tracker ingest --rebuild
+pnpm cli -- ingest --rebuild
 ```
 
 ### `summary`
@@ -85,7 +88,7 @@ himan-tracker ingest --rebuild
 查看指定时间范围内的总体使用情况。
 
 ```bash
-himan-tracker summary --since 7d
+pnpm cli -- summary --since 7d
 ```
 
 典型输出包含：
@@ -103,7 +106,7 @@ himan-tracker summary --since 7d
 按 agent 和模型查看使用统计。
 
 ```bash
-himan-tracker agents --date 2026-05-12
+pnpm cli -- agents --date 2026-05-12
 ```
 
 典型输出字段：
@@ -117,15 +120,15 @@ agent | model | sessions | turns | tokens | avg latency | success rate
 查看 capability 使用排行。
 
 ```bash
-himan-tracker capabilities --since 30d
+pnpm cli -- capabilities --since 30d
 ```
 
 支持按类型、agent 和排序字段筛选：
 
 ```bash
-himan-tracker capabilities --since 30d --type mcp_tool
-himan-tracker capabilities --since 30d --agent codex
-himan-tracker capabilities --since 30d --sort duration
+pnpm cli -- capabilities --since 30d --type mcp_tool
+pnpm cli -- capabilities --since 30d --agent codex
+pnpm cli -- capabilities --since 30d --sort duration
 ```
 
 支持的 capability 类型：
@@ -142,7 +145,7 @@ himan-tracker capabilities --since 30d --sort duration
 查看指定时间范围内未使用的 capability。
 
 ```bash
-himan-tracker unused --since 30d
+pnpm cli -- unused --since 30d
 ```
 
 典型输出字段：

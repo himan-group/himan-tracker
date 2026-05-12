@@ -22,3 +22,4 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Updated `doctor` to initialize and check the local SQLite projection.
+- Updated README and MVP docs to describe the current source-run MVP workflow.
