@@ -15,3 +15,8 @@ All notable changes to this project will be documented in this file.
 - Added normalized event contracts, runtime validation, repo path hashing, token normalization, and capability classification.
 - Added MVP development progress plan and initial normalizer/config test coverage.
 - Added append-only JSONL event collection with fail-open error logging and privacy tests.
+- Added SQLite schema migrations, idempotent JSONL ingest, daily stats aggregation, and `ingest --from/--rebuild`.
+
+### Changed
+
+- Updated `doctor` to initialize and check the local SQLite projection.

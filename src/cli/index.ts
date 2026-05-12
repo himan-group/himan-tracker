@@ -2,6 +2,7 @@
 import { Command } from "commander";
 
 import { runDoctor } from "./commands/doctor.js";
+import { runIngest } from "./commands/ingest.js";
 
 const VERSION = "0.0.0";
 
@@ -22,7 +23,23 @@ program
     process.exitCode = result.ok ? 0 : 1;
   });
 
-for (const commandName of ["ingest", "summary", "agents", "capabilities", "unused"]) {
+program
+  .command("ingest")
+  .description("Import normalized JSONL events into the local SQLite projection")
+  .option("--from <path>", "Read events from a specific JSONL file")
+  .option("--rebuild", "Delete and rebuild the SQLite projection before ingesting")
+  .action(async (options: IngestCommandOptions) => {
+    const result = await runIngest(options);
+    console.log(result.lines.join("\n"));
+    process.exitCode = result.ok ? 0 : 1;
+  });
+
+type IngestCommandOptions = {
+  from?: string;
+  rebuild?: boolean;
+};
+
+for (const commandName of ["summary", "agents", "capabilities", "unused"]) {
   program
     .command(commandName)
     .description(`${commandName} is planned for the MVP but is not implemented yet`)

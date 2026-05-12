@@ -6,6 +6,7 @@ import {
   resolveTrackerPaths,
 } from "../../config/paths.js";
 import { readOrCreateUserConfig } from "../../config/userConfig.js";
+import { initializeTrackerDatabase } from "../../storage/sqlite.js";
 
 export type DoctorResult = {
   ok: boolean;
@@ -67,7 +68,23 @@ export async function runDoctor(): Promise<DoctorResult> {
     }
   }
 
-  lines.push(formatCheck("warn", "sqlite", `not initialized yet (${paths.sqlitePath})`));
+  try {
+    const { db, appliedMigrations } = initializeTrackerDatabase(paths.sqlitePath);
+    db.close();
+    lines.push(
+      formatCheck(
+        "ok",
+        "sqlite",
+        `${paths.sqlitePath}${
+          appliedMigrations.length > 0 ? ` (applied ${appliedMigrations.join(", ")})` : ""
+        }`,
+      ),
+    );
+  } catch (error) {
+    ok = false;
+    lines.push(formatCheck("fail", "sqlite", getErrorMessage(error)));
+  }
+
   lines.push(formatCheck("warn", "hooks", "not configured yet"));
 
   return { ok, lines };

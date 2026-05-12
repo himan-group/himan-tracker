@@ -41,7 +41,7 @@
 | Step 1：工程骨架与 CLI 基础 | 已完成 | CLI 工程、package scripts、TypeScript、`doctor`、默认路径解析已可运行 |
 | Step 2：配置、路径与事件契约 | 已完成 | 配置、事件类型、schema、normalizer、repo hash、capability classifier 已完成 |
 | Step 3：JSONL Collector | 已完成 | JSONL writer、fail-open collector、错误日志和隐私测试已完成 |
-| Step 4：SQLite 与 Ingest | 未开始 | 仅有目录占位 |
+| Step 4：SQLite 与 Ingest | 已完成 | SQLite schema、migration runner、幂等 ingest、`--from`、`--rebuild` 和 daily stats 已完成 |
 | Step 5：CLI 报表 | 未开始 | 仅有计划中的命令占位 |
 | Step 6：Agent Adapter | 未开始 | 仅有 fixtures 目录占位 |
 | Step 7：测试与 MVP 收口 | 未开始 | 已有 Step 1/2 的局部测试，MVP 收口测试尚未开始 |
@@ -49,9 +49,11 @@
 最近验证：
 
 - `pnpm run typecheck`：通过。
-- `pnpm test`：通过，21 个测试全部通过。
+- `pnpm test`：通过，24 个测试全部通过。
+- `pnpm run build`：通过。
 - `pnpm cli -- --help`：通过。
-- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-doctor-check pnpm cli -- doctor`：通过，SQLite 和 hooks 仍按预期显示未初始化/未配置 warning。
+- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-ingest-check-3ac4f99 pnpm cli -- doctor`：通过，SQLite 可初始化并应用 `001_initial` migration，hooks 仍按预期显示未配置 warning。
+- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-ingest-check-3ac4f99 pnpm cli -- ingest --rebuild`：通过，空事件日志可重建 SQLite 投影。
 
 ## Step 1：工程骨架与 CLI 基础
 
@@ -208,23 +210,23 @@ pnpm test
 
 任务清单：
 
-- [ ] 实现 `schema_migrations`。
-- [ ] 创建 base tables。
-- [ ] 创建 daily stats tables。
-- [ ] 实现 migration runner。
-- [ ] 实现 `ingest` 命令。
-- [ ] 支持 `--from <path>`。
-- [ ] 支持 `--rebuild`。
-- [ ] 实现 `ingested_events` 去重。
-- [ ] 实现按日期重算 stats。
-- [ ] 增加 aggregator fixture tests。
+- [x] 实现 `schema_migrations`。
+- [x] 创建 base tables。
+- [x] 创建 daily stats tables。
+- [x] 实现 migration runner。
+- [x] 实现 `ingest` 命令。
+- [x] 支持 `--from <path>`。
+- [x] 支持 `--rebuild`。
+- [x] 实现 `ingested_events` 去重。
+- [x] 实现按日期重算 stats。
+- [x] 增加 aggregator fixture tests。
 
 验收标准：
 
-- [ ] 首次运行可以创建 SQLite 数据库。
-- [ ] 同一 JSONL 重复导入不会重复计数。
-- [ ] `--rebuild` 可以从 JSONL 重建投影数据库。
-- [ ] fixture 的 agent stats 和 capability stats 与预期一致。
+- [x] 首次运行可以创建 SQLite 数据库。
+- [x] 同一 JSONL 重复导入不会重复计数。
+- [x] `--rebuild` 可以从 JSONL 重建投影数据库。
+- [x] fixture 的 agent stats 和 capability stats 与预期一致。
 
 建议验证：
 

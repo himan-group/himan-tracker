@@ -18,11 +18,13 @@
     "node": ">=20.11"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.0.0",
     "tsx": "^4.21.0",
     "typescript": "^5.8.0"
   },
   "dependencies": {
+    "better-sqlite3": "^12.9.0",
     "commander": "^14.0.3",
     "zod": "^4.4.3"
   }

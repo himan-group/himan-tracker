@@ -7,8 +7,8 @@
 Current implementation status:
 
 - CLI skeleton and `doctor` command are implemented.
-- Config/path resolution, user config defaults, normalized event contracts, schema validation, repo path hashing, token normalization, and capability classification are implemented.
-- JSONL collector, SQLite ingestion, reports, and agent adapters are planned but not implemented.
+- Config/path resolution, user config defaults, normalized event contracts, schema validation, repo path hashing, token normalization, capability classification, JSONL collection, SQLite migrations, JSONL ingest, and daily stats aggregation are implemented.
+- CLI reports and agent adapters are planned but not implemented.
 
 ## Commands
 
@@ -20,6 +20,7 @@ pnpm run typecheck
 pnpm test
 pnpm cli -- --help
 pnpm cli -- doctor
+pnpm cli -- ingest
 ```
 
 Notes:
@@ -35,6 +36,13 @@ src/
   cli/
     index.ts
     commands/doctor.ts
+    commands/ingest.ts
+  aggregator/
+    aggregateEvents.ts
+    dailyStats.ts
+  collector/
+    hookCollector.ts
+    jsonlWriter.ts
   config/
     paths.ts
     userConfig.ts
@@ -47,13 +55,17 @@ src/
     config.ts
     events.ts
   adapters/
-  aggregator/
-  collector/
   reports/
   storage/
+    sqlite.ts
+    migrations/
+      001_initial.sql
 tests/
+  aggregator/
+  collector/
   config/
   normalizer/
+  storage/
 docs/
   mvp/
   blueprint.md
@@ -65,16 +77,16 @@ Empty or not-yet-implemented domains currently remain as `.gitkeep` directories.
 ## Entry Points And Routing
 
 - CLI entry point: `src/cli/index.ts`
-- Implemented command:
+- Implemented commands:
   - `doctor` -> `src/cli/commands/doctor.ts`
+  - `ingest` -> `src/cli/commands/ingest.ts`
 - Planned placeholder commands:
-  - `ingest`
   - `summary`
   - `agents`
   - `capabilities`
   - `unused`
 
-`src/cli/index.ts` currently reports planned commands as not implemented and exits with non-zero status for those commands.
+`src/cli/index.ts` currently reports planned report commands as not implemented and exits with non-zero status for those commands.
 
 ## Data And Contracts
 
@@ -95,6 +107,17 @@ Normalization rules:
 - Token fields remain `null` when unavailable.
 - `repo_path` must not appear in normalized output.
 - Shell command names are stripped to the command name unless `capture_shell_args` is enabled.
+
+Collector rules:
+
+- `appendJsonlRecord` writes one compact JSON object per line and creates parent directories.
+- `collectAdapterEvent` normalizes adapter events, appends accepted events to `events.jsonl`, writes sanitized collector errors to `errors.jsonl`, and fails open so agent workflows are not blocked.
+
+SQLite and ingest rules:
+
+- `src/storage/sqlite.ts` initializes `schema_migrations`, applies `001_initial`, and opens `better-sqlite3` with WAL and foreign keys enabled.
+- `src/aggregator/aggregateEvents.ts` imports normalized JSONL, skips duplicate `event_id` values through `ingested_events`, supports rebuild by removing projection database files, and recomputes affected daily stats.
+- `src/aggregator/dailyStats.ts` recomputes `daily_agent_stats` and `daily_capability_stats` by local date.
 
 ## Config And Local Data
 
@@ -131,10 +154,14 @@ Default privacy config:
 
 Current test files:
 
+- `tests/aggregator/aggregateEvents.test.ts`
+- `tests/collector/hookCollector.test.ts`
+- `tests/collector/jsonlWriter.test.ts`
 - `tests/config/paths.test.ts`
 - `tests/config/userConfig.test.ts`
 - `tests/normalizer/normalizeEvent.test.ts`
 - `tests/normalizer/capabilityClassifier.test.ts`
+- `tests/storage/sqlite.test.ts`
 
 The test runner is Node's built-in test runner with `tsx`:
 
