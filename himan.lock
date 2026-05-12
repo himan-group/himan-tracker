@@ -6,7 +6,7 @@
     "repo": "https://git.garena.com/detao.li/himan-resource.git",
     "repoId": "https_git.garena.com_detao.li_himan-resource"
   },
-  "updatedAt": "2026-05-12T03:45:19.594Z",
+  "updatedAt": "2026-05-12T06:24:48.304Z",
   "resources": [
     {
       "type": "skill",
@@ -20,6 +20,16 @@
     },
     {
       "type": "skill",
+      "name": "common-project-blueprint",
+      "version": "0.0.1",
+      "agents": [
+        "codex"
+      ],
+      "mode": "copy",
+      "updatedAt": "2026-05-12T06:23:49.211Z"
+    },
+    {
+      "type": "skill",
       "name": "common-project-changelog",
       "version": "0.0.2",
       "agents": [
@@ -30,6 +40,16 @@
     },
     {
       "type": "skill",
+      "name": "common-project-mvp",
+      "version": "0.0.1",
+      "agents": [
+        "codex"
+      ],
+      "mode": "copy",
+      "updatedAt": "2026-05-12T06:24:48.304Z"
+    },
+    {
+      "type": "skill",
       "name": "common-project-startup",
       "version": "0.0.1",
       "agents": [
@@ -37,6 +57,16 @@
       ],
       "mode": "copy",
       "updatedAt": "2026-05-12T03:44:53.445Z"
+    },
+    {
+      "type": "skill",
+      "name": "common-project-tech-design",
+      "version": "0.0.1",
+      "agents": [
+        "codex"
+      ],
+      "mode": "copy",
+      "updatedAt": "2026-05-12T06:24:16.919Z"
     }
   ]
 }
