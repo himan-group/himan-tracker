@@ -81,7 +81,7 @@ export type AdapterTurnSummaryEvent = AdapterEventBase &
 export type AdapterCapabilityUsageEvent = AdapterEventBase &
   Partial<TokenUsage> & {
     event_type: "capability_usage";
-    capability_type: CapabilityType;
+    capability_type?: CapabilityType | null;
     capability_name: string;
     duration_ms?: number | null;
     adopted?: "yes" | "no" | "unknown";

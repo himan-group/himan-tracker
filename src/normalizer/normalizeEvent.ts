@@ -7,6 +7,7 @@ import type {
   TokenUsage,
 } from "../types/events.js";
 import type { UserConfig } from "../types/config.js";
+import { classifyCapability } from "./capabilityClassifier.js";
 import { validateNormalizedEvent } from "./eventSchema.js";
 import { hashRepoPath } from "./privacy.js";
 
@@ -38,11 +39,16 @@ export function normalizeEvent(event: AdapterEvent, config: UserConfig): Normali
       };
       break;
     case "capability_usage":
+      const classifiedCapability = classifyCapability(event);
       normalizedEvent = {
         ...base,
         event_type: "capability_usage",
-        capability_type: event.capability_type,
-        capability_name: normalizeCapabilityName(event, config),
+        capability_type: classifiedCapability.type,
+        capability_name: normalizeCapabilityName(
+          classifiedCapability.name,
+          classifiedCapability.type,
+          config,
+        ),
         duration_ms: event.duration_ms ?? null,
         adopted: event.adopted ?? "unknown",
         attribution_confidence: event.attribution_confidence ?? "unknown",
@@ -104,12 +110,16 @@ function resolveRepoHash(event: AdapterEvent, config: UserConfig): string | null
   return hashRepoPath(event.repo_path, config.local_salt);
 }
 
-function normalizeCapabilityName(event: AdapterCapabilityUsageEvent, config: UserConfig): string {
-  if (event.capability_type !== "shell_command") {
-    return event.capability_name;
+function normalizeCapabilityName(
+  capabilityName: string,
+  capabilityType: AdapterCapabilityUsageEvent["capability_type"],
+  config: UserConfig,
+): string {
+  if (capabilityType !== "shell_command") {
+    return capabilityName;
   }
 
-  const trimmedName = event.capability_name.trim();
+  const trimmedName = capabilityName.trim();
   if (trimmedName.length === 0 || config.privacy.capture_shell_args) {
     return trimmedName;
   }
