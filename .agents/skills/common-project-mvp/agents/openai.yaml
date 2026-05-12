@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project MVP Plan"
+  short_description: "Plan MVP features and milestones"
+  default_prompt: "Use $common-project-mvp to plan MVP features and implementation milestones."

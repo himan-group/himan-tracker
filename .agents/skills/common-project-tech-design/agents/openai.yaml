@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Tech Design"
+  short_description: "Design project architecture docs"
+  default_prompt: "Use $common-project-tech-design to create a technical design for this project."

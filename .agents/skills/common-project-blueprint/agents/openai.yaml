@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Blueprint"
+  short_description: "Create project blueprint docs"
+  default_prompt: "Use $common-project-blueprint to create or refresh a project blueprint."
