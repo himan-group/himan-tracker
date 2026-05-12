@@ -1,6 +1,6 @@
 {
   "name": "himan-tracker",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Local-first observability and analytics for AI coding agents.",
   "type": "module",
   "private": true,

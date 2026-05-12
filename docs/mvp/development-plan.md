@@ -51,13 +51,13 @@
 - `pnpm run typecheck`：通过。
 - `pnpm test`：通过，34 个测试全部通过。
 - `pnpm run build`：通过。
-- `pnpm cli -- --help`：通过。
-- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-final-check-95ad7ef pnpm cli -- doctor`：通过，SQLite 可初始化并应用 `001_initial` migration，hooks 仍按预期显示未配置 warning。
-- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-final-check-95ad7ef pnpm cli -- ingest --rebuild`：通过，空事件日志可重建 SQLite 投影。
-- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-final-check-95ad7ef pnpm cli -- summary --since 7d`：通过，空数据库输出明确空状态。
-- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-report-check-9b56998 pnpm cli -- agents --date 2026-05-12`：通过，空数据库输出明确空状态。
-- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-report-check-9b56998 pnpm cli -- capabilities --since 30d`：通过，空数据库输出明确空状态。
-- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-report-check-9b56998 pnpm cli -- unused --since 30d`：通过，空数据库输出明确空状态。
+- `pnpm cli --help`：通过。
+- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-final-check-95ad7ef pnpm cli doctor`：通过，SQLite 可初始化并应用 `001_initial` migration，hooks 仍按预期显示未配置 warning。
+- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-final-check-95ad7ef pnpm cli ingest --rebuild`：通过，空事件日志可重建 SQLite 投影。
+- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-final-check-95ad7ef pnpm cli summary --since 7d`：通过，空数据库输出明确空状态。
+- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-report-check-9b56998 pnpm cli agents --date 2026-05-12`：通过，空数据库输出明确空状态。
+- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-report-check-9b56998 pnpm cli capabilities --since 30d`：通过，空数据库输出明确空状态。
+- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-report-check-9b56998 pnpm cli unused --since 30d`：通过，空数据库输出明确空状态。
 
 ## Step 1：工程骨架与 CLI 基础
 

@@ -8,7 +8,7 @@ import { runIngest } from "./commands/ingest.js";
 import { runSummary } from "./commands/summary.js";
 import { runUnused } from "./commands/unused.js";
 
-const VERSION = "0.0.0";
+const VERSION = "0.0.1";
 
 const program = new Command();
 

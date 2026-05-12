@@ -18,14 +18,14 @@ Use the package scripts from `package.json`:
 pnpm run build
 pnpm run typecheck
 pnpm test
-pnpm cli -- --help
-pnpm cli -- doctor
+pnpm cli --help
+pnpm cli doctor
 ```
 
 When running `doctor`, prefer a temp data home:
 
 ```bash
-HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli -- doctor
+HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli doctor
 ```
 
 ## Architecture
@@ -97,8 +97,8 @@ pnpm test
 For CLI behavior changes, also run a smoke command such as:
 
 ```bash
-pnpm cli -- --help
-HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli -- doctor
+pnpm cli --help
+HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli doctor
 ```
 
 If a check cannot be run, report the reason and the risk.

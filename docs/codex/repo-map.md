@@ -18,13 +18,13 @@ From `package.json`:
 pnpm run build
 pnpm run typecheck
 pnpm test
-pnpm cli -- --help
-pnpm cli -- doctor
-pnpm cli -- ingest
-pnpm cli -- summary --since 7d
-pnpm cli -- agents --date YYYY-MM-DD
-pnpm cli -- capabilities --since 30d
-pnpm cli -- unused --since 30d
+pnpm cli --help
+pnpm cli doctor
+pnpm cli ingest
+pnpm cli summary --since 7d
+pnpm cli agents --date YYYY-MM-DD
+pnpm cli capabilities --since 30d
+pnpm cli unused --since 30d
 ```
 
 Notes:
@@ -260,8 +260,8 @@ pnpm test
 For CLI smoke checks:
 
 ```bash
-pnpm cli -- --help
-HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli -- doctor
+pnpm cli --help
+HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli doctor
 ```
 
 Use a temporary `HIMAN_TRACKER_HOME` for manual `doctor` checks to avoid changing the user's real tracker home.

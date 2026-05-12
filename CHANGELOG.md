@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Documented the current Codex integration workflow in README.
+
+## [0.0.1] - 2026-05-12
+
 ### Added
 
 - Initialized product, technical design, MVP planning, and user-facing README documentation.
@@ -18,8 +24,9 @@ All notable changes to this project will be documented in this file.
 - Added SQLite schema migrations, idempotent JSONL ingest, daily stats aggregation, and `ingest --from/--rebuild`.
 - Added `summary`, `agents`, `capabilities`, and `unused` CLI reports with table output, filters, sorting, empty states, and `n/a` formatting.
 - Added fixture-first Codex and Claude Code adapters with stable normalized fixture coverage.
+- Added developer validation documentation separate from the user-facing README.
 
 ### Changed
 
 - Updated `doctor` to initialize and check the local SQLite projection.
-- Updated README and MVP docs to describe the current source-run MVP workflow.
+- Updated README, MVP docs, and repository guidance to reflect the current MVP workflow and CLI command forms.
