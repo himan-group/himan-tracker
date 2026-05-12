@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sprint Autopilot"
+  short_description: "Plan and execute sprint steps"
+  default_prompt: "Use $common-sprint-autopilot to plan and execute a sprint from requirements through commits."

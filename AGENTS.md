@@ -109,6 +109,7 @@ If a check cannot be run, report the reason and the risk.
 - Use `common-project-blueprint` for product positioning, scope, target users, or user-facing README/manual content.
 - Use `common-project-tech-design` for architecture, module boundaries, data contracts, storage, CLI/API design, tests, and directory bootstrap.
 - Use `common-project-mvp` for MVP features, milestones, acceptance criteria, and development progress.
+- Use `common-sprint-autopilot` for named sprint/stage planning and step-by-step execution across multiple requirements.
 - Use `common-project-changelog` for user-visible CLI/API behavior changes, package version changes, direct changelog edits, release notes, and changelog placement fixes.
 - Use `common-git-commit` when asked to commit local changes. Never push unless explicitly asked.
 
