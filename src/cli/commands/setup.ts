@@ -179,7 +179,7 @@ function hasHookCommand(eventGroups: JsonObject[], hookCommand: string): boolean
 }
 
 function ensureCodexHooksFeature(configToml: string): string {
-  const normalizedConfig = configToml.trimEnd();
+  const normalizedConfig = expandInlineCodexHooksFeature(configToml).trimEnd();
   const featuresMatch = normalizedConfig.match(/^(\s*)\[features\]\s*$/m);
 
   if (!featuresMatch || featuresMatch.index === undefined) {
@@ -197,14 +197,21 @@ function ensureCodexHooksFeature(configToml: string): string {
   const sectionBody = normalizedConfig.slice(afterHeaderStart, sectionEnd);
   const afterSection = normalizedConfig.slice(sectionEnd);
 
-  if (/^\s*codex_hooks\s*=/m.test(sectionBody)) {
+  if (/^[ \t]*codex_hooks[ \t]*=/m.test(sectionBody)) {
     return `${beforeSection}${sectionBody.replace(
-      /^\s*codex_hooks\s*=.*$/m,
-      "codex_hooks = true",
+      /^([ \t]*)codex_hooks[ \t]*=.*$/m,
+      "$1codex_hooks = true",
     )}${afterSection}\n`;
   }
 
   return `${beforeSection}\ncodex_hooks = true${sectionBody}${afterSection}\n`;
+}
+
+function expandInlineCodexHooksFeature(configToml: string): string {
+  return configToml.replace(
+    /^(\s*)\[features\]\s+codex_hooks\s*=.*$/m,
+    "$1[features]\n$1codex_hooks = true",
+  );
 }
 
 function appendBlock(configToml: string, block: string): string {

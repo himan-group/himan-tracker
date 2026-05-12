@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
@@ -31,8 +31,7 @@ describe("setup command", () => {
       const helperScript = await readFile(helperPath, "utf8");
       const helperStat = await stat(helperPath);
 
-      assert.match(configToml, /\[features\]/);
-      assert.match(configToml, /codex_hooks = true/);
+      assert.equal(configToml, "[features]\ncodex_hooks = true\n");
       assert.equal(hooksJson.hooks.PostToolUse.length, 1);
       assert.equal(hooksJson.hooks.Stop.length, 1);
       assert.match(
@@ -76,6 +75,28 @@ describe("setup command", () => {
       await assert.rejects(readFile(path.join(cwd, ".codex", "hooks.json"), "utf8"), {
         code: "ENOENT",
       });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("normalizes one-line Codex feature config", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "himan-setup-codex-config-test-"));
+
+    try {
+      const codexDir = path.join(cwd, ".codex");
+      await mkdir(codexDir, { recursive: true });
+      await writeFile(
+        path.join(codexDir, "config.toml"),
+        "[features] codex_hooks = false\n",
+        "utf8",
+      );
+
+      const result = await runSetup({ cwd });
+      const configToml = await readFile(path.join(codexDir, "config.toml"), "utf8");
+
+      assert.equal(result.ok, true);
+      assert.equal(configToml, "[features]\ncodex_hooks = true\n");
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
