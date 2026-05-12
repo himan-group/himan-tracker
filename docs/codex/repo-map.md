@@ -34,7 +34,7 @@ Notes:
 - `pnpm cli` runs `tsx src/cli/index.ts`.
 - The package bin points to `./dist/cli/index.js`, so run `pnpm run build` before testing the built CLI path.
 - The `doctor` command creates/checks local tracker files. Use `HIMAN_TRACKER_HOME=/tmp/path` or another temp path during tests/manual checks when you do not want to touch `~/.himan-tracker`.
-- The `setup` command installs current-project Codex hooks by default and supports `-g, --global` for `~/.codex` setup.
+- The `setup` command installs current-project Codex hooks by default and supports `-g, --global` for `~/.codex` setup. While no npm package is published, generated helpers must call `pnpm cli collect --agent codex --quiet` from the source checkout.
 - The `collect` command is hook-safe by default: it returns 0 unless `--strict` is used, queues sanitized normalized events, and drains asynchronously unless `--sync` is used. Use `--quiet` in hooks.
 
 ## Source Layout

@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Documented the current Codex integration workflow in README.
+- Changed generated Codex hook helpers to run `pnpm cli collect` from the source checkout while no npm package is published.
 - Updated `doctor` to report collect queue, lock directory, and Codex hook readiness.
 - Changed local JSONL storage to daily `events/` and `errors/` shards, with `ingest` scanning event shards by default.
 

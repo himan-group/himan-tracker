@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/detao.li/VSCode/Himan/himan-tracker/.codex/hooks/himan-tracker-collect.sh'",
+            "timeout": 5
+          }
+        ],
+        "matcher": "*"
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/detao.li/VSCode/Himan/himan-tracker/.codex/hooks/himan-tracker-collect.sh'",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

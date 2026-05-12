@@ -61,7 +61,7 @@ himan-tracker
 检查本地配置和数据目录：
 
 ```bash
-himan-tracker doctor
+pnpm cli doctor
 ```
 
 `doctor` 会创建或检查数据目录、`config.json`、`events/`、`errors/`、`queue/`、`locks/` 和 `himan.sqlite`。如果还没运行 `setup`，看到 `codex hooks: not configured yet` 是预期结果。
@@ -69,31 +69,31 @@ himan-tracker doctor
 把 `himan-tracker` 接到 Codex hooks：
 
 ```bash
-himan-tracker setup
+pnpm cli setup
 ```
 
 `--agent` 默认是 `codex`，等价于：
 
 ```bash
-himan-tracker setup --agent codex
+pnpm cli setup --agent codex
 ```
 
 默认安装到当前项目的 `.codex/`。想在所有 Codex 项目中启用时使用：
 
 ```bash
-himan-tracker setup -g
+pnpm cli setup -g
 ```
 
 把 Codex hook 或 wrapper 产生的 JSON payload 投递给采集入口：
 
 ```bash
-himan-tracker collect --agent codex
+pnpm cli collect --agent codex
 ```
 
 `--agent` 默认就是 `codex`，所以也可以写成：
 
 ```bash
-himan-tracker collect
+pnpm cli collect
 ```
 
 `collect` 默认是非阻塞模式：它只做轻量解析、隐私脱敏和本地入队，然后启动后台 worker 写入 `events/YYYY-MM-DD.jsonl`。采集报错不会让命令返回非 0，也不会影响 Codex 正常流程。
@@ -101,37 +101,37 @@ himan-tracker collect
 导入 SQLite 投影：
 
 ```bash
-himan-tracker ingest
+pnpm cli ingest
 ```
 
 默认会扫描 tracker home 下的 `events/*.jsonl`。如果事件文件在其他位置，可以指定单个 JSONL 文件：
 
 ```bash
-himan-tracker ingest --from ./events.jsonl
+pnpm cli ingest --from ./events.jsonl
 ```
 
 查看最近 7 天总览：
 
 ```bash
-himan-tracker summary --since 7d
+pnpm cli summary --since 7d
 ```
 
 查看某天的 agent / model 使用情况：
 
 ```bash
-himan-tracker agents --date 2026-05-12
+pnpm cli agents --date 2026-05-12
 ```
 
 查看最近 30 天 capability 排行：
 
 ```bash
-himan-tracker capabilities --since 30d
+pnpm cli capabilities --since 30d
 ```
 
 查看最近 30 天未使用的 capability 候选：
 
 ```bash
-himan-tracker unused --since 30d
+pnpm cli unused --since 30d
 ```
 
 如果报表显示没有数据，说明 SQLite 中还没有 ingested events。先确认 JSONL 文件存在有效事件，再运行 `ingest`。
@@ -142,31 +142,31 @@ himan-tracker unused --since 30d
 
 推荐流程：
 
-1. 运行 `himan-tracker doctor` 初始化本地数据目录。
-2. 运行 `himan-tracker setup` 安装当前项目 Codex hooks，或运行 `himan-tracker setup -g` 安装全局 Codex hooks。
-3. Codex hook 会把 JSON payload 通过 stdin 传给 `himan-tracker collect --agent codex --quiet`。
+1. 运行 `pnpm cli doctor` 初始化本地数据目录。
+2. 在当前源码项目中运行 `pnpm cli setup` 安装当前项目 Codex hooks，或运行 `pnpm cli setup -g` 安装全局 Codex hooks。
+3. Codex hook 会把 JSON payload 通过 stdin 传给 `pnpm cli collect --agent codex --quiet`。
 4. `collect` 立即入队并返回，后台 worker 异步写入 JSONL；即使采集失败，默认也返回 0，不影响 Codex 原流程。
-5. 运行 `himan-tracker ingest`，把事件日志导入 SQLite 投影。
+5. 运行 `pnpm cli ingest`，把事件日志导入 SQLite 投影。
 6. 使用 `summary`、`agents` 和 `capabilities` 查看 Codex 使用情况。
 
 Hook / wrapper 中推荐使用的命令：
 
 ```bash
-himan-tracker collect --agent codex --quiet
+cd /path/to/himan-tracker && pnpm cli collect --agent codex --quiet
 ```
 
-`--quiet` 会关闭采集 summary 输出，避免 hook stdout 影响 Codex UI 或上游流程。因为 `--agent` 默认是 `codex`，最短也可以写成：
+`--quiet` 会关闭采集 summary 输出，避免 hook stdout 影响 Codex UI 或上游流程。`setup` 生成的 helper 会自动写入当前源码项目路径，并使用这种 `pnpm cli` 形式调用 collector。
 
 ```bash
-himan-tracker collect --quiet
+cd /path/to/himan-tracker && pnpm cli collect --quiet
 ```
 
 本地验证某个 payload 文件：
 
 ```bash
-himan-tracker collect --agent codex --from ./codex-hook-payload.json --sync --strict
-himan-tracker ingest
-himan-tracker summary --since 7d
+pnpm cli collect --agent codex --from ./codex-hook-payload.json --sync --strict
+pnpm cli ingest
+pnpm cli summary --since 7d
 ```
 
 `--sync` 会在前台 drain 队列，适合人工验证；不要把它放进 Codex hook。`--strict` 会在验证失败时返回非 0，也只建议人工调试时使用。
@@ -231,7 +231,7 @@ himan-tracker summary --since 7d
 检查本地配置和存储是否可用。
 
 ```bash
-himan-tracker doctor
+pnpm cli doctor
 ```
 
 它会检查：
@@ -244,31 +244,31 @@ himan-tracker doctor
 
 ### `setup`
 
-安装 Codex hooks，让 Codex 自动把使用元数据投递给 `himan-tracker collect`。
+安装 Codex hooks，让 Codex 自动把使用元数据投递给 `pnpm cli collect`。当前项目还没有发布 npm 包，所以 hooks helper 会从本源码项目目录运行 `pnpm cli`。
 
 安装到当前项目的 `.codex/`：
 
 ```bash
-himan-tracker setup
+pnpm cli setup
 ```
 
 显式指定 agent：
 
 ```bash
-himan-tracker setup --agent codex
+pnpm cli setup --agent codex
 ```
 
 全局安装到 `~/.codex`：
 
 ```bash
-himan-tracker setup -g
-himan-tracker setup --global
+pnpm cli setup -g
+pnpm cli setup --global
 ```
 
 预览将要写入的文件：
 
 ```bash
-himan-tracker setup --dry-run
+pnpm cli setup --dry-run
 ```
 
 命令会写入或合并这些文件：
@@ -326,32 +326,32 @@ codex_hooks = true
 }
 ```
 
-helper 脚本内部调用 `himan-tracker collect --agent codex --quiet`，并且无论采集是否成功都会 `exit 0`，避免影响 Codex 正常流程。
+helper 脚本内部会进入当前源码项目目录并调用 `pnpm cli collect --agent codex --quiet`，并且无论采集是否成功都会 `exit 0`，避免影响 Codex 正常流程。
 
 ### `collect`
 
 采集 agent hook / wrapper JSON payload。当前 `--agent` 默认是 `codex`，也只支持 `codex`。
 
 ```bash
-himan-tracker collect --agent codex
+pnpm cli collect --agent codex
 ```
 
 默认从 stdin 读取 payload，适合放在 Codex hook 或 wrapper 中。也可以从文件读取：
 
 ```bash
-himan-tracker collect --agent codex --from ./codex-hook-payload.json
+pnpm cli collect --agent codex --from ./codex-hook-payload.json
 ```
 
 默认模式是 hook-safe 的非阻塞模式：命令会把已脱敏的 normalized events 写入本地队列，启动后台 worker，然后返回 0。采集失败只会记录到 `errors/YYYY-MM-DD.jsonl`，不会阻塞 Codex。放进 hook 时建议加 `--quiet`，避免向 stdout 写入 summary。
 
 ```bash
-himan-tracker collect --agent codex --quiet
+cd /path/to/himan-tracker && pnpm cli collect --agent codex --quiet
 ```
 
 人工验证时可以使用：
 
 ```bash
-himan-tracker collect --agent codex --from ./codex-hook-payload.json --sync --strict
+pnpm cli collect --agent codex --from ./codex-hook-payload.json --sync --strict
 ```
 
 `--sync` 会在前台 drain 队列，`--strict` 会把采集失败转换成非 0 exit code。不要在 Codex hook 中使用这两个参数。
@@ -361,19 +361,19 @@ himan-tracker collect --agent codex --from ./codex-hook-payload.json --sync --st
 把 normalized JSONL 事件导入本地 SQLite 投影。
 
 ```bash
-himan-tracker ingest
+pnpm cli ingest
 ```
 
 默认读取当前 tracker home 下的 `events/*.jsonl`。也可以指定输入文件：
 
 ```bash
-himan-tracker ingest --from ./events.jsonl
+pnpm cli ingest --from ./events.jsonl
 ```
 
 重建 SQLite 投影：
 
 ```bash
-himan-tracker ingest --rebuild
+pnpm cli ingest --rebuild
 ```
 
 `--rebuild` 会删除并重新生成 `himan.sqlite`、`himan.sqlite-shm` 和 `himan.sqlite-wal`，再从 JSONL 重新导入。
@@ -383,7 +383,7 @@ himan-tracker ingest --rebuild
 查看时间范围内的总体使用情况。
 
 ```bash
-himan-tracker summary --since 7d
+pnpm cli summary --since 7d
 ```
 
 输出包含 session 数、turn 数、token 总量、平均延迟、成功率、Top agents 和 Top capabilities。
@@ -393,7 +393,7 @@ himan-tracker summary --since 7d
 查看指定日期内按 agent 和 model 聚合的使用情况。
 
 ```bash
-himan-tracker agents --date 2026-05-12
+pnpm cli agents --date 2026-05-12
 ```
 
 如果不传 `--date`，命令会使用当天日期。
@@ -403,15 +403,15 @@ himan-tracker agents --date 2026-05-12
 查看指定时间范围内 capability 使用排行。
 
 ```bash
-himan-tracker capabilities --since 30d
+pnpm cli capabilities --since 30d
 ```
 
 可用筛选和排序：
 
 ```bash
-himan-tracker capabilities --since 30d --type mcp_tool
-himan-tracker capabilities --since 30d --agent codex
-himan-tracker capabilities --since 30d --sort duration
+pnpm cli capabilities --since 30d --type mcp_tool
+pnpm cli capabilities --since 30d --agent codex
+pnpm cli capabilities --since 30d --sort duration
 ```
 
 `--sort` 支持：
@@ -426,7 +426,7 @@ himan-tracker capabilities --since 30d --sort duration
 查看指定时间范围内没有使用记录的 capability 候选。
 
 ```bash
-himan-tracker unused --since 30d
+pnpm cli unused --since 30d
 ```
 
 候选来源包括历史已 ingested capability，以及 `config.json` 里的 `known_capabilities`。如果没有历史数据，也没有配置 known capabilities，命令会提示没有候选。
@@ -453,7 +453,7 @@ himan-tracker unused --since 30d
 使用其他目录：
 
 ```bash
-HIMAN_TRACKER_HOME=/custom/path himan-tracker doctor
+HIMAN_TRACKER_HOME=/custom/path pnpm cli doctor
 ```
 
 默认配置会写入 `config.json`：
@@ -508,11 +508,11 @@ HIMAN_TRACKER_HOME=/custom/path himan-tracker doctor
 
 ### 为什么 `doctor` 显示 Codex hooks 还未配置？
 
-先运行 `himan-tracker setup`。如果想在所有 Codex 项目中启用，运行 `himan-tracker setup -g`，然后重启 Codex 让它重新加载 hooks。
+先运行 `pnpm cli setup`。如果想在所有 Codex 项目中启用，运行 `pnpm cli setup -g`，然后重启 Codex 让它重新加载 hooks。
 
 ### 为什么 `summary` 显示没有数据？
 
-报表读取的是 SQLite 投影。先确认 `events/*.jsonl` 中有合法 normalized events，然后运行 `himan-tracker ingest`；如果事件在外部文件中，运行 `himan-tracker ingest --from ./events.jsonl`。
+报表读取的是 SQLite 投影。先确认 `events/*.jsonl` 中有合法 normalized events，然后运行 `pnpm cli ingest`；如果事件在外部文件中，运行 `pnpm cli ingest --from ./events.jsonl`。
 
 ### JSONL 和 SQLite 分别有什么用？
 
