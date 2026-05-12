@@ -1,12 +1,4 @@
-export type AgentName = "codex" | "claude-code";
-
-export type CapabilityType =
-  | "skill"
-  | "mcp_tool"
-  | "plugin"
-  | "builtin_tool"
-  | "shell_command"
-  | "unknown";
+import type { AgentName, CapabilityType } from "./events.js";
 
 export type KnownCapability = {
   type: CapabilityType;

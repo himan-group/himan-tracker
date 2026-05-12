@@ -12,7 +12,7 @@
     "build": "tsc -p tsconfig.json",
     "cli": "tsx src/cli/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test"
+    "test": "node --import tsx --test tests/**/*.test.ts"
   },
   "engines": {
     "node": ">=20.11"
@@ -23,6 +23,7 @@
     "typescript": "^5.8.0"
   },
   "dependencies": {
-    "commander": "^14.0.3"
+    "commander": "^14.0.3",
+    "zod": "^4.4.3"
   }
 }
