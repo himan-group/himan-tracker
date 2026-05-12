@@ -7,15 +7,32 @@ description: Maintain project CHANGELOG.md and package version history correctly
 
 Use this skill whenever project changelog or package version metadata is edited, and proactively for user-visible CLI behavior changes such as new commands, new options, changed output, install/publish workflow changes, or error behavior changes.
 
+## Missing Changelog Rule
+
+If `CHANGELOG.md` does not exist and the repository has user-visible behavior, a package version, a CLI/API surface, or an expected release flow, create it before documenting the change.
+
+Use this initial template:
+
+```md
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+## [Unreleased]
+```
+
+After creating the template, add current unreleased entries under `## [Unreleased]` using the category rules below.
+
 ## Workflow
 
-1. Read `CHANGELOG.md` top sections and `package.json` version before editing.
-2. Identify whether the task is:
+1. Check whether `CHANGELOG.md` exists. If it is missing and the project needs release/user-visible change tracking, create the template above.
+2. Read `CHANGELOG.md` top sections and `package.json` version before editing.
+3. Identify whether the task is:
    - documenting unreleased work,
    - cutting a new release/version,
    - correcting an existing changelog mistake.
-3. Edit only the relevant changelog sections and version fields.
-4. Re-read the top of `CHANGELOG.md` after editing to verify entries are in the right section.
+4. Edit only the relevant changelog sections and version fields.
+5. Re-read the top of `CHANGELOG.md` after editing to verify entries are in the right section.
 
 ## Placement Rules
 
@@ -45,8 +62,8 @@ Keep entries user-visible and concise. Do not mention internal back-and-forth, f
 ## Version Rules
 
 - Use project scripts for package version bumps when available, such as `pnpm run version:minor`.
-- In this repository, `pnpm run changelog:release` archives `[Unreleased]` entries into the current `package.json` version section.
-- `version:patch`, `version:minor`, and `version:major` run `changelog:release` after `npm version ... --no-git-tag-version`.
+- If the repository defines a changelog release script, use it instead of manually moving entries.
+- If the repository defines `version:patch`, `version:minor`, or `version:major` scripts, inspect them before running so you know whether they also update the changelog.
 - If package version changes, verify `package.json` and any lockfile/version references that the script updates.
 - Do not manually create Git tags or release commits unless the user asks.
 

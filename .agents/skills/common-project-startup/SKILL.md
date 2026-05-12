@@ -12,6 +12,7 @@ Use this skill when Codex needs durable project understanding before broad or re
 Read only the files needed to map the project:
 
 - Build manifests and lockfiles: `package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`, `pom.xml`, lockfiles
+- Release/history files: `CHANGELOG.md`, release notes, package version scripts
 - Existing guidance: `AGENTS.md`, `.cursor/rules/**/*.mdc`, `docs/codex/repo-map.md`, relevant local docs
 - Source roots and entry points: `src/`, `app/`, `lib/`, `packages/`, `services/`, `server/`, `client/`, `tests/`
 - APIs and data: clients, schemas, generated clients, migrations, models, fixtures
@@ -111,4 +112,7 @@ Preserve user-maintained content. If manual notes are needed, keep them under:
 - Mention generated or derived files and how they are produced when the repository makes that clear.
 - Mention conventions only when they are visible in the repository.
 - Route vague work to `common-issue-spec` and code-change work to `common-dev-pattern`.
+- If the project has a CLI, package version, public API, release workflow, or user-visible behavior, check for `CHANGELOG.md`.
+  - If it exists, record in `AGENTS.md` that user-visible CLI/API behavior changes, package version changes, and release-note work should use `common-project-changelog`.
+  - If it is missing, create a Keep a Changelog style `CHANGELOG.md` template or explicitly recommend creating one before feature work continues.
 - Do not include secrets, tokens, private URLs beyond what already exists in committed project files.
