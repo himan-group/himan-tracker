@@ -76,6 +76,44 @@ describe("ingestEvents", () => {
       await rm(homeDir, { recursive: true, force: true });
     }
   });
+
+  it("imports all daily JSONL shards from an events directory", async () => {
+    const homeDir = await mkdtemp(path.join(tmpdir(), "himan-ingest-test-"));
+
+    try {
+      const eventsDir = path.join(homeDir, "events");
+      const sqlitePath = path.join(homeDir, "himan.sqlite");
+      const [firstEvent, secondEvent, thirdEvent] = createFixtureEvents();
+      const nextDayEvent: NormalizedEvent = {
+        ...firstEvent,
+        event_id: "evt_turn_002",
+        occurred_at: "2026-05-13T12:00:00.000Z",
+        session_id: "s_002",
+        turn_id: "t_002",
+      };
+
+      await appendJsonlRecord(path.join(eventsDir, "2026-05-12.jsonl"), firstEvent);
+      await appendJsonlRecord(path.join(eventsDir, "2026-05-12.jsonl"), secondEvent);
+      await appendJsonlRecord(path.join(eventsDir, "2026-05-12.jsonl"), thirdEvent);
+      await appendJsonlRecord(path.join(eventsDir, "2026-05-13.jsonl"), nextDayEvent);
+
+      const result = await ingestEvents({
+        sqlitePath,
+        eventsDir,
+        now: () => new Date("2026-05-13T13:00:00.000Z"),
+      });
+
+      assert.deepEqual(result.event_files, [
+        path.join(eventsDir, "2026-05-12.jsonl"),
+        path.join(eventsDir, "2026-05-13.jsonl"),
+      ]);
+      assert.equal(result.events_read, 4);
+      assert.equal(result.events_inserted, 4);
+      assert.deepEqual(result.affected_dates, ["2026-05-12", "2026-05-13"]);
+    } finally {
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
 });
 
 function createFixtureEvents(): NormalizedEvent[] {

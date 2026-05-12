@@ -1,7 +1,6 @@
 import { access, constants } from "node:fs/promises";
 
 import {
-  ensureJsonlFile,
   ensureTrackerDirectories,
   resolveTrackerPaths,
 } from "../../config/paths.js";
@@ -54,14 +53,13 @@ export async function runDoctor(): Promise<DoctorResult> {
     lines.push(formatCheck("fail", "config", getErrorMessage(error)));
   }
 
-  for (const [label, filePath] of [
-    ["events log", paths.eventsPath],
-    ["errors log", paths.errorsPath],
+  for (const [label, directoryPath] of [
+    ["events directory", paths.eventsDir],
+    ["errors directory", paths.errorsDir],
   ] as const) {
     try {
-      await ensureJsonlFile(filePath);
-      await access(filePath, constants.R_OK | constants.W_OK);
-      lines.push(formatCheck("ok", label, filePath));
+      await access(directoryPath, constants.R_OK | constants.W_OK);
+      lines.push(formatCheck("ok", label, directoryPath));
     } catch (error) {
       ok = false;
       lines.push(formatCheck("fail", label, getErrorMessage(error)));

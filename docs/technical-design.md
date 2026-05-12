@@ -35,7 +35,7 @@ HIMAN_TRACKER_HOME=/custom/path
 
 MVP 采用两层存储：
 
-- `events.jsonl`：append-only 原始事件日志，便于调试、回放和重新聚合。
+- `events/YYYY-MM-DD.jsonl`：按天分片的 append-only 原始事件日志，便于调试、回放和重新聚合。
 - `himan.sqlite`：聚合查询数据库，服务 CLI 报表。
 
 JSONL 是事实源。SQLite 中的数据可以通过 JSONL 重新生成，因此聚合逻辑应设计为可重放、幂等。
@@ -92,7 +92,7 @@ hook collector 必须 fail-open：
 建议错误日志路径：
 
 ```text
-~/.himan-tracker/errors.jsonl
+~/.himan-tracker/errors/YYYY-MM-DD.jsonl
 ```
 
 ## 3. 推荐工程结构
@@ -301,8 +301,10 @@ type AgentAdapter = {
 ```text
 ~/.himan-tracker/
   config.json
-  events.jsonl
-  errors.jsonl
+  events/
+    YYYY-MM-DD.jsonl
+  errors/
+    YYYY-MM-DD.jsonl
   himan.sqlite
   locks/
 ```
@@ -416,7 +418,7 @@ type AgentAdapter = {
 ### 7.1 入库流程
 
 ```text
-read events.jsonl
+read events/*.jsonl
   |
   v
 validate schema
@@ -545,7 +547,7 @@ himan-tracker ingest
 
 用途：
 
-- 从 `events.jsonl` 重建或更新 SQLite。
+- 默认从 `events/*.jsonl` 重建或更新 SQLite。
 - 支持 `--rebuild` 删除并重建投影数据库。
 - 支持 `--from <path>` 从指定 JSONL 导入。
 
@@ -558,7 +560,7 @@ himan-tracker doctor
 检查项：
 
 - 数据目录是否存在。
-- JSONL 是否可写。
+- JSONL 分片目录是否可写。
 - SQLite 是否可打开。
 - hook 配置是否可用。
 - schema version 是否兼容。
@@ -640,7 +642,7 @@ MVP 至少需要以下测试：
 验收标准：
 
 - `himan-tracker doctor` 可以检查本地数据目录。
-- 手工构造事件可以写入 `events.jsonl`。
+- 手工构造事件可以写入 `events/YYYY-MM-DD.jsonl`。
 
 ### Phase 2：事件导入与聚合
 

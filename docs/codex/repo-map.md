@@ -141,7 +141,7 @@ Normalization rules:
 Collector rules:
 
 - `appendJsonlRecord` writes one compact JSON object per line and creates parent directories.
-- `collectAdapterEvent` normalizes adapter events, appends accepted events to `events.jsonl`, writes sanitized collector errors to `errors.jsonl`, and fails open so agent workflows are not blocked.
+- `collectAdapterEvent` normalizes adapter events, appends accepted events to `events/YYYY-MM-DD.jsonl`, writes sanitized collector errors to `errors/YYYY-MM-DD.jsonl`, and fails open so agent workflows are not blocked.
 
 SQLite and ingest rules:
 
@@ -178,8 +178,8 @@ Default local paths:
 
 ```text
 ~/.himan-tracker/config.json
-~/.himan-tracker/events.jsonl
-~/.himan-tracker/errors.jsonl
+~/.himan-tracker/events/YYYY-MM-DD.jsonl
+~/.himan-tracker/errors/YYYY-MM-DD.jsonl
 ~/.himan-tracker/himan.sqlite
 ~/.himan-tracker/locks/
 ```

@@ -63,7 +63,7 @@ himan-tracker unused --since 30d
 
 - 默认使用 `~/.himan-tracker`。
 - 支持 `HIMAN_TRACKER_HOME` 覆盖。
-- 创建 `config.json`、`events.jsonl`、`errors.jsonl`、`himan.sqlite` 所需目录。
+- 创建 `config.json`、`events/`、`errors/`、`himan.sqlite` 所需目录。
 - 维护本地 salt，用于 repo path hash。
 
 ### 默认配置
@@ -107,7 +107,7 @@ himan-tracker unused --since 30d
 ### 验收标准
 
 - Codex 和 Claude Code adapter 输出相同事件类型。
-- 非法事件不会写入 `events.jsonl`，错误写入 `errors.jsonl`。
+- 非法事件不会写入 `events/YYYY-MM-DD.jsonl`，错误写入 `errors/YYYY-MM-DD.jsonl`。
 - 重复输入相同稳定字段时生成相同 `event_id`。
 
 ## MVP-F04：JSONL 原始事件日志
@@ -117,7 +117,7 @@ himan-tracker unused --since 30d
 - 实现 append-only JSONL writer。
 - 每条事件一行 JSON。
 - 写入失败时 fail-open，不影响 agent 执行。
-- 记录 collector 错误到 `errors.jsonl`。
+- 记录 collector 错误到 `errors/YYYY-MM-DD.jsonl`。
 
 ### 验收标准
 

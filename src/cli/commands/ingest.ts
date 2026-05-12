@@ -1,11 +1,7 @@
 import path from "node:path";
 
 import { ingestEvents, type IngestEventsResult } from "../../aggregator/aggregateEvents.js";
-import {
-  ensureJsonlFile,
-  ensureTrackerDirectories,
-  resolveTrackerPaths,
-} from "../../config/paths.js";
+import { ensureTrackerDirectories, resolveTrackerPaths } from "../../config/paths.js";
 
 export type IngestCommandOptions = {
   from?: string;
@@ -19,17 +15,15 @@ export type IngestCommandResult = {
 
 export async function runIngest(options: IngestCommandOptions = {}): Promise<IngestCommandResult> {
   const paths = resolveTrackerPaths();
-  const eventsPath = options.from ? path.resolve(options.from) : paths.eventsPath;
+  const eventsPath = options.from ? path.resolve(options.from) : undefined;
 
   try {
     await ensureTrackerDirectories(paths);
-    if (!options.from) {
-      await ensureJsonlFile(eventsPath);
-    }
+    const ingestSource = eventsPath ? { eventsPath } : { eventsDir: paths.eventsDir };
 
     const result = await ingestEvents({
       sqlitePath: paths.sqlitePath,
-      eventsPath,
+      ...ingestSource,
       rebuild: options.rebuild ?? false,
     });
 
@@ -55,6 +49,7 @@ function formatIngestResult(result: IngestEventsResult, rebuild: boolean): strin
     `Migrations applied: ${
       result.applied_migrations.length > 0 ? result.applied_migrations.join(", ") : "none"
     }`,
+    `Event files: ${result.event_files.length}`,
     `Events read: ${result.events_read}`,
     `Events inserted: ${result.events_inserted}`,
     `Events skipped: ${result.events_skipped}`,

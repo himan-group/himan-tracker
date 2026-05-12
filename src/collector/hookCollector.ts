@@ -1,5 +1,9 @@
 import type { TrackerPaths } from "../config/paths.js";
-import { resolveTrackerPaths } from "../config/paths.js";
+import {
+  resolveDailyErrorsPath,
+  resolveDailyEventsPath,
+  resolveTrackerPaths,
+} from "../config/paths.js";
 import { readOrCreateUserConfig } from "../config/userConfig.js";
 import { normalizeEvent } from "../normalizer/normalizeEvent.js";
 import type { UserConfig } from "../types/config.js";
@@ -44,7 +48,10 @@ export async function collectAdapterEvent(
   try {
     const config = options.config ?? (await readOrCreateUserConfig(paths));
     const normalizedEvent = normalizeEvent(event, config);
-    await appendJsonlRecord(paths.eventsPath, normalizedEvent);
+    await appendJsonlRecord(
+      resolveDailyEventsPath(paths, normalizedEvent.occurred_at),
+      normalizedEvent,
+    );
 
     return {
       ok: true,
@@ -53,7 +60,10 @@ export async function collectAdapterEvent(
     };
   } catch (error) {
     const errorRecord = createCollectorErrorRecord(event, error, now());
-    const errorLogged = await appendCollectorError(paths.errorsPath, errorRecord);
+    const errorLogged = await appendCollectorError(
+      resolveDailyErrorsPath(paths, errorRecord.occurred_at),
+      errorRecord,
+    );
 
     return {
       ok: true,

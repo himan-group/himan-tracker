@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Documented the current Codex integration workflow in README.
+- Changed local JSONL storage to daily `events/` and `errors/` shards, with `ingest` scanning event shards by default.
 
 ## [0.0.1] - 2026-05-12
 

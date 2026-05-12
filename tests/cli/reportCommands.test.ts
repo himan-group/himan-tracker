@@ -13,6 +13,7 @@ import { runSummary } from "../../src/cli/commands/summary.js";
 import { runUnused } from "../../src/cli/commands/unused.js";
 import {
   ensureTrackerDirectories,
+  resolveDailyEventsPath,
   resolveTrackerPaths,
   type TrackerPaths,
 } from "../../src/config/paths.js";
@@ -91,12 +92,12 @@ async function createIngestedFixture(): Promise<{
   await writeUserConfig(paths, createTestConfig());
 
   for (const event of events) {
-    await appendJsonlRecord(paths.eventsPath, event);
+    await appendJsonlRecord(resolveDailyEventsPath(paths, event.occurred_at), event);
   }
 
   await ingestEvents({
     sqlitePath: paths.sqlitePath,
-    eventsPath: paths.eventsPath,
+    eventsDir: paths.eventsDir,
     now: () => now,
   });
 

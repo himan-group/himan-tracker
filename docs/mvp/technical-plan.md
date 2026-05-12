@@ -56,14 +56,14 @@ Agent Hook Payload
 
 失败策略：
 
-- Adapter parse 失败：写 `errors.jsonl`，返回成功 exit code，避免阻塞 agent。
-- Normalizer 校验失败：写 `errors.jsonl`，跳过该事件。
+- Adapter parse 失败：写 `errors/YYYY-MM-DD.jsonl`，返回成功 exit code，避免阻塞 agent。
+- Normalizer 校验失败：写 `errors/YYYY-MM-DD.jsonl`，跳过该事件。
 - JSONL 写入失败：写 stderr 或 fallback error record，不影响 agent 流程。
 
 ### 3.2 查询路径
 
 ```text
-events.jsonl
+events/*.jsonl
   -> himan-tracker ingest
   -> SQLite base tables
   -> daily stats tables
@@ -656,7 +656,7 @@ MVP 完成需要同时满足：
 
 - `himan-tracker doctor` 可运行并报告本地状态。
 - Codex 和 Claude Code 的 fixture 可以生成 normalized events。
-- `events.jsonl` 可以作为事实源重建 SQLite。
+- `events/*.jsonl` 可以作为事实源重建 SQLite。
 - `summary`、`agents`、`capabilities`、`unused` 可以基于 fixture 数据输出报表。
 - 重复 ingest 不产生重复统计。
 - 默认事件不包含 prompt、response、代码内容或明文 repo path。

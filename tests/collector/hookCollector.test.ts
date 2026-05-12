@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 
 import { collectAdapterEvent } from "../../src/collector/hookCollector.js";
-import { resolveTrackerPaths, type TrackerPaths } from "../../src/config/paths.js";
+import {
+  resolveDailyErrorsPath,
+  resolveDailyEventsPath,
+  resolveTrackerPaths,
+  type TrackerPaths,
+} from "../../src/config/paths.js";
 import type { UserConfig } from "../../src/types/config.js";
 import type { AdapterEvent } from "../../src/types/events.js";
 
@@ -52,7 +57,10 @@ describe("collectAdapterEvent", () => {
       assert.equal(result.ok, true);
       assert.equal(result.accepted, true);
 
-      const rawEvents = await readFile(paths.eventsPath, "utf8");
+      const rawEvents = await readFile(
+        resolveDailyEventsPath(paths, "2026-05-12T03:45:12.000Z"),
+        "utf8",
+      );
       assert.equal(rawEvents.includes("/Users/example/private-project"), false);
       assert.equal(rawEvents.includes("git status --short"), false);
 
@@ -92,7 +100,10 @@ describe("collectAdapterEvent", () => {
       assert.equal(result.accepted, false);
       assert.equal(result.error_logged, true);
 
-      const rawErrors = await readFile(paths.errorsPath, "utf8");
+      const rawErrors = await readFile(
+        resolveDailyErrorsPath(paths, "2026-05-12T04:00:00.000Z"),
+        "utf8",
+      );
       assert.equal(rawErrors.includes("/Users/example/private-project"), false);
       assert.equal(rawErrors.includes("do not store this prompt"), false);
       assert.equal(rawErrors.includes("do not store this response"), false);
@@ -117,10 +128,7 @@ describe("collectAdapterEvent", () => {
 
   it("does not throw when the event log cannot be written", async () => {
     const { homeDir, paths } = await createTempPaths();
-    const unwritableEventsPath: TrackerPaths = {
-      ...paths,
-      eventsPath: homeDir,
-    };
+    await writeFile(paths.eventsDir, "not a directory", "utf8");
 
     try {
       const result = await collectAdapterEvent(
@@ -136,7 +144,7 @@ describe("collectAdapterEvent", () => {
           duration_ms: 42_000,
         },
         {
-          paths: unwritableEventsPath,
+          paths,
           config,
           now: () => new Date("2026-05-12T04:05:00.000Z"),
         },
@@ -146,7 +154,10 @@ describe("collectAdapterEvent", () => {
       assert.equal(result.accepted, false);
       assert.equal(result.error_logged, true);
 
-      const rawErrors = await readFile(paths.errorsPath, "utf8");
+      const rawErrors = await readFile(
+        resolveDailyErrorsPath(paths, "2026-05-12T04:05:00.000Z"),
+        "utf8",
+      );
       const [errorRecord] = rawErrors.trimEnd().split("\n").map((line) => JSON.parse(line));
 
       assert.equal(errorRecord.source, "collector");

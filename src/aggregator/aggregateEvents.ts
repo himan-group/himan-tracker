@@ -1,4 +1,5 @@
-import { readFile, rm } from "node:fs/promises";
+import { readdir, readFile, rm } from "node:fs/promises";
+import path from "node:path";
 
 import { validateNormalizedEvent } from "../normalizer/eventSchema.js";
 import { initializeTrackerDatabase, type SqliteDatabase } from "../storage/sqlite.js";
@@ -12,7 +13,8 @@ import { recomputeDailyStats, toLocalDate } from "./dailyStats.js";
 
 export type IngestEventsOptions = {
   sqlitePath: string;
-  eventsPath: string;
+  eventsPath?: string;
+  eventsDir?: string;
   rebuild?: boolean;
   now?: () => Date;
 };
@@ -20,6 +22,7 @@ export type IngestEventsOptions = {
 export type IngestEventsResult = {
   sqlite_path: string;
   events_path: string;
+  event_files: string[];
   events_read: number;
   events_inserted: number;
   events_skipped: number;
@@ -32,7 +35,8 @@ export async function ingestEvents(options: IngestEventsOptions): Promise<Ingest
     await removeSqliteProjection(options.sqlitePath);
   }
 
-  const events = await readJsonlEvents(options.eventsPath);
+  const eventFiles = await resolveEventFiles(options);
+  const events = await readJsonlEvents(eventFiles);
   const { db, appliedMigrations } = initializeTrackerDatabase(options.sqlitePath);
 
   try {
@@ -40,7 +44,8 @@ export async function ingestEvents(options: IngestEventsOptions): Promise<Ingest
 
     return {
       sqlite_path: options.sqlitePath,
-      events_path: options.eventsPath,
+      events_path: options.eventsPath ?? options.eventsDir ?? "",
+      event_files: eventFiles,
       events_read: events.length,
       events_inserted: result.inserted,
       events_skipped: result.skipped,
@@ -60,19 +65,49 @@ async function removeSqliteProjection(sqlitePath: string): Promise<void> {
   ]);
 }
 
-async function readJsonlEvents(eventsPath: string): Promise<NormalizedEvent[]> {
-  const rawEvents = await readFile(eventsPath, "utf8");
-  const events: NormalizedEvent[] = [];
+async function resolveEventFiles(options: IngestEventsOptions): Promise<string[]> {
+  if (options.eventsPath) {
+    return [options.eventsPath];
+  }
 
-  for (const [index, line] of rawEvents.split(/\r?\n/).entries()) {
-    if (line.trim().length === 0) {
-      continue;
+  if (!options.eventsDir) {
+    throw new Error("Expected eventsPath or eventsDir");
+  }
+
+  try {
+    const eventsDir = options.eventsDir;
+    const entries = await readdir(eventsDir, { withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
+      .map((entry) => path.join(eventsDir, entry.name))
+      .sort();
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return [];
     }
 
-    try {
-      events.push(validateNormalizedEvent(JSON.parse(line)));
-    } catch (error) {
-      throw new Error(`Invalid JSONL event at line ${index + 1}: ${getErrorMessage(error)}`);
+    throw error;
+  }
+}
+
+async function readJsonlEvents(eventsPaths: string[]): Promise<NormalizedEvent[]> {
+  const events: NormalizedEvent[] = [];
+
+  for (const eventsPath of eventsPaths) {
+    const rawEvents = await readFile(eventsPath, "utf8");
+
+    for (const [index, line] of rawEvents.split(/\r?\n/).entries()) {
+      if (line.trim().length === 0) {
+        continue;
+      }
+
+      try {
+        events.push(validateNormalizedEvent(JSON.parse(line)));
+      } catch (error) {
+        throw new Error(
+          `Invalid JSONL event at ${eventsPath}:${index + 1}: ${getErrorMessage(error)}`,
+        );
+      }
     }
   }
 

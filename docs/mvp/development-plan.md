@@ -173,8 +173,8 @@ pnpm test
 
 - [x] 实现一行一 JSON 的 append writer。
 - [x] 写入前确保父目录存在。
-- [x] 实现 `events.jsonl` writer。
-- [x] 实现 `errors.jsonl` writer。
+- [x] 实现 `events/YYYY-MM-DD.jsonl` writer。
+- [x] 实现 `errors/YYYY-MM-DD.jsonl` writer。
 - [x] 实现 collector fail-open 行为。
 - [x] 增加 JSONL writer tests。
 - [x] 增加 privacy tests。
@@ -366,7 +366,7 @@ pnpm test
 
 - [x] `himan-tracker doctor` 可运行并报告本地状态。
 - [x] Codex 和 Claude Code fixture 可以生成 normalized events。
-- [x] `events.jsonl` 可以作为事实源重建 SQLite。
+- [x] `events/*.jsonl` 可以作为事实源重建 SQLite。
 - [x] `summary`、`agents`、`capabilities`、`unused` 可以基于 fixture 数据输出报表。
 - [x] 重复 ingest 不产生重复统计。
 - [x] 默认事件不包含 prompt、response、代码内容或明文 repo path。

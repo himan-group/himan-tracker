@@ -175,12 +175,12 @@ CLI Report
 ### Raw Events
 
 ```text
-~/.himan-tracker/events.jsonl
+~/.himan-tracker/events/YYYY-MM-DD.jsonl
 ```
 
 Purpose:
 
-- Raw event logging
+- Daily sharded raw event logging
 - Replayable event source
 - Easy debugging
 - Portable analytics source

@@ -17,7 +17,7 @@
 | --- | --- |
 | 本地配置和数据目录 | 已实现，默认使用 `~/.himan-tracker`，支持 `HIMAN_TRACKER_HOME` 覆盖 |
 | 隐私默认值 | 已实现，默认不采集内容，仓库路径默认 hash，shell command 默认不保存参数 |
-| JSONL 事件日志 | 已实现，`events.jsonl` 保存 normalized events，`errors.jsonl` 保存采集错误 |
+| JSONL 事件日志 | 已实现，`events/YYYY-MM-DD.jsonl` 保存 normalized events，`errors/YYYY-MM-DD.jsonl` 保存采集错误 |
 | SQLite 投影 | 已实现，`ingest` 可把 JSONL 导入 `himan.sqlite` 并重算每日统计 |
 | CLI 报表 | 已实现 `summary`、`agents`、`capabilities`、`unused` |
 | Agent 事件解析 | 已实现 Codex / Claude Code 基础事件输入解析 |
@@ -28,7 +28,8 @@
 
 `himan-tracker` 使用两层本地数据：
 
-- `events.jsonl`：append-only 原始事件日志，一行一个 normalized event，适合调试、回放和重新聚合。
+- `events/YYYY-MM-DD.jsonl`：按天分片的 append-only 原始事件日志，一行一个 normalized event，适合调试、回放和重新聚合。
+- `errors/YYYY-MM-DD.jsonl`：按天分片的 collector 错误日志。
 - `himan.sqlite`：由 JSONL 投影出的本地查询数据库，服务 CLI 报表。
 
 事件分为三类：
@@ -62,9 +63,15 @@ himan-tracker
 himan-tracker doctor
 ```
 
-`doctor` 会创建或检查数据目录、`config.json`、`events.jsonl`、`errors.jsonl` 和 `himan.sqlite`。当前阶段看到 `hooks: not configured yet` 是预期结果，因为一键 hook 安装还没有实现。
+`doctor` 会创建或检查数据目录、`config.json`、`events/`、`errors/` 和 `himan.sqlite`。当前阶段看到 `hooks: not configured yet` 是预期结果，因为一键 hook 安装还没有实现。
 
 准备 normalized JSONL 事件后，导入 SQLite 投影：
+
+```bash
+himan-tracker ingest
+```
+
+默认会扫描 tracker home 下的 `events/*.jsonl`。如果事件文件在其他位置，可以指定单个 JSONL 文件：
 
 ```bash
 himan-tracker ingest --from ./events.jsonl
@@ -160,7 +167,7 @@ himan-tracker doctor
 
 - 数据目录和锁目录是否可创建。
 - `config.json` 是否存在，不存在则创建默认配置。
-- `events.jsonl` 和 `errors.jsonl` 是否可读写。
+- `events/` 和 `errors/` 分片目录是否可读写。
 - SQLite 数据库是否可初始化并应用 migration。
 - hook 是否配置。当前 MVP 会显示 warning。
 
@@ -172,7 +179,7 @@ himan-tracker doctor
 himan-tracker ingest
 ```
 
-默认读取当前 tracker home 下的 `events.jsonl`。也可以指定输入文件：
+默认读取当前 tracker home 下的 `events/*.jsonl`。也可以指定输入文件：
 
 ```bash
 himan-tracker ingest --from ./events.jsonl
@@ -251,8 +258,8 @@ himan-tracker unused --since 30d
 
 ```text
 ~/.himan-tracker/config.json
-~/.himan-tracker/events.jsonl
-~/.himan-tracker/errors.jsonl
+~/.himan-tracker/events/YYYY-MM-DD.jsonl
+~/.himan-tracker/errors/YYYY-MM-DD.jsonl
 ~/.himan-tracker/himan.sqlite
 ~/.himan-tracker/locks/
 ```
@@ -319,11 +326,11 @@ HIMAN_TRACKER_HOME=/custom/path himan-tracker doctor
 
 ### 为什么 `summary` 显示没有数据？
 
-报表读取的是 SQLite 投影。先确认 `events.jsonl` 中有合法 normalized events，然后运行 `himan-tracker ingest` 或 `himan-tracker ingest --from ./events.jsonl`。
+报表读取的是 SQLite 投影。先确认 `events/*.jsonl` 中有合法 normalized events，然后运行 `himan-tracker ingest`；如果事件在外部文件中，运行 `himan-tracker ingest --from ./events.jsonl`。
 
 ### JSONL 和 SQLite 分别有什么用？
 
-JSONL 是事实源，保留可回放的原始 normalized events。SQLite 是查询投影，用来快速生成报表。需要重算时可以用 `ingest --rebuild` 从 JSONL 重建 SQLite。
+JSONL 是事实源，按天保存在 `events/YYYY-MM-DD.jsonl` 中，保留可回放的原始 normalized events。SQLite 是查询投影，用来快速生成报表。需要重算时可以用 `ingest --rebuild` 从 JSONL 分片重建 SQLite。
 
 ### token 归因一定准确吗？
 
