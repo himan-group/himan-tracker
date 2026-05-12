@@ -42,18 +42,22 @@
 | Step 2：配置、路径与事件契约 | 已完成 | 配置、事件类型、schema、normalizer、repo hash、capability classifier 已完成 |
 | Step 3：JSONL Collector | 已完成 | JSONL writer、fail-open collector、错误日志和隐私测试已完成 |
 | Step 4：SQLite 与 Ingest | 已完成 | SQLite schema、migration runner、幂等 ingest、`--from`、`--rebuild` 和 daily stats 已完成 |
-| Step 5：CLI 报表 | 未开始 | 仅有计划中的命令占位 |
+| Step 5：CLI 报表 | 已完成 | `summary`、`agents`、`capabilities`、`unused`、表格输出、筛选排序和空状态已完成 |
 | Step 6：Agent Adapter | 未开始 | 仅有 fixtures 目录占位 |
 | Step 7：测试与 MVP 收口 | 未开始 | 已有 Step 1/2 的局部测试，MVP 收口测试尚未开始 |
 
 最近验证：
 
 - `pnpm run typecheck`：通过。
-- `pnpm test`：通过，24 个测试全部通过。
+- `pnpm test`：通过，28 个测试全部通过。
 - `pnpm run build`：通过。
 - `pnpm cli -- --help`：通过。
 - `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-ingest-check-3ac4f99 pnpm cli -- doctor`：通过，SQLite 可初始化并应用 `001_initial` migration，hooks 仍按预期显示未配置 warning。
 - `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-ingest-check-3ac4f99 pnpm cli -- ingest --rebuild`：通过，空事件日志可重建 SQLite 投影。
+- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-report-check-9b56998 pnpm cli -- summary --since 7d`：通过，空数据库输出明确空状态。
+- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-report-check-9b56998 pnpm cli -- agents --date 2026-05-12`：通过，空数据库输出明确空状态。
+- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-report-check-9b56998 pnpm cli -- capabilities --since 30d`：通过，空数据库输出明确空状态。
+- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-report-check-9b56998 pnpm cli -- unused --since 30d`：通过，空数据库输出明确空状态。
 
 ## Step 1：工程骨架与 CLI 基础
 
@@ -257,23 +261,23 @@ pnpm test
 
 任务清单：
 
-- [ ] 实现 `summary --since 7d`。
-- [ ] 实现 `agents --date YYYY-MM-DD`。
-- [ ] 实现 `capabilities --since 30d`。
-- [ ] 支持 `capabilities --sort`。
-- [ ] 支持 `capabilities --type`。
-- [ ] 支持 `capabilities --agent`。
-- [ ] 实现 `unused --since 30d`。
-- [ ] 实现空数据库输出。
-- [ ] 增加 CLI snapshot tests。
+- [x] 实现 `summary --since 7d`。
+- [x] 实现 `agents --date YYYY-MM-DD`。
+- [x] 实现 `capabilities --since 30d`。
+- [x] 支持 `capabilities --sort`。
+- [x] 支持 `capabilities --type`。
+- [x] 支持 `capabilities --agent`。
+- [x] 实现 `unused --since 30d`。
+- [x] 实现空数据库输出。
+- [x] 增加 CLI snapshot tests。
 
 验收标准：
 
-- [ ] summary 显示 session、turn、token、latency、success rate 和 top capabilities。
-- [ ] agents 按 agent/model 聚合。
-- [ ] capabilities 支持排序和筛选。
-- [ ] unused 同时支持历史事件和 `known_capabilities`。
-- [ ] token 或耗时缺失时显示 `n/a`。
+- [x] summary 显示 session、turn、token、latency、success rate 和 top capabilities。
+- [x] agents 按 agent/model 聚合。
+- [x] capabilities 支持排序和筛选。
+- [x] unused 同时支持历史事件和 `known_capabilities`。
+- [x] token 或耗时缺失时显示 `n/a`。
 
 建议验证：
 

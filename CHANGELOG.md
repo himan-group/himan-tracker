@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file.
 - Added MVP development progress plan and initial normalizer/config test coverage.
 - Added append-only JSONL event collection with fail-open error logging and privacy tests.
 - Added SQLite schema migrations, idempotent JSONL ingest, daily stats aggregation, and `ingest --from/--rebuild`.
+- Added `summary`, `agents`, `capabilities`, and `unused` CLI reports with table output, filters, sorting, empty states, and `n/a` formatting.
 
 ### Changed
 

@@ -7,8 +7,8 @@
 Current implementation status:
 
 - CLI skeleton and `doctor` command are implemented.
-- Config/path resolution, user config defaults, normalized event contracts, schema validation, repo path hashing, token normalization, capability classification, JSONL collection, SQLite migrations, JSONL ingest, and daily stats aggregation are implemented.
-- CLI reports and agent adapters are planned but not implemented.
+- Config/path resolution, user config defaults, normalized event contracts, schema validation, repo path hashing, token normalization, capability classification, JSONL collection, SQLite migrations, JSONL ingest, daily stats aggregation, and CLI reports are implemented.
+- Agent adapters are planned but not implemented.
 
 ## Commands
 
@@ -21,6 +21,10 @@ pnpm test
 pnpm cli -- --help
 pnpm cli -- doctor
 pnpm cli -- ingest
+pnpm cli -- summary --since 7d
+pnpm cli -- agents --date YYYY-MM-DD
+pnpm cli -- capabilities --since 30d
+pnpm cli -- unused --since 30d
 ```
 
 Notes:
@@ -35,8 +39,13 @@ Notes:
 src/
   cli/
     index.ts
+    commands/agents.ts
+    commands/capabilities.ts
     commands/doctor.ts
     commands/ingest.ts
+    commands/reportContext.ts
+    commands/summary.ts
+    commands/unused.ts
   aggregator/
     aggregateEvents.ts
     dailyStats.ts
@@ -56,15 +65,23 @@ src/
     events.ts
   adapters/
   reports/
+    agentReport.ts
+    capabilityReport.ts
+    dateRange.ts
+    formatTable.ts
+    summaryReport.ts
+    unusedReport.ts
   storage/
     sqlite.ts
     migrations/
       001_initial.sql
 tests/
   aggregator/
+  cli/
   collector/
   config/
   normalizer/
+  reports/
   storage/
 docs/
   mvp/
@@ -80,13 +97,12 @@ Empty or not-yet-implemented domains currently remain as `.gitkeep` directories.
 - Implemented commands:
   - `doctor` -> `src/cli/commands/doctor.ts`
   - `ingest` -> `src/cli/commands/ingest.ts`
-- Planned placeholder commands:
   - `summary`
   - `agents`
   - `capabilities`
   - `unused`
 
-`src/cli/index.ts` currently reports planned report commands as not implemented and exits with non-zero status for those commands.
+`src/cli/index.ts` currently routes all MVP commands. Agent adapters remain the main unimplemented MVP area.
 
 ## Data And Contracts
 
@@ -118,6 +134,15 @@ SQLite and ingest rules:
 - `src/storage/sqlite.ts` initializes `schema_migrations`, applies `001_initial`, and opens `better-sqlite3` with WAL and foreign keys enabled.
 - `src/aggregator/aggregateEvents.ts` imports normalized JSONL, skips duplicate `event_id` values through `ingested_events`, supports rebuild by removing projection database files, and recomputes affected daily stats.
 - `src/aggregator/dailyStats.ts` recomputes `daily_agent_stats` and `daily_capability_stats` by local date.
+
+Report rules:
+
+- Report commands read SQLite through `src/cli/commands/reportContext.ts`; they initialize migrations if needed and render empty states when no data exists.
+- `summary` supports `--since`, shows overall usage, top agents, and top capabilities.
+- `agents` supports `--date` and groups by agent/model.
+- `capabilities` supports `--since`, `--sort`, `--type`, and `--agent`.
+- `unused` combines historical capability stats with `config.known_capabilities`.
+- Missing token or duration values are rendered as `n/a`.
 
 ## Config And Local Data
 
@@ -155,12 +180,14 @@ Default privacy config:
 Current test files:
 
 - `tests/aggregator/aggregateEvents.test.ts`
+- `tests/cli/reportCommands.test.ts`
 - `tests/collector/hookCollector.test.ts`
 - `tests/collector/jsonlWriter.test.ts`
 - `tests/config/paths.test.ts`
 - `tests/config/userConfig.test.ts`
 - `tests/normalizer/normalizeEvent.test.ts`
 - `tests/normalizer/capabilityClassifier.test.ts`
+- `tests/reports/formatTable.test.ts`
 - `tests/storage/sqlite.test.ts`
 
 The test runner is Node's built-in test runner with `tsx`:

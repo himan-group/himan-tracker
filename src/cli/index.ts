@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 
+import { runAgents } from "./commands/agents.js";
+import { runCapabilities } from "./commands/capabilities.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runIngest } from "./commands/ingest.js";
+import { runSummary } from "./commands/summary.js";
+import { runUnused } from "./commands/unused.js";
 
 const VERSION = "0.0.0";
 
@@ -39,17 +43,67 @@ type IngestCommandOptions = {
   rebuild?: boolean;
 };
 
-for (const commandName of ["summary", "agents", "capabilities", "unused"]) {
-  program
-    .command(commandName)
-    .description(`${commandName} is planned for the MVP but is not implemented yet`)
-    .allowUnknownOption()
-    .allowExcessArguments()
-    .action(() => {
-      console.error(`Command '${commandName}' is planned for the MVP but is not implemented yet.`);
-      process.exitCode = 1;
-    });
-}
+program
+  .command("summary")
+  .description("Show usage summary for a date range")
+  .option("--since <period>", "Date range such as 7d, 4w, or 1m", "7d")
+  .action(async (options: SummaryCommandOptions) => {
+    const result = await runSummary(options);
+    console.log(result.lines.join("\n"));
+    process.exitCode = result.ok ? 0 : 1;
+  });
+
+type SummaryCommandOptions = {
+  since?: string;
+};
+
+program
+  .command("agents")
+  .description("Show agent and model usage for a date")
+  .option("--date <date>", "Report date in YYYY-MM-DD")
+  .action(async (options: AgentsCommandOptions) => {
+    const result = await runAgents(options);
+    console.log(result.lines.join("\n"));
+    process.exitCode = result.ok ? 0 : 1;
+  });
+
+type AgentsCommandOptions = {
+  date?: string;
+};
+
+program
+  .command("capabilities")
+  .description("Show capability usage for a date range")
+  .option("--since <period>", "Date range such as 7d, 4w, or 1m", "30d")
+  .option("--sort <field>", "Sort by invocations, tokens, duration, or failures", "tokens")
+  .option("--type <type>", "Filter by capability type")
+  .option("--agent <agent>", "Filter by agent")
+  .action(async (options: CapabilitiesCommandOptions) => {
+    const result = await runCapabilities(options);
+    console.log(result.lines.join("\n"));
+    process.exitCode = result.ok ? 0 : 1;
+  });
+
+type CapabilitiesCommandOptions = {
+  since?: string;
+  sort?: string;
+  type?: string;
+  agent?: string;
+};
+
+program
+  .command("unused")
+  .description("Show capability candidates unused in a date range")
+  .option("--since <period>", "Date range such as 7d, 4w, or 1m", "30d")
+  .action(async (options: UnusedCommandOptions) => {
+    const result = await runUnused(options);
+    console.log(result.lines.join("\n"));
+    process.exitCode = result.ok ? 0 : 1;
+  });
+
+type UnusedCommandOptions = {
+  since?: string;
+};
 
 program
   .parseAsync(normalizeArgv(process.argv))
