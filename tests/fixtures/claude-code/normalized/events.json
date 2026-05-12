@@ -1,0 +1,53 @@
+[
+  {
+    "schema_version": "1.0",
+    "event_id": "7b3907d8144a7ba20e87f4b320f46f428345e4547d18b9241428ad7bdf45f5e6",
+    "event_type": "capability_usage",
+    "occurred_at": "2026-05-12T12:02:00.000Z",
+    "agent": "claude-code",
+    "source": "claude-code-hook",
+    "session_id": "claude_s_001",
+    "turn_id": "claude_t_001",
+    "repo_hash": "39b33443d2c16eeb60c618b2ad2f92cd55afdb40b80f60a8fc9d00c03f0c1666",
+    "status": "failure",
+    "capability_type": "builtin_tool",
+    "capability_name": "Edit",
+    "duration_ms": 120,
+    "adopted": "unknown",
+    "attribution_confidence": "unknown",
+    "input_tokens": null,
+    "output_tokens": null,
+    "total_tokens": null
+  },
+  {
+    "schema_version": "1.0",
+    "event_id": "2cc07be9c57257e5d41617911ab39f901fdbf16dfa295dd8575a646aacdea06f",
+    "event_type": "turn_summary",
+    "occurred_at": "2026-05-12T12:02:08.000Z",
+    "agent": "claude-code",
+    "source": "claude-code-hook",
+    "session_id": "claude_s_001",
+    "turn_id": "claude_t_001",
+    "repo_hash": "39b33443d2c16eeb60c618b2ad2f92cd55afdb40b80f60a8fc9d00c03f0c1666",
+    "status": "success",
+    "model": "claude-sonnet-4",
+    "duration_ms": 8000,
+    "input_tokens": 80,
+    "output_tokens": 16,
+    "total_tokens": 96
+  },
+  {
+    "schema_version": "1.0",
+    "event_id": "7dd7f6173a4bc4d032eaa045c2004a08a30a6d4bcd4a6543aa13f3fe835359bd",
+    "event_type": "session_summary",
+    "occurred_at": "2026-05-12T12:02:09.000Z",
+    "agent": "claude-code",
+    "source": "claude-code-hook",
+    "session_id": "claude_s_001",
+    "turn_id": null,
+    "repo_hash": "39b33443d2c16eeb60c618b2ad2f92cd55afdb40b80f60a8fc9d00c03f0c1666",
+    "status": "success",
+    "turn_count": 1,
+    "duration_ms": 8000
+  }
+]

@@ -43,13 +43,13 @@
 | Step 3：JSONL Collector | 已完成 | JSONL writer、fail-open collector、错误日志和隐私测试已完成 |
 | Step 4：SQLite 与 Ingest | 已完成 | SQLite schema、migration runner、幂等 ingest、`--from`、`--rebuild` 和 daily stats 已完成 |
 | Step 5：CLI 报表 | 已完成 | `summary`、`agents`、`capabilities`、`unused`、表格输出、筛选排序和空状态已完成 |
-| Step 6：Agent Adapter | 未开始 | 仅有 fixtures 目录占位 |
+| Step 6：Agent Adapter | 已完成 | Codex/Claude Code 构造 fixture、adapter 解析和 normalized fixture 测试已完成 |
 | Step 7：测试与 MVP 收口 | 未开始 | 已有 Step 1/2 的局部测试，MVP 收口测试尚未开始 |
 
 最近验证：
 
 - `pnpm run typecheck`：通过。
-- `pnpm test`：通过，28 个测试全部通过。
+- `pnpm test`：通过，32 个测试全部通过。
 - `pnpm run build`：通过。
 - `pnpm cli -- --help`：通过。
 - `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-ingest-check-3ac4f99 pnpm cli -- doctor`：通过，SQLite 可初始化并应用 `001_initial` migration，hooks 仍按预期显示未配置 warning。
@@ -309,21 +309,21 @@ pnpm test
 
 任务清单：
 
-- [ ] 收集或构造 Codex raw fixture。
-- [ ] 定义 Codex normalized fixture。
-- [ ] 实现 Codex adapter。
-- [ ] 收集或构造 Claude Code raw fixture。
-- [ ] 定义 Claude Code normalized fixture。
-- [ ] 实现 Claude Code adapter。
-- [ ] 确认 adapter failure 不阻塞 agent。
-- [ ] 增加 adapter fixture tests。
+- [x] 收集或构造 Codex raw fixture。
+- [x] 定义 Codex normalized fixture。
+- [x] 实现 Codex adapter。
+- [x] 收集或构造 Claude Code raw fixture。
+- [x] 定义 Claude Code normalized fixture。
+- [x] 实现 Claude Code adapter。
+- [x] 确认 adapter failure 不阻塞 agent。
+- [x] 增加 adapter fixture tests。
 
 验收标准：
 
-- [ ] Codex fixture 可以产出稳定 normalized events。
-- [ ] Claude Code fixture 可以产出稳定 normalized events。
-- [ ] 未识别字段不会导致 adapter 崩溃。
-- [ ] adapter 不直接访问 SQLite。
+- [x] Codex fixture 可以产出稳定 normalized events。
+- [x] Claude Code fixture 可以产出稳定 normalized events。
+- [x] 未识别字段不会导致 adapter 崩溃。
+- [x] adapter 不直接访问 SQLite。
 
 建议验证：
 

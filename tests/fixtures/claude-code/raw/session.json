@@ -1,0 +1,42 @@
+{
+  "schema_version": "fixture-1",
+  "events": [
+    {
+      "type": "tool_result",
+      "occurred_at": "2026-05-12T12:02:00.000Z",
+      "session_id": "claude_s_001",
+      "turn_id": "claude_t_001",
+      "repo_path": "/Users/example/project",
+      "tool": {
+        "name": "Edit",
+        "capability_type": "builtin_tool"
+      },
+      "duration_ms": 120,
+      "status": "failure",
+      "attribution_confidence": "unknown"
+    },
+    {
+      "type": "message_stop",
+      "occurred_at": "2026-05-12T12:02:08.000Z",
+      "session_id": "claude_s_001",
+      "turn_id": "claude_t_001",
+      "repo_path": "/Users/example/project",
+      "model": "claude-sonnet-4",
+      "duration_ms": 8000,
+      "usage": {
+        "input_tokens": 80,
+        "output_tokens": 16
+      },
+      "status": "success"
+    },
+    {
+      "type": "session_end",
+      "occurred_at": "2026-05-12T12:02:09.000Z",
+      "session_id": "claude_s_001",
+      "repo_path": "/Users/example/project",
+      "turn_count": 1,
+      "duration_ms": 8000,
+      "status": "success"
+    }
+  ]
+}

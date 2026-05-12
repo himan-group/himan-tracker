@@ -7,8 +7,8 @@
 Current implementation status:
 
 - CLI skeleton and `doctor` command are implemented.
-- Config/path resolution, user config defaults, normalized event contracts, schema validation, repo path hashing, token normalization, capability classification, JSONL collection, SQLite migrations, JSONL ingest, daily stats aggregation, and CLI reports are implemented.
-- Agent adapters are planned but not implemented.
+- Config/path resolution, user config defaults, normalized event contracts, schema validation, repo path hashing, token normalization, capability classification, JSONL collection, SQLite migrations, JSONL ingest, daily stats aggregation, CLI reports, and fixture-first agent adapters are implemented.
+- Final MVP documentation and README/user-guide updates remain.
 
 ## Commands
 
@@ -64,6 +64,12 @@ src/
     config.ts
     events.ts
   adapters/
+    claude-code/
+      index.ts
+      fixtures/
+    codex/
+      index.ts
+      fixtures/
   reports/
     agentReport.ts
     capabilityReport.ts
@@ -76,12 +82,20 @@ src/
     migrations/
       001_initial.sql
 tests/
+  adapters/
   aggregator/
   cli/
   collector/
   config/
   normalizer/
   reports/
+  fixtures/
+    claude-code/
+      raw/
+      normalized/
+    codex/
+      raw/
+      normalized/
   storage/
 docs/
   mvp/
@@ -144,6 +158,13 @@ Report rules:
 - `unused` combines historical capability stats with `config.known_capabilities`.
 - Missing token or duration values are rendered as `n/a`.
 
+Adapter rules:
+
+- `src/adapters/codex/index.ts` parses constructed Codex hook fixtures for `UserPromptSubmit`, `PostToolUse`, and `Stop`.
+- `src/adapters/claude-code/index.ts` parses constructed Claude Code fixtures for `tool_result`/`tool_use`, `message_stop`, and `session_end`.
+- Adapters return `AdapterEvent[]` only; they do not write JSONL or SQLite.
+- Unknown hooks are ignored so adapter parsing fails open for unsupported future payloads.
+
 ## Config And Local Data
 
 Config types live in `src/types/config.ts`.
@@ -179,6 +200,8 @@ Default privacy config:
 
 Current test files:
 
+- `tests/adapters/claudeCode.test.ts`
+- `tests/adapters/codex.test.ts`
 - `tests/aggregator/aggregateEvents.test.ts`
 - `tests/cli/reportCommands.test.ts`
 - `tests/collector/hookCollector.test.ts`
