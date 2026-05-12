@@ -43,17 +43,21 @@
 | Step 3：JSONL Collector | 已完成 | JSONL writer、fail-open collector、错误日志和隐私测试已完成 |
 | Step 4：SQLite 与 Ingest | 已完成 | SQLite schema、migration runner、幂等 ingest、`--from`、`--rebuild` 和 daily stats 已完成 |
 | Step 5：CLI 报表 | 已完成 | `summary`、`agents`、`capabilities`、`unused`、表格输出、筛选排序和空状态已完成 |
-| Step 6：Agent Adapter | 已完成 | Codex/Claude Code 构造 fixture、adapter 解析和 normalized fixture 测试已完成 |
+| Step 6：Agent Adapter | 已完成 | Codex/Claude Code 构造 fixture、adapter 解析、Codex setup/collect 入口和 normalized fixture 测试已完成 |
 | Step 7：测试与 MVP 收口 | 已完成 | schema、JSONL、aggregator、CLI、privacy、adapter fixture 测试和 README/docs 同步已完成 |
 
 最近验证：
 
 - `pnpm run typecheck`：通过。
-- `pnpm test`：通过，34 个测试全部通过。
+- `pnpm test`：通过，46 个测试全部通过。
 - `pnpm run build`：通过。
 - `pnpm cli --help`：通过。
-- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-final-check-95ad7ef pnpm cli doctor`：通过，SQLite 可初始化并应用 `001_initial` migration，hooks 仍按预期显示未配置 warning。
+- `pnpm cli setup --dry-run`：通过，可预览项目级 Codex hooks 安装内容且不写入文件。
+- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-final-check-95ad7ef pnpm cli doctor`：通过，SQLite 可初始化并应用 `001_initial` migration，未安装 hooks 时显示 `codex hooks` warning。
 - `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-final-check-95ad7ef pnpm cli ingest --rebuild`：通过，空事件日志可重建 SQLite 投影。
+- `HIMAN_TRACKER_HOME=/tmp/himan-tracker-collect-check pnpm cli collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict`：通过，Codex payload 可入队并前台 drain 到日分片 JSONL。
+- `HIMAN_TRACKER_HOME=/tmp/himan-tracker-async-check pnpm cli collect --agent codex --from tests/fixtures/codex/raw/session.json`：通过，默认异步 worker 可 drain 队列且命令返回 0。
+- `HIMAN_TRACKER_HOME=/tmp/himan-tracker-quiet-check pnpm cli collect --agent codex --from tests/fixtures/codex/raw/session.json --quiet`：通过，hook 场景可关闭 collector summary 输出并异步写入事件。
 - `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-final-check-95ad7ef pnpm cli summary --since 7d`：通过，空数据库输出明确空状态。
 - `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-report-check-9b56998 pnpm cli agents --date 2026-05-12`：通过，空数据库输出明确空状态。
 - `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-report-check-9b56998 pnpm cli capabilities --since 30d`：通过，空数据库输出明确空状态。

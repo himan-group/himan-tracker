@@ -6,9 +6,9 @@
 
 Current implementation is early MVP:
 
-- CLI skeleton and `doctor` are implemented.
-- Config/path handling and normalized event contracts are implemented.
-- JSONL collector, SQLite ingestion, report commands, and agent adapters are still planned.
+- CLI skeleton, `doctor`, `collect`, `ingest`, and report commands are implemented.
+- Config/path handling, normalized event contracts, JSONL collection, SQLite ingestion, and agent adapters are implemented.
+- `collect --agent codex` is the current Codex data entry point; Claude Code collection remains future work.
 
 ## Commands
 
@@ -20,12 +20,20 @@ pnpm run typecheck
 pnpm test
 pnpm cli --help
 pnpm cli doctor
+pnpm cli setup --dry-run
+pnpm cli collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
 ```
 
 When running `doctor`, prefer a temp data home:
 
 ```bash
 HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli doctor
+```
+
+When validating `collect`, prefer a temp data home and `--sync --strict` for deterministic foreground processing:
+
+```bash
+HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
 ```
 
 ## Architecture
@@ -36,10 +44,7 @@ Current source layout:
 - `src/config/`: tracker data paths and user config defaults.
 - `src/types/`: shared TypeScript contracts.
 - `src/normalizer/`: adapter event to normalized event conversion, zod schema validation, privacy helpers, and capability classification.
-
-Planned source areas:
-
-- `src/collector/`: JSONL event/error writers.
+- `src/collector/`: JSONL event/error writers and async collect queue.
 - `src/storage/`: SQLite connection and migrations.
 - `src/aggregator/`: JSONL-to-SQLite projection and daily stats.
 - `src/reports/`: report queries and formatting.
@@ -52,6 +57,7 @@ Follow `docs/technical-design.md` and `docs/mvp/development-plan.md` for expecte
 - Read nearby files before editing and follow existing TypeScript style.
 - Keep CLI orchestration thin; put behavior in command modules and shared helpers.
 - Keep adapter parsing separate from normalizer, collector, storage, and reports.
+- Keep `collect` hook-safe: default behavior must not return non-zero or block Codex when collection fails; use `--quiet` in hooks and `--strict` only for manual validation.
 - Do not edit generated `dist/` output directly.
 - Use `.gitkeep` only for empty directories that need to stay tracked.
 - Preserve existing user changes; do not reset, clean, or discard files unless explicitly asked.
@@ -98,7 +104,9 @@ For CLI behavior changes, also run a smoke command such as:
 
 ```bash
 pnpm cli --help
+pnpm cli setup --dry-run
 HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli doctor
+HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
 ```
 
 If a check cannot be run, report the reason and the risk.

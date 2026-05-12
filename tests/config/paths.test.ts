@@ -15,6 +15,7 @@ describe("resolveTrackerPaths", () => {
     assert.equal(paths.configPath, "/tmp/custom-himan/config.json");
     assert.equal(paths.eventsDir, "/tmp/custom-himan/events");
     assert.equal(paths.errorsDir, "/tmp/custom-himan/errors");
+    assert.equal(paths.queueDir, "/tmp/custom-himan/queue");
     assert.equal(paths.eventsPath, "/tmp/custom-himan/events.jsonl");
     assert.equal(paths.errorsPath, "/tmp/custom-himan/errors.jsonl");
     assert.equal(paths.sqlitePath, "/tmp/custom-himan/himan.sqlite");

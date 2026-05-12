@@ -6,9 +6,9 @@
 
 Current implementation status:
 
-- CLI skeleton and `doctor` command are implemented.
-- Config/path resolution, user config defaults, normalized event contracts, schema validation, repo path hashing, token normalization, capability classification, JSONL collection, SQLite migrations, JSONL ingest, daily stats aggregation, CLI reports, fixture-first agent adapters, and MVP documentation are implemented.
-- Real hook installation, package release, and richer real-world adapter fixtures remain future work.
+- CLI skeleton, `doctor`, `setup`, `collect`, `ingest`, and report commands are implemented.
+- Config/path resolution, user config defaults, normalized event contracts, schema validation, repo path hashing, token normalization, capability classification, async collect queue, Codex hook setup, JSONL collection, SQLite migrations, JSONL ingest, daily stats aggregation, CLI reports, fixture-first agent adapters, and MVP documentation are implemented.
+- Package release and richer real-world adapter fixtures remain future work.
 
 ## Commands
 
@@ -20,6 +20,8 @@ pnpm run typecheck
 pnpm test
 pnpm cli --help
 pnpm cli doctor
+pnpm cli setup --dry-run
+pnpm cli collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
 pnpm cli ingest
 pnpm cli summary --since 7d
 pnpm cli agents --date YYYY-MM-DD
@@ -32,6 +34,8 @@ Notes:
 - `pnpm cli` runs `tsx src/cli/index.ts`.
 - The package bin points to `./dist/cli/index.js`, so run `pnpm run build` before testing the built CLI path.
 - The `doctor` command creates/checks local tracker files. Use `HIMAN_TRACKER_HOME=/tmp/path` or another temp path during tests/manual checks when you do not want to touch `~/.himan-tracker`.
+- The `setup` command installs current-project Codex hooks by default and supports `-g, --global` for `~/.codex` setup.
+- The `collect` command is hook-safe by default: it returns 0 unless `--strict` is used, queues sanitized normalized events, and drains asynchronously unless `--sync` is used. Use `--quiet` in hooks.
 
 ## Source Layout
 
@@ -41,15 +45,18 @@ src/
     index.ts
     commands/agents.ts
     commands/capabilities.ts
+    commands/collect.ts
     commands/doctor.ts
     commands/ingest.ts
     commands/reportContext.ts
+    commands/setup.ts
     commands/summary.ts
     commands/unused.ts
   aggregator/
     aggregateEvents.ts
     dailyStats.ts
   collector/
+    eventQueue.ts
     hookCollector.ts
     jsonlWriter.ts
   config/
@@ -110,13 +117,15 @@ Empty or not-yet-implemented domains currently remain as `.gitkeep` directories.
 - CLI entry point: `src/cli/index.ts`
 - Implemented commands:
   - `doctor` -> `src/cli/commands/doctor.ts`
+  - `setup --agent codex` -> `src/cli/commands/setup.ts`
+  - `collect --agent codex` -> `src/cli/commands/collect.ts`
   - `ingest` -> `src/cli/commands/ingest.ts`
   - `summary`
   - `agents`
   - `capabilities`
   - `unused`
 
-`src/cli/index.ts` currently routes all MVP commands. Agent adapters remain the main unimplemented MVP area.
+`src/cli/index.ts` currently routes all MVP commands. `setup --agent codex` is the Codex hook installer, and `collect --agent codex` is the current data-source entry point; `--agent claude-code` remains future work.
 
 ## Data And Contracts
 
@@ -142,6 +151,8 @@ Collector rules:
 
 - `appendJsonlRecord` writes one compact JSON object per line and creates parent directories.
 - `collectAdapterEvent` normalizes adapter events, appends accepted events to `events/YYYY-MM-DD.jsonl`, writes sanitized collector errors to `errors/YYYY-MM-DD.jsonl`, and fails open so agent workflows are not blocked.
+- `eventQueue` stores already-normalized events under `queue/`, uses `locks/collect-<agent>.lock` to avoid concurrent drains, and appends queued events to daily JSONL in the background.
+- Hook-facing collect behavior must remain non-blocking: default exit code is 0 even when collection fails; `--quiet` suppresses stdout for hooks; `--strict` is only for manual validation.
 
 SQLite and ingest rules:
 
@@ -160,7 +171,7 @@ Report rules:
 
 Adapter rules:
 
-- `src/adapters/codex/index.ts` parses constructed Codex hook fixtures for `UserPromptSubmit`, `PostToolUse`, and `Stop`.
+- `src/adapters/codex/index.ts` parses constructed fixtures and current Codex hook fields such as `hook_event_name`, `cwd`, `PostToolUse`, and `Stop`.
 - `src/adapters/claude-code/index.ts` parses constructed Claude Code fixtures for `tool_result`/`tool_use`, `message_stop`, and `session_end`.
 - Adapters return `AdapterEvent[]` only; they do not write JSONL or SQLite.
 - Unknown hooks are ignored so adapter parsing fails open for unsupported future payloads.
@@ -180,6 +191,7 @@ Default local paths:
 ~/.himan-tracker/config.json
 ~/.himan-tracker/events/YYYY-MM-DD.jsonl
 ~/.himan-tracker/errors/YYYY-MM-DD.jsonl
+~/.himan-tracker/queue/
 ~/.himan-tracker/himan.sqlite
 ~/.himan-tracker/locks/
 ```
@@ -203,7 +215,9 @@ Current test files:
 - `tests/adapters/claudeCode.test.ts`
 - `tests/adapters/codex.test.ts`
 - `tests/aggregator/aggregateEvents.test.ts`
+- `tests/cli/collect.test.ts`
 - `tests/cli/reportCommands.test.ts`
+- `tests/cli/setupCodex.test.ts`
 - `tests/collector/hookCollector.test.ts`
 - `tests/collector/jsonlWriter.test.ts`
 - `tests/config/paths.test.ts`
@@ -261,7 +275,9 @@ For CLI smoke checks:
 
 ```bash
 pnpm cli --help
+pnpm cli setup --dry-run
 HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli doctor
+HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
 ```
 
-Use a temporary `HIMAN_TRACKER_HOME` for manual `doctor` checks to avoid changing the user's real tracker home.
+Use a temporary `HIMAN_TRACKER_HOME` for manual `doctor` and `collect` checks to avoid changing the user's real tracker home. Use `--dry-run` for setup smoke checks unless intentionally writing `.codex/`.

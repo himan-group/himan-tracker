@@ -2,27 +2,38 @@ import type { AdapterEvent, EventStatus } from "../../types/events.js";
 
 type RawRecord = Record<string, unknown>;
 
-export function parseCodexHookPayload(payload: unknown): AdapterEvent[] {
-  return getRawEvents(payload).flatMap(parseCodexEvent);
+export type ParseCodexHookPayloadOptions = {
+  observedAt?: string;
+};
+
+export function parseCodexHookPayload(
+  payload: unknown,
+  options: ParseCodexHookPayloadOptions = {},
+): AdapterEvent[] {
+  return getRawEvents(payload).flatMap((event) => parseCodexEvent(event, options));
 }
 
-function parseCodexEvent(event: RawRecord): AdapterEvent[] {
-  const hook = getString(event.hook) ?? getString(event.type);
+function parseCodexEvent(event: RawRecord, options: ParseCodexHookPayloadOptions): AdapterEvent[] {
+  const hook =
+    getString(event.hook) ?? getString(event.hook_event_name) ?? getString(event.type);
 
   switch (hook) {
     case "UserPromptSubmit":
-      return parsePromptSubmit(event);
+      return parsePromptSubmit(event, options);
     case "PostToolUse":
-      return parsePostToolUse(event);
+      return parsePostToolUse(event, options);
     case "Stop":
-      return parseStop(event);
+      return parseStop(event, options);
     default:
       return [];
   }
 }
 
-function parsePromptSubmit(event: RawRecord): AdapterEvent[] {
-  const base = createBaseEvent(event);
+function parsePromptSubmit(
+  event: RawRecord,
+  options: ParseCodexHookPayloadOptions,
+): AdapterEvent[] {
+  const base = createBaseEvent(event, options);
   if (!base) {
     return [];
   }
@@ -36,8 +47,11 @@ function parsePromptSubmit(event: RawRecord): AdapterEvent[] {
   }));
 }
 
-function parsePostToolUse(event: RawRecord): AdapterEvent[] {
-  const base = createBaseEvent(event);
+function parsePostToolUse(
+  event: RawRecord,
+  options: ParseCodexHookPayloadOptions,
+): AdapterEvent[] {
+  const base = createBaseEvent(event, options);
   const capabilityName =
     getString(event.tool_name) ?? getString(getRecord(event.tool)?.name) ?? getString(event.name);
 
@@ -57,8 +71,8 @@ function parsePostToolUse(event: RawRecord): AdapterEvent[] {
   ];
 }
 
-function parseStop(event: RawRecord): AdapterEvent[] {
-  const base = createBaseEvent(event);
+function parseStop(event: RawRecord, options: ParseCodexHookPayloadOptions): AdapterEvent[] {
+  const base = createBaseEvent(event, options);
   if (!base) {
     return [];
   }
@@ -91,8 +105,11 @@ function parseStop(event: RawRecord): AdapterEvent[] {
   return events;
 }
 
-function createBaseEvent(event: RawRecord): Omit<AdapterEvent, "event_type"> | null {
-  const occurredAt = getString(event.occurred_at);
+function createBaseEvent(
+  event: RawRecord,
+  options: ParseCodexHookPayloadOptions,
+): Omit<AdapterEvent, "event_type"> | null {
+  const occurredAt = getString(event.occurred_at) ?? options.observedAt;
   const sessionId = getString(event.session_id);
 
   if (!occurredAt || !sessionId) {
@@ -105,7 +122,7 @@ function createBaseEvent(event: RawRecord): Omit<AdapterEvent, "event_type"> | n
     source: "codex-hook",
     session_id: sessionId,
     turn_id: getString(event.turn_id),
-    repo_path: getString(event.repo_path),
+    repo_path: getString(event.repo_path) ?? getString(event.cwd),
     status: getStatus(event.status),
   };
 }

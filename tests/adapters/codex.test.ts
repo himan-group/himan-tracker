@@ -54,6 +54,43 @@ describe("parseCodexHookPayload", () => {
       [],
     );
   });
+
+  it("parses current Codex hook payload fields without storing prompt content", () => {
+    const adapterEvents = parseCodexHookPayload(
+      {
+        hook_event_name: "PostToolUse",
+        session_id: "session_123",
+        turn_id: "turn_123",
+        cwd: "/Users/example/project",
+        model: "gpt-5.1-codex",
+        tool_name: "Bash",
+        tool_input: {
+          command: "pnpm test",
+        },
+        tool_response: {
+          output: "do not store output",
+        },
+        prompt: "do not store this prompt",
+      },
+      { observedAt: "2026-05-12T12:00:00.000Z" },
+    );
+
+    assert.equal(adapterEvents.length, 1);
+    assert.deepEqual(adapterEvents[0], {
+      occurred_at: "2026-05-12T12:00:00.000Z",
+      agent: "codex",
+      source: "codex-hook",
+      session_id: "session_123",
+      turn_id: "turn_123",
+      repo_path: "/Users/example/project",
+      status: undefined,
+      event_type: "capability_usage",
+      capability_name: "Bash",
+      duration_ms: undefined,
+      attribution_confidence: "unknown",
+    });
+    assert.equal(JSON.stringify(adapterEvents).includes("do not store"), false);
+  });
 });
 
 async function readJson(filePath: string): Promise<unknown> {

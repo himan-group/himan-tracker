@@ -1,4 +1,6 @@
-import { access, constants } from "node:fs/promises";
+import { access, constants, readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import path from "node:path";
 
 import {
   ensureTrackerDirectories,
@@ -56,6 +58,8 @@ export async function runDoctor(): Promise<DoctorResult> {
   for (const [label, directoryPath] of [
     ["events directory", paths.eventsDir],
     ["errors directory", paths.errorsDir],
+    ["queue directory", paths.queueDir],
+    ["locks directory", paths.locksDir],
   ] as const) {
     try {
       await access(directoryPath, constants.R_OK | constants.W_OK);
@@ -83,9 +87,59 @@ export async function runDoctor(): Promise<DoctorResult> {
     lines.push(formatCheck("fail", "sqlite", getErrorMessage(error)));
   }
 
-  lines.push(formatCheck("warn", "hooks", "not configured yet"));
+  const codexHookStatus = await checkCodexHookSetup();
+  lines.push(
+    formatCheck(
+      codexHookStatus.configured ? "ok" : "warn",
+      "codex hooks",
+      codexHookStatus.configured
+        ? `configured (${codexHookStatus.scopes.join(", ")})`
+        : "not configured yet",
+    ),
+  );
 
   return { ok, lines };
+}
+
+async function checkCodexHookSetup(): Promise<{ configured: boolean; scopes: string[] }> {
+  const candidates = [
+    { scope: "global", codexDir: path.join(homedir(), ".codex") },
+    { scope: "project", codexDir: path.join(process.cwd(), ".codex") },
+  ];
+  const scopes: string[] = [];
+
+  for (const candidate of candidates) {
+    if (await hasHimanTrackerCodexHooks(candidate.codexDir)) {
+      scopes.push(candidate.scope);
+    }
+  }
+
+  return {
+    configured: scopes.length > 0,
+    scopes,
+  };
+}
+
+async function hasHimanTrackerCodexHooks(codexDir: string): Promise<boolean> {
+  const [configToml, hooksJson] = await Promise.all([
+    readOptionalFile(path.join(codexDir, "config.toml")),
+    readOptionalFile(path.join(codexDir, "hooks.json")),
+  ]);
+
+  return Boolean(
+    configToml &&
+      hooksJson &&
+      /(^|\n)\s*codex_hooks\s*=\s*true\s*(\n|$)/.test(configToml) &&
+      hooksJson.includes("himan-tracker-collect.sh"),
+  );
+}
+
+async function readOptionalFile(filePath: string): Promise<string | null> {
+  try {
+    return await readFile(filePath, "utf8");
+  } catch {
+    return null;
+  }
 }
 
 function formatCheck(status: CheckStatus, label: string, message: string): string {

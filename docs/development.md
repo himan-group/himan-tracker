@@ -27,7 +27,7 @@ pnpm cli --help
 HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli doctor
 ```
 
-当前阶段 `doctor` 输出 `hooks: not configured yet` 是预期结果，因为一键 hook 安装尚未实现。
+如果没有在真实 Codex 配置中运行过 `setup`，`doctor` 输出 `codex hooks: not configured yet` 是预期结果。
 
 ## 验证命令
 
@@ -48,7 +48,9 @@ CLI 行为变更后至少运行：
 
 ```bash
 pnpm cli --help
+pnpm cli setup --dry-run
 HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli doctor
+HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
 ```
 
 涉及 ingest 或报表时，可以继续用临时 tracker home 做 smoke check：
@@ -65,6 +67,8 @@ HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli unused --since 30d
 
 - 不要直接编辑 `dist/` 输出。
 - 使用 `HIMAN_TRACKER_HOME` 隔离本地验证数据。
-- JSONL 输入必须是一行一个 normalized event。
+- `setup --dry-run` 可验证 hook 安装输出，不会写入真实 `.codex/`。
+- `collect --agent codex` 默认异步入队；开发验证可以加 `--sync --strict` 获得确定性结果。
+- `ingest --from` 的 JSONL 输入必须是一行一个 normalized event。
 - `ingest --rebuild` 会删除并重建 SQLite 投影文件。
 - README 面向最终用户，不放构建、测试、源码运行和内部验证流程。

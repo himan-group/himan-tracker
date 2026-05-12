@@ -4,9 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Added `collect --agent codex` as a non-blocking Codex data entry point with a local async queue and hook-friendly `--quiet` mode.
+- Added `setup --agent codex` to install Codex hooks for the current project by default, with `-g, --global` for global installation.
+
 ### Changed
 
 - Documented the current Codex integration workflow in README.
+- Updated `doctor` to report collect queue, lock directory, and Codex hook readiness.
 - Changed local JSONL storage to daily `events/` and `errors/` shards, with `ingest` scanning event shards by default.
 
 ## [0.0.1] - 2026-05-12

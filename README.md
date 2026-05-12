@@ -2,7 +2,7 @@
 
 `himan-tracker` 是一个本地优先的 AI coding agent 观测与分析 CLI，用来记录和分析 Codex、Claude Code 等 AI 编程工具的使用元数据。它关注的是研发过程中真实发生了什么：用了哪些 agent、哪些模型消耗了 token、一次会话花了多久、哪些 skill / MCP tool / plugin / shell command 被频繁调用，以及哪些 capability 长期没有价值信号。
 
-项目当前处于早期 MVP：本地数据目录、隐私默认值、JSONL 事件日志、SQLite 投影、幂等 ingest、CLI 报表，以及 Codex / Claude Code 事件输入解析能力已经具备；发布包和一键 hook 安装还没有提供。
+项目当前处于早期 MVP：本地数据目录、隐私默认值、异步采集队列、JSONL 事件日志、SQLite 投影、幂等 ingest、CLI 报表、Codex 事件采集入口，以及 Codex hooks 快速安装命令已经具备；发布包还没有提供。
 
 ## 适合谁使用
 
@@ -20,14 +20,15 @@
 | JSONL 事件日志 | 已实现，`events/YYYY-MM-DD.jsonl` 保存 normalized events，`errors/YYYY-MM-DD.jsonl` 保存采集错误 |
 | SQLite 投影 | 已实现，`ingest` 可把 JSONL 导入 `himan.sqlite` 并重算每日统计 |
 | CLI 报表 | 已实现 `summary`、`agents`、`capabilities`、`unused` |
-| Agent 事件解析 | 已实现 Codex / Claude Code 基础事件输入解析 |
-| 自动 hook 安装 | 尚未实现，`doctor` 会提示 hooks 还未配置 |
+| Agent 事件采集 | 已实现 `collect --agent codex`，默认异步入队并后台写入事件日志 |
+| Codex hooks 安装 | 已实现 `setup --agent codex`，默认安装到当前项目，支持 `-g, --global` 全局安装 |
 | 发布版安装 | 尚未发布，安装方式发布后补充 |
 
 ## 核心概念
 
 `himan-tracker` 使用两层本地数据：
 
+- `queue/`：hook 调用的轻量投递队列。`collect` 会先把已脱敏的 normalized events 入队，再由后台 worker 写入最终 JSONL，避免阻塞 Codex。
 - `events/YYYY-MM-DD.jsonl`：按天分片的 append-only 原始事件日志，一行一个 normalized event，适合调试、回放和重新聚合。
 - `errors/YYYY-MM-DD.jsonl`：按天分片的 collector 错误日志。
 - `himan.sqlite`：由 JSONL 投影出的本地查询数据库，服务 CLI 报表。
@@ -63,9 +64,41 @@ himan-tracker
 himan-tracker doctor
 ```
 
-`doctor` 会创建或检查数据目录、`config.json`、`events/`、`errors/` 和 `himan.sqlite`。当前阶段看到 `hooks: not configured yet` 是预期结果，因为一键 hook 安装还没有实现。
+`doctor` 会创建或检查数据目录、`config.json`、`events/`、`errors/`、`queue/`、`locks/` 和 `himan.sqlite`。如果还没运行 `setup`，看到 `codex hooks: not configured yet` 是预期结果。
 
-准备 normalized JSONL 事件后，导入 SQLite 投影：
+把 `himan-tracker` 接到 Codex hooks：
+
+```bash
+himan-tracker setup
+```
+
+`--agent` 默认是 `codex`，等价于：
+
+```bash
+himan-tracker setup --agent codex
+```
+
+默认安装到当前项目的 `.codex/`。想在所有 Codex 项目中启用时使用：
+
+```bash
+himan-tracker setup -g
+```
+
+把 Codex hook 或 wrapper 产生的 JSON payload 投递给采集入口：
+
+```bash
+himan-tracker collect --agent codex
+```
+
+`--agent` 默认就是 `codex`，所以也可以写成：
+
+```bash
+himan-tracker collect
+```
+
+`collect` 默认是非阻塞模式：它只做轻量解析、隐私脱敏和本地入队，然后启动后台 worker 写入 `events/YYYY-MM-DD.jsonl`。采集报错不会让命令返回非 0，也不会影响 Codex 正常流程。
+
+导入 SQLite 投影：
 
 ```bash
 himan-tracker ingest
@@ -105,35 +138,73 @@ himan-tracker unused --since 30d
 
 ## 与 Codex 集成
 
-当前版本还没有提供一键 Codex hook 安装命令。现阶段与 Codex 集成的可用方式是：把 Codex 使用过程中产生的元数据写成 `himan-tracker` normalized JSONL，然后导入 SQLite 报表库。
+当前版本提供 `collect --agent codex` 作为 Codex 数据入口。它读取 Codex hook 或 wrapper 产生的 JSON payload，转换为 normalized events，先写入本地 `queue/`，再由后台 worker 写入 `events/YYYY-MM-DD.jsonl`。
 
 推荐流程：
 
 1. 运行 `himan-tracker doctor` 初始化本地数据目录。
-2. 从 Codex 会话中提取元数据，不要写入 prompt、response、代码内容、stdout/stderr 或明文仓库路径。
-3. 将元数据转换成 normalized events，一行一个 JSON 对象。
-4. 运行 `himan-tracker ingest --from ./codex-events.jsonl`。
-5. 使用 `summary`、`agents` 和 `capabilities` 查看 Codex 使用情况。
+2. 运行 `himan-tracker setup` 安装当前项目 Codex hooks，或运行 `himan-tracker setup -g` 安装全局 Codex hooks。
+3. Codex hook 会把 JSON payload 通过 stdin 传给 `himan-tracker collect --agent codex --quiet`。
+4. `collect` 立即入队并返回，后台 worker 异步写入 JSONL；即使采集失败，默认也返回 0，不影响 Codex 原流程。
+5. 运行 `himan-tracker ingest`，把事件日志导入 SQLite 投影。
+6. 使用 `summary`、`agents` 和 `capabilities` 查看 Codex 使用情况。
 
-最小 Codex JSONL 示例：
-
-```jsonl
-{"schema_version":"1.0","event_id":"codex_turn_001","event_type":"turn_summary","occurred_at":"2026-05-12T12:00:00.000Z","agent":"codex","source":"codex-manual","session_id":"codex_s_001","turn_id":"codex_t_001","status":"success","model":"codex-model","duration_ms":10000,"input_tokens":100,"output_tokens":20,"total_tokens":120}
-{"schema_version":"1.0","event_id":"codex_tool_001","event_type":"capability_usage","occurred_at":"2026-05-12T12:00:02.000Z","agent":"codex","source":"codex-manual","session_id":"codex_s_001","turn_id":"codex_t_001","status":"success","capability_type":"mcp_tool","capability_name":"github.create_pull_request","duration_ms":250,"input_tokens":null,"output_tokens":null,"total_tokens":null,"adopted":"unknown","attribution_confidence":"unknown"}
-```
-
-导入并查看 Codex 报表：
+Hook / wrapper 中推荐使用的命令：
 
 ```bash
-himan-tracker ingest --from ./codex-events.jsonl
-himan-tracker summary --since 7d
-himan-tracker agents --date 2026-05-12
-himan-tracker capabilities --since 30d --agent codex
+himan-tracker collect --agent codex --quiet
 ```
 
-实际接入时，`event_id` 应该由稳定字段生成，避免同一事件重复导入；`session_id` 和 `turn_id` 应保持 Codex 会话内稳定；`capability_name` 建议使用归一化后的名称，例如 `github.create_pull_request`。如果暂时不知道 token 或耗时，可以填 `null`。
+`--quiet` 会关闭采集 summary 输出，避免 hook stdout 影响 Codex UI 或上游流程。因为 `--agent` 默认是 `codex`，最短也可以写成：
 
-后续版本提供 Codex hook 自动安装后，会把上述 JSONL 写入和 ingest 流程自动化；在此之前，`doctor` 中的 `hooks: not configured yet` 是预期状态。
+```bash
+himan-tracker collect --quiet
+```
+
+本地验证某个 payload 文件：
+
+```bash
+himan-tracker collect --agent codex --from ./codex-hook-payload.json --sync --strict
+himan-tracker ingest
+himan-tracker summary --since 7d
+```
+
+`--sync` 会在前台 drain 队列，适合人工验证；不要把它放进 Codex hook。`--strict` 会在验证失败时返回非 0，也只建议人工调试时使用。
+
+最小 Codex payload 示例：
+
+```json
+{
+  "events": [
+    {
+      "hook": "PostToolUse",
+      "occurred_at": "2026-05-12T12:00:02.000Z",
+      "session_id": "codex_s_001",
+      "turn_id": "codex_t_001",
+      "repo_path": "/Users/example/project",
+      "tool_name": "mcp__github__create_pull_request",
+      "duration_ms": 250,
+      "status": "success"
+    },
+    {
+      "hook": "Stop",
+      "occurred_at": "2026-05-12T12:00:10.000Z",
+      "session_id": "codex_s_001",
+      "turn_id": "codex_t_001",
+      "repo_path": "/Users/example/project",
+      "model": "gpt-5.1-codex",
+      "duration_ms": 10000,
+      "input_tokens": 100,
+      "output_tokens": 20,
+      "status": "success"
+    }
+  ]
+}
+```
+
+接入时不需要自己生成 `event_id`，`himan-tracker` 会用稳定字段生成幂等 ID。`session_id` 和 `turn_id` 应保持 Codex 会话内稳定；不知道 token 或耗时时可以省略字段。默认隐私策略会丢弃 prompt、response、代码内容、stdout/stderr、shell 参数和明文仓库路径，只保留用于报表的元数据和仓库 hash。
+
+项目级安装写入当前仓库的 `.codex/`，只有该项目被 Codex 信任后才会加载；全局安装写入 `~/.codex`，会在所有 Codex 项目中生效。
 
 ## 事件 JSONL 格式
 
@@ -167,9 +238,123 @@ himan-tracker doctor
 
 - 数据目录和锁目录是否可创建。
 - `config.json` 是否存在，不存在则创建默认配置。
-- `events/` 和 `errors/` 分片目录是否可读写。
+- `events/`、`errors/` 和 `queue/` 目录是否可读写。
 - SQLite 数据库是否可初始化并应用 migration。
-- hook 是否配置。当前 MVP 会显示 warning。
+- Codex hooks 是否配置。
+
+### `setup`
+
+安装 Codex hooks，让 Codex 自动把使用元数据投递给 `himan-tracker collect`。
+
+安装到当前项目的 `.codex/`：
+
+```bash
+himan-tracker setup
+```
+
+显式指定 agent：
+
+```bash
+himan-tracker setup --agent codex
+```
+
+全局安装到 `~/.codex`：
+
+```bash
+himan-tracker setup -g
+himan-tracker setup --global
+```
+
+预览将要写入的文件：
+
+```bash
+himan-tracker setup --dry-run
+```
+
+命令会写入或合并这些文件：
+
+```text
+<repo>/.codex/config.toml
+<repo>/.codex/hooks.json
+<repo>/.codex/hooks/himan-tracker-collect.sh
+```
+
+全局安装时路径对应为：
+
+```text
+~/.codex/config.toml
+~/.codex/hooks.json
+~/.codex/hooks/himan-tracker-collect.sh
+```
+
+`setup` 会打开 Codex hooks feature flag：
+
+```toml
+[features]
+codex_hooks = true
+```
+
+并写入 `PostToolUse` 和 `Stop` hooks。配置形态类似：
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/absolute/path/.codex/hooks/himan-tracker-collect.sh'",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/absolute/path/.codex/hooks/himan-tracker-collect.sh'",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+helper 脚本内部调用 `himan-tracker collect --agent codex --quiet`，并且无论采集是否成功都会 `exit 0`，避免影响 Codex 正常流程。
+
+### `collect`
+
+采集 agent hook / wrapper JSON payload。当前 `--agent` 默认是 `codex`，也只支持 `codex`。
+
+```bash
+himan-tracker collect --agent codex
+```
+
+默认从 stdin 读取 payload，适合放在 Codex hook 或 wrapper 中。也可以从文件读取：
+
+```bash
+himan-tracker collect --agent codex --from ./codex-hook-payload.json
+```
+
+默认模式是 hook-safe 的非阻塞模式：命令会把已脱敏的 normalized events 写入本地队列，启动后台 worker，然后返回 0。采集失败只会记录到 `errors/YYYY-MM-DD.jsonl`，不会阻塞 Codex。放进 hook 时建议加 `--quiet`，避免向 stdout 写入 summary。
+
+```bash
+himan-tracker collect --agent codex --quiet
+```
+
+人工验证时可以使用：
+
+```bash
+himan-tracker collect --agent codex --from ./codex-hook-payload.json --sync --strict
+```
+
+`--sync` 会在前台 drain 队列，`--strict` 会把采集失败转换成非 0 exit code。不要在 Codex hook 中使用这两个参数。
 
 ### `ingest`
 
@@ -260,6 +445,7 @@ himan-tracker unused --since 30d
 ~/.himan-tracker/config.json
 ~/.himan-tracker/events/YYYY-MM-DD.jsonl
 ~/.himan-tracker/errors/YYYY-MM-DD.jsonl
+~/.himan-tracker/queue/
 ~/.himan-tracker/himan.sqlite
 ~/.himan-tracker/locks/
 ```
@@ -320,9 +506,9 @@ HIMAN_TRACKER_HOME=/custom/path himan-tracker doctor
 
 ## 常见问题
 
-### 为什么 `doctor` 显示 hooks 还未配置？
+### 为什么 `doctor` 显示 Codex hooks 还未配置？
 
-这是当前 MVP 的预期状态。Codex / Claude Code 事件输入解析能力已经具备，但还没有面向用户的一键 hook 安装流程。
+先运行 `himan-tracker setup`。如果想在所有 Codex 项目中启用，运行 `himan-tracker setup -g`，然后重启 Codex 让它重新加载 hooks。
 
 ### 为什么 `summary` 显示没有数据？
 

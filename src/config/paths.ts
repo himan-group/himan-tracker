@@ -7,6 +7,7 @@ export type TrackerPaths = {
   configPath: string;
   eventsDir: string;
   errorsDir: string;
+  queueDir: string;
   /** Legacy single-file paths kept for explicit imports and older local data. */
   eventsPath: string;
   errorsPath: string;
@@ -25,6 +26,7 @@ export function resolveTrackerPaths(env: NodeJS.ProcessEnv = process.env): Track
     configPath: path.join(homeDir, "config.json"),
     eventsDir: path.join(homeDir, "events"),
     errorsDir: path.join(homeDir, "errors"),
+    queueDir: path.join(homeDir, "queue"),
     eventsPath: path.join(homeDir, "events.jsonl"),
     errorsPath: path.join(homeDir, "errors.jsonl"),
     sqlitePath: path.join(homeDir, "himan.sqlite"),
@@ -36,6 +38,7 @@ export async function ensureTrackerDirectories(paths: TrackerPaths): Promise<voi
   await mkdir(paths.homeDir, { recursive: true, mode: 0o700 });
   await mkdir(paths.eventsDir, { recursive: true, mode: 0o700 });
   await mkdir(paths.errorsDir, { recursive: true, mode: 0o700 });
+  await mkdir(paths.queueDir, { recursive: true, mode: 0o700 });
   await mkdir(paths.locksDir, { recursive: true, mode: 0o700 });
 }
 

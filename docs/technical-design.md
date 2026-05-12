@@ -88,6 +88,9 @@ hook collector 必须 fail-open：
 - 采集失败时记录本地错误日志。
 - 不阻塞 Codex 或 Claude Code 的正常工作流。
 - 不修改 agent 原有输入输出。
+- hook 路径默认只做轻量解析、隐私脱敏和本地入队，真正写入事件日志由后台 worker 异步完成。
+- hook 默认 exit code 必须保持为 `0`；人工验证才使用 `--strict`。
+- hook 中建议使用 `--quiet`，避免 collector summary 写入 stdout 干扰 agent 流程。
 
 建议错误日志路径：
 
@@ -120,9 +123,12 @@ src/
       agents.ts
       capabilities.ts
       unused.ts
+      collect.ts
+      setup.ts
       ingest.ts
       doctor.ts
   collector/
+    eventQueue.ts
     hookCollector.ts
     jsonlWriter.ts
   config/
@@ -305,6 +311,9 @@ type AgentAdapter = {
     YYYY-MM-DD.jsonl
   errors/
     YYYY-MM-DD.jsonl
+  queue/
+    events/
+      codex/
   himan.sqlite
   locks/
 ```
@@ -313,6 +322,7 @@ type AgentAdapter = {
 
 - JSONL 使用 append-only。
 - 单条事件必须是一行合法 JSON。
+- `queue/` 只保存已经 normalized 的事件批次，不保存 prompt、response、代码内容、stdout/stderr、shell args 或明文仓库路径。
 - 多进程写入时使用文件锁或 SQLite ingestion 队列，避免交错写。
 - 文件权限建议为 `0600`，目录权限建议为 `0700`。
 
@@ -551,7 +561,39 @@ himan-tracker ingest
 - 支持 `--rebuild` 删除并重建投影数据库。
 - 支持 `--from <path>` 从指定 JSONL 导入。
 
-### 8.6 `doctor`
+### 8.6 `collect`
+
+```bash
+himan-tracker collect --agent codex
+```
+
+用途：
+
+- 从 stdin 或 `--from <path>` 读取 Codex hook / wrapper JSON payload。
+- `--agent` 默认是 `codex`，当前只支持 `codex`。
+- 默认只做轻量解析、隐私脱敏和本地入队，然后启动后台 worker drain 队列。
+- 默认 fail-open，采集失败也返回 `0`，不阻塞 Codex。
+- hook 场景使用 `--quiet` 关闭 stdout summary。
+- `--sync --strict` 只用于人工验证，不能用于 Codex hook。
+
+### 8.7 `setup`
+
+```bash
+himan-tracker setup
+himan-tracker setup --agent codex
+himan-tracker setup -g
+```
+
+用途：
+
+- `--agent` 默认是 `codex`，当前只支持 `codex`。
+- 默认把 Codex hooks 安装到当前项目 `.codex/`。
+- `-g, --global` 把 Codex hooks 安装到全局 `~/.codex`。
+- 写入或合并 `config.toml` 和 `hooks.json`，并生成 `hooks/himan-tracker-collect.sh` helper。
+- helper 调用 `himan-tracker collect --agent codex --quiet`，吞掉 stdout/stderr 并始终 `exit 0`。
+- 默认配置 `PostToolUse` 和 `Stop`，用于 capability 使用和 turn summary。
+
+### 8.8 `doctor`
 
 ```bash
 himan-tracker doctor

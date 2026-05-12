@@ -1,10 +1,12 @@
 #!/usr/bin/env node
-import { Command } from "commander";
+import { Command, Option } from "commander";
 
 import { runAgents } from "./commands/agents.js";
 import { runCapabilities } from "./commands/capabilities.js";
+import { runCollect } from "./commands/collect.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runIngest } from "./commands/ingest.js";
+import { runSetup } from "./commands/setup.js";
 import { runSummary } from "./commands/summary.js";
 import { runUnused } from "./commands/unused.js";
 
@@ -17,6 +19,50 @@ program
   .description("Local-first observability and analytics for AI coding agents.")
   .version(VERSION, "-v, --version", "Show the CLI version")
   .helpOption("-h, --help", "Show this help message");
+
+program
+  .command("collect")
+  .description("Collect raw agent hook payloads without blocking the agent workflow")
+  .option("--agent <agent>", "Agent adapter to use; currently only codex is supported", "codex")
+  .option("--from <path>", "Read the agent payload from a JSON file")
+  .option("--quiet", "Suppress collect output for hook usage")
+  .option("--sync", "Drain the local collect queue in the foreground after enqueueing")
+  .option("--strict", "Return a non-zero exit code when collection reports a failure")
+  .addOption(new Option("--drain", "Drain queued collect payloads").hideHelp())
+  .action(async (options: CollectCommandOptions) => {
+    const result = await runCollect(options);
+    if (!options.quiet) {
+      console.log(result.lines.join("\n"));
+    }
+    process.exitCode = result.exitCode;
+  });
+
+type CollectCommandOptions = {
+  agent?: string;
+  from?: string;
+  quiet?: boolean;
+  sync?: boolean;
+  strict?: boolean;
+  drain?: boolean;
+};
+
+program
+  .command("setup")
+  .description("Configure agent integrations")
+  .option("--agent <agent>", "Agent integration to configure; currently only codex is supported", "codex")
+  .option("-g, --global", "Install hooks into ~/.codex instead of the current project")
+  .option("--dry-run", "Preview files without writing them")
+  .action(async (options: SetupCommandOptions) => {
+    const result = await runSetup(options);
+    console.log(result.lines.join("\n"));
+    process.exitCode = result.exitCode;
+  });
+
+type SetupCommandOptions = {
+  agent?: string;
+  global?: boolean;
+  dryRun?: boolean;
+};
 
 program
   .command("doctor")
