@@ -10,7 +10,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "cli": "node scripts/cli.mjs",
+    "cli": "tsx src/cli/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test"
   },
@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "tsx": "^4.21.0",
     "typescript": "^5.8.0"
   },
   "dependencies": {
