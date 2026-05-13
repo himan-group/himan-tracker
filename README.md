@@ -1,133 +1,68 @@
 # himan-tracker
 
-`himan-tracker` 是一个本地优先的 AI coding agent 观测 CLI，用来记录和分析 Codex、Claude Code 等 AI 编程工具的使用元数据。它关注 agent 使用量、模型 token、turn 耗时、成功状态，以及 skill、MCP tool、plugin、shell command 等 capability 的调用情况。
+`himan-tracker` 是一个面向 Codex 和 Claude Code 的本地优先使用分析工具，用于统计 agent 对话、token 成本、执行耗时，以及 skill / MCP tool / plugin 的使用情况，帮助团队评估 AI 工作流 ROI。
 
-项目当前处于早期 MVP。Codex 数据采集入口、Codex hooks 安装、JSONL 本地日志、SQLite 投影、报表命令和原始日志清理已经可用；npm 包已发布为 `@hi-man/himan-tracker`，Claude Code 采集仍在规划中。
+## 当前进度
 
-## 核心特性
+- [x] Codex 数据采集入口
+- [x] Codex hooks 安装
+- [x] JSONL 本地日志
+- [x] SQLite 查询投影
+- [x] summary、agents、turns、capabilities、capability-events 和 unused 报表
+- [x] 原始日志清理
+- [ ] Claude Code 采集
 
-- 本地优先存储：默认数据目录为 `~/.himan-tracker`，可通过 `HIMAN_TRACKER_HOME` 覆盖。
-- 隐私默认保护：默认不采集 prompt、response、代码内容、stdout/stderr、明文仓库路径或 shell 参数。
-- Codex 自动采集：`setup --agent codex` 可安装 Codex hooks，`collect --agent codex` 默认异步入队，避免阻塞 Codex 工作流。
-- 可回放数据源：normalized events 按天写入 `events/YYYY-MM-DD.jsonl`，采集错误写入 `errors/YYYY-MM-DD.jsonl`。
-- SQLite 查询投影：`ingest` 将 JSONL 导入 `himan.sqlite`，用于生成稳定的本地报表。
-- 使用分析报表：支持 summary、agents、turns、capabilities、capability-events 和 unused 报表。
-- 原始日志清理：`cleanup` 可删除 JSONL 原始日志，同时保留已导入 SQLite 的统计结果。
-
-## 快速使用手册
-
-### 1. 准备环境
-
-通过 npm 全局安装：
+## 安装
 
 ```bash
 npm install -g @hi-man/himan-tracker
 ```
 
-要求：
+要求 Node.js `>=20.11`。
 
-- Node.js `>=20.11`
-- 从源码开发时需要 pnpm `10.33.4` 或兼容版本
-
-### 2. 检查本地配置
+## 快速开始
 
 ```bash
 himan-tracker doctor
-```
-
-`doctor` 会创建或检查本地数据目录、默认配置、JSONL 目录、队列目录和 SQLite 数据库。首次运行且尚未安装 Codex hooks 时，看到 `codex hooks: not configured yet` 是预期结果。
-
-### 3. 安装 Codex hooks
-
-安装到当前项目：
-
-```bash
 himan-tracker setup
+himan-tracker ingest
+himan-tracker summary --since 7d
 ```
 
-安装到全局 `~/.codex`：
+- `doctor` 检查并初始化本地数据目录。
+- `setup` 为当前项目安装 Codex hooks。
+- `ingest` 将本地 JSONL 事件导入 SQLite。
+- `summary` 查看最近使用总览。
+
+安装全局 Codex hooks：
 
 ```bash
 himan-tracker setup -g
 ```
 
-预览将写入的 Codex 配置：
+预览 hook 配置但不写入文件：
 
 ```bash
 himan-tracker setup --dry-run
 ```
 
-安装后，Codex hooks 会把使用元数据投递给 `himan-tracker collect --agent codex --quiet`。默认采集流程失败时仍保持开放，采集错误不会阻塞 Codex。
+## 常用命令
 
-### 4. 导入查询数据
+| 命令 | 用途 |
+| --- | --- |
+| `himan-tracker doctor` | 检查本地配置、数据目录和 SQLite 状态 |
+| `himan-tracker setup` | 为当前项目安装 Codex hooks |
+| `himan-tracker setup -g` | 安装全局 Codex hooks |
+| `himan-tracker ingest` | 将 `events/*.jsonl` 导入 SQLite |
+| `himan-tracker summary --since 7d` | 查看最近 7 天总览 |
+| `himan-tracker agents --date 2026-05-12` | 查看某天的 agent / model 使用 |
+| `himan-tracker turns --since 7d --limit 50` | 查看逐 turn 明细 |
+| `himan-tracker capabilities --since 30d` | 查看 capability 使用排行 |
+| `himan-tracker capability-events --type skill --name common-git-commit --since 30d` | 查看某个 capability 的调用记录 |
+| `himan-tracker unused --since 30d` | 查看近期未使用的 capability 候选 |
+| `himan-tracker cleanup --older-than 30d` | 清理较早的原始 JSONL 日志 |
 
-当 Codex 已产生事件日志后，将 JSONL 导入 SQLite：
-
-```bash
-himan-tracker ingest
-```
-
-如果需要从指定 JSONL 文件导入：
-
-```bash
-himan-tracker ingest --from ./events.jsonl
-```
-
-### 5. 查看报表
-
-查看最近 7 天总览：
-
-```bash
-himan-tracker summary --since 7d
-```
-
-查看某天的 agent 和 model 使用情况：
-
-```bash
-himan-tracker agents --date 2026-05-12
-```
-
-查看最近一段时间的逐 turn 明细：
-
-```bash
-himan-tracker turns --since 7d --limit 50
-```
-
-查看 capability 排行：
-
-```bash
-himan-tracker capabilities --since 30d
-```
-
-查看某个 capability 的逐次调用记录：
-
-```bash
-himan-tracker capability-events --type skill --name common-git-commit --since 30d
-```
-
-查看近期未使用的 capability 候选：
-
-```bash
-himan-tracker unused --since 30d
-```
-
-### 6. 清理原始日志
-
-预览可删除的 JSONL 原始日志：
-
-```bash
-himan-tracker cleanup --all --dry-run
-```
-
-保留最近 30 天原始日志，删除更早的 JSONL 分片：
-
-```bash
-himan-tracker cleanup --older-than 30d
-```
-
-清理命令不会删除 `himan.sqlite`，已有报表统计仍可查询。删除 JSONL 后，如果再执行 `ingest --rebuild`，被删除的历史事件无法重新导入。
-
-### 7. 常用路径和隐私默认值
+## 数据与隐私
 
 默认数据目录：
 
@@ -145,14 +80,10 @@ himan-tracker cleanup --older-than 30d
 ~/.himan-tracker/himan.sqlite
 ```
 
-默认隐私配置：
+默认隐私行为：
 
-```json
-{
-  "capture_content": false,
-  "hash_repo_path": true,
-  "capture_shell_args": false
-}
-```
+- 不采集 prompt、response、代码内容、stdout/stderr 或 shell 参数。
+- 默认 hash 仓库路径，不保存明文 repo path。
+- 采集失败默认不阻塞 Codex workflow。
 
 完整命令说明、Codex 集成细节、事件 JSONL 格式和 FAQ 见 [docs/user-guide.md](docs/user-guide.md)。

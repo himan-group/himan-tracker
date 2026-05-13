@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-05-13
+
 ### Added
 
 - Added npm publishing configuration for the public scoped package `@hi-man/himan-tracker`, including release/version scripts and GitHub Actions publish workflows.
