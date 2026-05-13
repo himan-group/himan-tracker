@@ -2,10 +2,10 @@ import type { SqliteDatabase } from "../storage/sqlite.js";
 import { formatDateRange, type DateRange } from "./dateRange.js";
 import {
   formatAverageDurationMs,
-  formatNullableNumber,
   formatNullableText,
   formatSuccessRate,
   formatTable,
+  formatTokenCount,
 } from "./formatTable.js";
 
 type SummaryAggregateRow = {
@@ -31,6 +31,7 @@ type TopCapabilityRow = {
   capability_name: string;
   invocation_count: number;
   total_tokens: number | null;
+  duration_ms: number | null;
 };
 
 export function renderSummaryReport(db: SqliteDatabase, range: DateRange): string[] {
@@ -67,7 +68,7 @@ export function renderSummaryReport(db: SqliteDatabase, range: DateRange): strin
       [
         ["Sessions", String(summary.session_count)],
         ["Turns", String(summary.turn_count)],
-        ["Total tokens", formatNullableNumber(summary.total_tokens)],
+        ["Total tokens", formatTokenCount(summary.total_tokens)],
         ["Average latency", formatAverageDurationMs(summary.duration_ms, summary.turn_count)],
         ["Success rate", formatSuccessRate(summary.success_count, summary.failure_count)],
       ],
@@ -111,7 +112,7 @@ function renderTopAgents(db: SqliteDatabase, range: DateRange): string[] {
       row.agent,
       formatNullableText(row.model),
       String(row.turn_count),
-      formatNullableNumber(row.total_tokens),
+      formatTokenCount(row.total_tokens),
     ]),
   );
 }
@@ -125,7 +126,8 @@ function renderTopCapabilities(db: SqliteDatabase, range: DateRange): string[] {
         capability_type,
         capability_name,
         sum(invocation_count) as invocation_count,
-        case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens
+        case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens,
+        case when count(duration_ms) = 0 then null else sum(duration_ms) end as duration_ms
       from daily_capability_stats
       where date between ? and ?
       group by agent, capability_type, capability_name
@@ -140,13 +142,14 @@ function renderTopCapabilities(db: SqliteDatabase, range: DateRange): string[] {
   }
 
   return formatTable(
-    ["Agent", "Type", "Capability", "Invocations", "Tokens"],
+    ["Agent", "Type", "Capability", "Invocations", "Tokens", "Duration"],
     rows.map((row) => [
       row.agent,
       row.capability_type,
       row.capability_name,
       String(row.invocation_count),
-      formatNullableNumber(row.total_tokens),
+      formatTokenCount(row.total_tokens),
+      formatAverageDurationMs(row.duration_ms, row.invocation_count),
     ]),
   );
 }

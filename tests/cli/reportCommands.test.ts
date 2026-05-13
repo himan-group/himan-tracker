@@ -10,6 +10,7 @@ import { appendJsonlRecord } from "../../src/collector/jsonlWriter.js";
 import { runAgents } from "../../src/cli/commands/agents.js";
 import { runCapabilities } from "../../src/cli/commands/capabilities.js";
 import { runSummary } from "../../src/cli/commands/summary.js";
+import { runTurns } from "../../src/cli/commands/turns.js";
 import { runUnused } from "../../src/cli/commands/unused.js";
 import {
   ensureTrackerDirectories,
@@ -30,7 +31,7 @@ describe("report commands", () => {
     try {
       const summary = await runSummary({ paths, since: "7d", now: () => now });
       assert.equal(summary.ok, true);
-      assert.match(summary.lines.join("\n"), /Total tokens\s+\|\s+15/);
+      assert.match(summary.lines.join("\n"), /Total tokens\s+\|\s+3\.56M/);
       assert.match(summary.lines.join("\n"), /github\.create_pull_request/);
 
       const agents = await runAgents({
@@ -40,6 +41,7 @@ describe("report commands", () => {
       });
       assert.equal(agents.ok, true);
       assert.match(agents.lines.join("\n"), /gpt-5\.1-codex/);
+      assert.match(agents.lines.join("\n"), /3\.56M/);
       assert.match(agents.lines.join("\n"), /100\.0%/);
 
       const capabilities = await runCapabilities({
@@ -52,7 +54,30 @@ describe("report commands", () => {
       });
       assert.equal(capabilities.ok, true);
       assert.match(capabilities.lines.join("\n"), /github\.create_pull_request/);
+      assert.match(capabilities.lines.join("\n"), /1\.25K/);
       assert.match(capabilities.lines.join("\n"), /0\.0%/);
+
+      const skills = await runCapabilities({
+        paths,
+        since: "30d",
+        sort: "duration",
+        type: "skill",
+        agent: "codex",
+        now: () => now,
+      });
+      assert.equal(skills.ok, true);
+      assert.match(skills.lines.join("\n"), /common-git-commit/);
+      assert.match(skills.lines.join("\n"), /1\.0s/);
+
+      const turns = await runTurns({
+        paths,
+        since: "30d",
+        agent: "codex",
+        now: () => now,
+      });
+      assert.equal(turns.ok, true);
+      assert.match(turns.lines.join("\n"), /gpt-5\.1-codex/);
+      assert.match(turns.lines.join("\n"), /1\.0s/);
 
       const unused = await runUnused({ paths, since: "30d", now: () => now });
       const unusedOutput = unused.lines.join("\n");
@@ -145,9 +170,29 @@ function createFixtureEvents(): NormalizedEvent[] {
       status: "success",
       model: "gpt-5.1-codex",
       duration_ms: 1_000,
-      input_tokens: 10,
-      output_tokens: 5,
-      total_tokens: 15,
+      input_tokens: 3_500_000,
+      output_tokens: 57_933,
+      total_tokens: 3_557_933,
+    },
+    {
+      schema_version: "1.0",
+      event_id: "evt_capability_002",
+      event_type: "capability_usage",
+      occurred_at: "2026-05-12T12:00:01.000Z",
+      agent: "codex",
+      source: "fixture",
+      session_id: "s_001",
+      turn_id: "t_001",
+      repo_hash: "repo_hash_001",
+      status: "success",
+      capability_type: "skill",
+      capability_name: "common-git-commit",
+      duration_ms: null,
+      input_tokens: null,
+      output_tokens: null,
+      total_tokens: null,
+      adopted: "unknown",
+      attribution_confidence: "exact",
     },
     {
       schema_version: "1.0",
@@ -163,9 +208,9 @@ function createFixtureEvents(): NormalizedEvent[] {
       capability_type: "mcp_tool",
       capability_name: "github.create_pull_request",
       duration_ms: 200,
-      input_tokens: 4,
-      output_tokens: 1,
-      total_tokens: 5,
+      input_tokens: 1_000,
+      output_tokens: 250,
+      total_tokens: 1_250,
       adopted: "unknown",
       attribution_confidence: "estimated",
     },

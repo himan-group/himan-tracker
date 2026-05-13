@@ -76,20 +76,28 @@ function recomputeDailyCapabilityStats(db: SqliteDatabase, date: string): void {
     )
     select
       ? as date,
-      agent,
-      capability_type,
-      capability_name,
+      c.agent,
+      c.capability_type,
+      c.capability_name,
       count(*) as invocation_count,
-      case when count(input_tokens) = 0 then null else sum(input_tokens) end as input_tokens,
-      case when count(output_tokens) = 0 then null else sum(output_tokens) end as output_tokens,
-      case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens,
-      case when count(duration_ms) = 0 then null else sum(duration_ms) end as duration_ms,
-      sum(case when status = 'success' then 1 else 0 end) as success_count,
-      sum(case when status = 'failure' then 1 else 0 end) as failure_count,
-      sum(case when attribution_confidence = 'estimated' then 1 else 0 end) as estimated_token_count
-    from capability_usages
-    where date(occurred_at, 'localtime') = ?
-    group by agent, capability_type, capability_name
+      case when count(c.input_tokens) = 0 then null else sum(c.input_tokens) end as input_tokens,
+      case when count(c.output_tokens) = 0 then null else sum(c.output_tokens) end as output_tokens,
+      case when count(c.total_tokens) = 0 then null else sum(c.total_tokens) end as total_tokens,
+      case
+        when count(coalesce(c.duration_ms, case when c.capability_type = 'skill' then t.duration_ms end)) = 0
+          then null
+        else sum(coalesce(c.duration_ms, case when c.capability_type = 'skill' then t.duration_ms end))
+      end as duration_ms,
+      sum(case when c.status = 'success' then 1 else 0 end) as success_count,
+      sum(case when c.status = 'failure' then 1 else 0 end) as failure_count,
+      sum(case when c.attribution_confidence = 'estimated' then 1 else 0 end) as estimated_token_count
+    from capability_usages c
+    left join turns t
+      on c.turn_id = t.id
+      and c.session_id = t.session_id
+      and c.agent = t.agent
+    where date(c.occurred_at, 'localtime') = ?
+    group by c.agent, c.capability_type, c.capability_name
     `,
   ).run(date, date);
 }

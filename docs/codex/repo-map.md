@@ -165,6 +165,7 @@ Report rules:
 - Report commands read SQLite through `src/cli/commands/reportContext.ts`; they initialize migrations if needed and render empty states when no data exists.
 - `summary` supports `--since`, shows overall usage, top agents, and top capabilities.
 - `agents` supports `--date` and groups by agent/model.
+- `turns` supports `--since`, `--agent`, and `--limit` for per-turn duration/token/status output.
 - `capabilities` supports `--since`, `--sort`, `--type`, and `--agent`.
 - `unused` combines historical capability stats with `config.known_capabilities`.
 - Missing token or duration values are rendered as `n/a`.

@@ -98,6 +98,15 @@ describe("collect codex command", () => {
           model: "gpt-5.5",
           transcript_path: transcriptPath,
         },
+        {
+          hook_event_name: "PostToolUse",
+          session_id: "session_123",
+          turn_id: "turn_123",
+          cwd: "/Users/example/project",
+          tool_name: "mcp__openaiDeveloperDocs__search_openai_docs",
+          tool_use_id: "call_mcp_123",
+          transcript_path: transcriptPath,
+        },
       ],
     });
 
@@ -163,6 +172,27 @@ describe("collect codex command", () => {
               },
             },
           }),
+          JSON.stringify({
+            type: "event_msg",
+            timestamp: "2026-05-12T12:00:09.000Z",
+            payload: {
+              type: "task_complete",
+              turn_id: "turn_123",
+              duration_ms: 9_000,
+            },
+          }),
+          JSON.stringify({
+            type: "event_msg",
+            timestamp: "2026-05-12T12:00:09.500Z",
+            payload: {
+              type: "mcp_tool_call_end",
+              call_id: "call_mcp_123",
+              duration: {
+                secs: 1,
+                nanos: 250_000_000,
+              },
+            },
+          }),
         ].join("\n"),
         "utf8",
       );
@@ -176,8 +206,8 @@ describe("collect codex command", () => {
       });
 
       assert.equal(result.ok, true);
-      assert.match(result.lines.join("\n"), /Queued enrichments: 1/);
-      assert.match(result.lines.join("\n"), /Written events: 2/);
+      assert.match(result.lines.join("\n"), /Queued enrichments: 2/);
+      assert.match(result.lines.join("\n"), /Written events: 3/);
 
       const rawEvents = await readFile(
         resolveDailyEventsPath(paths, "2026-05-12T12:00:10.000Z"),
@@ -189,11 +219,16 @@ describe("collect codex command", () => {
         .map((line) => JSON.parse(line) as Record<string, unknown>);
       const turn = events.find((event) => event.event_type === "turn_summary");
       const skill = events.find((event) => event.capability_type === "skill");
+      const mcpTool = events.find(
+        (event) => event.capability_name === "openaiDeveloperDocs.search_openai_docs",
+      );
 
       assert.equal(turn?.input_tokens, 150);
       assert.equal(turn?.output_tokens, 50);
       assert.equal(turn?.total_tokens, 200);
+      assert.equal(turn?.duration_ms, 9_000);
       assert.equal(skill?.capability_name, "common-git-commit");
+      assert.equal(mcpTool?.duration_ms, 1_250);
       assert.equal(rawEvents.includes("不要保存这段 prompt"), false);
       assert.equal(rawEvents.includes("/Users/example/project"), false);
     } finally {

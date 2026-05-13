@@ -1,10 +1,10 @@
 import type { SqliteDatabase } from "../storage/sqlite.js";
 import {
   formatAverageDurationMs,
-  formatNullableNumber,
   formatNullableText,
   formatSuccessRate,
   formatTable,
+  formatTokenCount,
 } from "./formatTable.js";
 
 type AgentReportRow = {
@@ -53,7 +53,7 @@ export function renderAgentReport(db: SqliteDatabase, date: string): string[] {
         formatNullableText(row.model),
         String(row.session_count),
         String(row.turn_count),
-        formatNullableNumber(row.total_tokens),
+        formatTokenCount(row.total_tokens),
         formatAverageDurationMs(row.duration_ms, row.turn_count),
         formatSuccessRate(row.success_count, row.failure_count),
       ]),

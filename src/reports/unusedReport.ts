@@ -2,9 +2,9 @@ import type { KnownCapability } from "../types/config.js";
 import type { SqliteDatabase } from "../storage/sqlite.js";
 import { formatDateRange, type DateRange } from "./dateRange.js";
 import {
-  formatNullableNumber,
   formatNullableText,
   formatTable,
+  formatTokenCount,
 } from "./formatTable.js";
 
 type HistoricalCapabilityRow = {
@@ -78,7 +78,7 @@ export function renderUnusedReport(
         row.name,
         formatNullableText(row.last_used_at),
         String(row.historical_invocations),
-        formatNullableNumber(row.historical_tokens),
+        formatTokenCount(row.historical_tokens),
       ]),
     ),
   ];

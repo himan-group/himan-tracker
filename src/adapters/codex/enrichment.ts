@@ -4,6 +4,7 @@ import path from "node:path";
 
 import Database from "better-sqlite3";
 
+import { classifyCapability } from "../../normalizer/capabilityClassifier.js";
 import { validateNormalizedEvent } from "../../normalizer/eventSchema.js";
 import type { NormalizedEvent, TokenUsage } from "../../types/events.js";
 
@@ -16,6 +17,16 @@ export type CodexStopEnrichmentTask = {
   session_id: string;
   turn_id: string | null;
   occurred_at: string;
+  transcript_path?: string;
+};
+
+export type CodexToolEnrichmentTask = {
+  kind: "codex-tool";
+  session_id: string;
+  turn_id: string | null;
+  occurred_at: string;
+  tool_use_id: string;
+  tool_name: string;
   transcript_path?: string;
 };
 
@@ -33,6 +44,7 @@ type TokenSnapshot = {
 type TranscriptTurnUsage = {
   model: string | null;
   tokenUsage: TokenUsage | null;
+  durationMs: number | null;
 };
 
 type CodexThreadRow = {
@@ -42,10 +54,34 @@ type CodexThreadRow = {
 export function collectCodexEnrichmentTasks(
   payload: unknown,
   observedAt: string,
-): CodexStopEnrichmentTask[] {
-  return getRawEvents(payload).flatMap((event) => {
+): Array<CodexStopEnrichmentTask | CodexToolEnrichmentTask> {
+  return getRawEvents(payload).flatMap<CodexStopEnrichmentTask | CodexToolEnrichmentTask>((event) => {
     const hook =
       getString(event.hook) ?? getString(event.hook_event_name) ?? getString(event.type);
+
+    if (hook === "PostToolUse") {
+      const sessionId = getString(event.session_id);
+      const toolUseId = getString(event.tool_use_id);
+      const toolName = getString(event.tool_name) ?? getString(getRecord(event.tool)?.name);
+      const occurredAt = getString(event.occurred_at) ?? observedAt;
+      const hasDuration = getInteger(event.duration_ms) !== null;
+      if (!sessionId || !toolUseId || !toolName || !occurredAt || hasDuration) {
+        return [];
+      }
+
+      const transcriptPath = getString(event.transcript_path);
+      return [
+        {
+          kind: "codex-tool",
+          session_id: sessionId,
+          turn_id: getString(event.turn_id) ?? null,
+          occurred_at: occurredAt,
+          tool_use_id: toolUseId,
+          tool_name: toolName,
+          ...(transcriptPath ? { transcript_path: transcriptPath } : {}),
+        },
+      ];
+    }
 
     if (hook !== "Stop") {
       return [];
@@ -72,7 +108,7 @@ export function collectCodexEnrichmentTasks(
 
 export async function enrichCodexEvents(
   events: NormalizedEvent[],
-  tasks: CodexStopEnrichmentTask[],
+  tasks: Array<CodexStopEnrichmentTask | CodexToolEnrichmentTask>,
 ): Promise<{ events: NormalizedEvent[]; errors: CodexEnrichmentError[] }> {
   const enrichedEvents = events.map((event) => ({ ...event })) as NormalizedEvent[];
   const errors: CodexEnrichmentError[] = [];
@@ -82,6 +118,16 @@ export async function enrichCodexEvents(
       const transcriptPath =
         task.transcript_path ?? (await resolveTranscriptPathFromCodexState(task.session_id));
       if (!transcriptPath) {
+        continue;
+      }
+
+      if (task.kind === "codex-tool") {
+        const durationMs = await parseTranscriptToolDuration({
+          transcriptPath,
+          toolUseId: task.tool_use_id,
+          occurredAt: task.occurred_at,
+        });
+        mergeToolDuration(enrichedEvents, task, durationMs);
         continue;
       }
 
@@ -123,6 +169,7 @@ async function parseTranscriptTurnUsage(options: {
   let latestMatchingTurnStartMs: number | null = null;
   let latestTaskStartMs: number | null = null;
   let model: string | null = null;
+  let durationMs: number | null = null;
 
   for (const line of rawTranscript.split(/\r?\n/)) {
     if (line.trim().length === 0) {
@@ -154,6 +201,14 @@ async function parseTranscriptTurnUsage(options: {
     }
 
     const payload = getRecord(record.payload);
+    if (payload?.type === "task_complete") {
+      const payloadTurnId = getString(payload.turn_id);
+      if (!options.turnId || payloadTurnId === options.turnId) {
+        durationMs = getInteger(payload.duration_ms) ?? durationMs;
+      }
+      continue;
+    }
+
     if (payload?.type === "task_started") {
       latestTaskStartMs = timestampMs;
       continue;
@@ -172,7 +227,7 @@ async function parseTranscriptTurnUsage(options: {
 
   const startMs = latestTaskStartMs ?? latestMatchingTurnStartMs;
   if (startMs === null) {
-    return { model, tokenUsage: null };
+    return { model, tokenUsage: null, durationMs };
   }
 
   const endSnapshot = findLatestSnapshot(
@@ -180,7 +235,7 @@ async function parseTranscriptTurnUsage(options: {
     (snapshot) => snapshot.timestampMs <= stopMs + TOKEN_TIMESTAMP_TOLERANCE_MS,
   );
   if (!endSnapshot) {
-    return { model, tokenUsage: null };
+    return { model, tokenUsage: null, durationMs };
   }
 
   const baselineSnapshot = findLatestSnapshot(
@@ -196,7 +251,70 @@ async function parseTranscriptTurnUsage(options: {
   return {
     model,
     tokenUsage: subtractTokenUsage(endSnapshot.usage, baseline),
+    durationMs,
   };
+}
+
+async function parseTranscriptToolDuration(options: {
+  transcriptPath: string;
+  toolUseId: string;
+  occurredAt: string;
+}): Promise<number | null> {
+  const observedMs = Date.parse(options.occurredAt);
+  if (Number.isNaN(observedMs)) {
+    throw new Error("Codex tool enrichment timestamp is invalid");
+  }
+
+  const rawTranscript = await readFile(options.transcriptPath, "utf8");
+  const callStartTimestamps = new Map<string, number>();
+
+  for (const line of rawTranscript.split(/\r?\n/)) {
+    if (line.trim().length === 0) {
+      continue;
+    }
+
+    const record = parseJsonRecord(line);
+    if (!record) {
+      continue;
+    }
+
+    const timestampMs = parseTimestampMs(record.timestamp);
+    if (timestampMs === null || timestampMs > observedMs + TOKEN_TIMESTAMP_TOLERANCE_MS) {
+      continue;
+    }
+
+    const payload = getRecord(record.payload);
+    if (!payload) {
+      continue;
+    }
+
+    if (
+      record.type === "response_item" &&
+      (payload.type === "function_call" || payload.type === "custom_tool_call")
+    ) {
+      const callId = getString(payload.call_id);
+      if (callId) {
+        callStartTimestamps.set(callId, timestampMs);
+      }
+      continue;
+    }
+
+    if (record.type !== "event_msg" || getString(payload.call_id) !== options.toolUseId) {
+      continue;
+    }
+
+    const directDuration = parseDurationMs(payload.duration) ?? getInteger(payload.duration_ms);
+    if (directDuration !== null) {
+      return directDuration;
+    }
+
+    const startMs = callStartTimestamps.get(options.toolUseId);
+    if (startMs !== undefined && timestampMs >= startMs) {
+      return timestampMs - startMs;
+    }
+  }
+
+  return null;
 }
 
 function mergeTurnUsage(
@@ -215,6 +333,8 @@ function mergeTurnUsage(
     return;
   }
 
+  turn.duration_ms ??= usage.durationMs;
+
   if (!turn.model && usage.model) {
     turn.model = usage.model;
   }
@@ -226,6 +346,31 @@ function mergeTurnUsage(
   turn.input_tokens ??= usage.tokenUsage.input_tokens;
   turn.output_tokens ??= usage.tokenUsage.output_tokens;
   turn.total_tokens ??= usage.tokenUsage.total_tokens;
+}
+
+function mergeToolDuration(
+  events: NormalizedEvent[],
+  task: CodexToolEnrichmentTask,
+  durationMs: number | null,
+): void {
+  if (durationMs === null) {
+    return;
+  }
+
+  const normalizedToolName = classifyCapability({
+    capability_name: task.tool_name,
+  }).name;
+  const capability = events.find(
+    (event) =>
+      event.event_type === "capability_usage" &&
+      event.session_id === task.session_id &&
+      (task.turn_id ? event.turn_id === task.turn_id : true) &&
+      (event.capability_name === task.tool_name || event.capability_name === normalizedToolName),
+  );
+
+  if (capability?.event_type === "capability_usage") {
+    capability.duration_ms ??= durationMs;
+  }
 }
 
 async function resolveTranscriptPathFromCodexState(sessionId: string): Promise<string | null> {
@@ -366,6 +511,21 @@ function getInteger(value: unknown): number | null {
     value >= 0
     ? value
     : null;
+}
+
+function parseDurationMs(value: unknown): number | null {
+  const duration = getRecord(value);
+  if (!duration) {
+    return null;
+  }
+
+  const seconds = getInteger(duration.secs);
+  const nanos = getInteger(duration.nanos);
+  if (seconds === null && nanos === null) {
+    return null;
+  }
+
+  return Math.round((seconds ?? 0) * 1_000 + (nanos ?? 0) / 1_000_000);
 }
 
 function parseTimestampMs(value: unknown): number | null {

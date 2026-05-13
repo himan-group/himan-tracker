@@ -16,6 +16,27 @@ export function formatNullableNumber(value: number | null | undefined): string {
   return value === null || value === undefined ? EMPTY_VALUE : String(value);
 }
 
+export function formatTokenCount(value: number | null | undefined): string {
+  if (value === null || value === undefined) {
+    return EMPTY_VALUE;
+  }
+
+  const units = [
+    { threshold: 999_500_000, divisor: 1_000_000_000, suffix: "G" },
+    { threshold: 999_500, divisor: 1_000_000, suffix: "M" },
+    { threshold: 1_000, divisor: 1_000, suffix: "K" },
+  ] as const;
+  const unit = units.find((candidate) => value >= candidate.threshold);
+  if (!unit) {
+    return String(value);
+  }
+
+  const scaled = value / unit.divisor;
+  const decimals = scaled < 10 ? 2 : scaled < 100 ? 1 : 0;
+
+  return `${trimTrailingZeros(scaled.toFixed(decimals))}${unit.suffix}`;
+}
+
 export function formatNullableText(value: string | null | undefined): string {
   return value === null || value === undefined || value.length === 0 ? EMPTY_VALUE : value;
 }
@@ -54,4 +75,8 @@ export function formatSuccessRate(successCount: number, failureCount: number): s
 
 function formatRow(cells: string[], widths: number[]): string {
   return cells.map((cell, index) => cell.padEnd(widths[index] ?? cell.length)).join(" | ");
+}
+
+function trimTrailingZeros(value: string): string {
+  return value.replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
 }

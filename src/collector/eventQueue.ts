@@ -12,6 +12,7 @@ import {
   enrichCodexEvents,
   type CodexEnrichmentError,
   type CodexStopEnrichmentTask,
+  type CodexToolEnrichmentTask,
 } from "../adapters/codex/enrichment.js";
 import { validateNormalizedEvent } from "../normalizer/eventSchema.js";
 import type { AgentName, NormalizedEvent } from "../types/events.js";
@@ -59,7 +60,7 @@ export type DrainQueuedEventsResult = {
   errorsLogged: number;
 };
 
-export type QueuedEventEnrichment = CodexStopEnrichmentTask;
+export type QueuedEventEnrichment = CodexStopEnrichmentTask | CodexToolEnrichmentTask;
 
 type QueuedEventBatch = {
   schema_version: typeof QUEUE_SCHEMA_VERSION;
@@ -247,7 +248,8 @@ async function enrichQueuedEvents(
   }
 
   const codexEnrichments = enrichments.filter(
-    (enrichment): enrichment is CodexStopEnrichmentTask => enrichment.kind === "codex-stop",
+    (enrichment): enrichment is QueuedEventEnrichment =>
+      enrichment.kind === "codex-stop" || enrichment.kind === "codex-tool",
   );
   if (codexEnrichments.length === 0) {
     return { events, errors: [] };
@@ -377,7 +379,7 @@ function parseQueuedEnrichment(value: unknown): QueuedEventEnrichment {
     throw new Error("Queued enrichment must be a JSON object");
   }
 
-  if (value.kind !== "codex-stop") {
+  if (value.kind !== "codex-stop" && value.kind !== "codex-tool") {
     throw new Error("Queued enrichment has unsupported kind");
   }
 
@@ -385,6 +387,19 @@ function parseQueuedEnrichment(value: unknown): QueuedEventEnrichment {
     typeof value.transcript_path === "string" && value.transcript_path.length > 0
       ? value.transcript_path
       : undefined;
+
+  if (value.kind === "codex-tool") {
+    return {
+      kind: "codex-tool",
+      session_id: getRequiredString(value.session_id, "session_id"),
+      turn_id:
+        typeof value.turn_id === "string" && value.turn_id.length > 0 ? value.turn_id : null,
+      occurred_at: getRequiredString(value.occurred_at, "occurred_at"),
+      tool_use_id: getRequiredString(value.tool_use_id, "tool_use_id"),
+      tool_name: getRequiredString(value.tool_name, "tool_name"),
+      ...(transcriptPath ? { transcript_path: transcriptPath } : {}),
+    };
+  }
 
   return {
     kind: "codex-stop",

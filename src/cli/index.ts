@@ -2,12 +2,14 @@
 import { Command, Option } from "commander";
 
 import { runAgents } from "./commands/agents.js";
+import { runCleanup } from "./commands/cleanup.js";
 import { runCapabilities } from "./commands/capabilities.js";
 import { runCollect } from "./commands/collect.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runIngest } from "./commands/ingest.js";
 import { runSetup } from "./commands/setup.js";
 import { runSummary } from "./commands/summary.js";
+import { runTurns } from "./commands/turns.js";
 import { runUnused } from "./commands/unused.js";
 
 const VERSION = "0.0.1";
@@ -90,6 +92,30 @@ type IngestCommandOptions = {
 };
 
 program
+  .command("cleanup")
+  .description("Delete raw JSONL logs while keeping SQLite statistics")
+  .option("--all", "Delete all raw event and error JSONL logs")
+  .option("--before <date>", "Delete raw logs before YYYY-MM-DD")
+  .option("--from <date>", "Delete raw logs on or after YYYY-MM-DD")
+  .option("--to <date>", "Delete raw logs on or before YYYY-MM-DD")
+  .option("--older-than <period>", "Delete raw logs older than a period such as 30d, 12w, or 6m")
+  .option("--dry-run", "Preview files without deleting them")
+  .action(async (options: CleanupCommandOptions) => {
+    const result = await runCleanup(options);
+    console.log(result.lines.join("\n"));
+    process.exitCode = result.ok ? 0 : 1;
+  });
+
+type CleanupCommandOptions = {
+  all?: boolean;
+  before?: string;
+  from?: string;
+  to?: string;
+  olderThan?: string;
+  dryRun?: boolean;
+};
+
+program
   .command("summary")
   .description("Show usage summary for a date range")
   .option("--since <period>", "Date range such as 7d, 4w, or 1m", "7d")
@@ -115,6 +141,24 @@ program
 
 type AgentsCommandOptions = {
   date?: string;
+};
+
+program
+  .command("turns")
+  .description("Show per-turn usage and latency for a date range")
+  .option("--since <period>", "Date range such as 7d, 4w, or 1m", "7d")
+  .option("--agent <agent>", "Filter by agent")
+  .option("--limit <count>", "Maximum turns to show, between 1 and 200", "20")
+  .action(async (options: TurnsCommandOptions) => {
+    const result = await runTurns(options);
+    console.log(result.lines.join("\n"));
+    process.exitCode = result.ok ? 0 : 1;
+  });
+
+type TurnsCommandOptions = {
+  since?: string;
+  agent?: string;
+  limit?: string;
 };
 
 program

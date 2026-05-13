@@ -272,12 +272,12 @@ MVP 报表应展示该字段，避免把估算值表达成精确值。
 | `PostToolUse` | 记录工具调用结果、耗时、状态 | `capability_usage` |
 | `Stop` | 聚合 turn/session 摘要 | `turn_summary`、`session_summary` |
 
-### 5.2 Codex Token 与 Skill 补数
+### 5.2 Codex Token、耗时与 Skill 补数
 
-Codex hooks 的 `PostToolUse` 和 `Stop` payload 不保证直接提供 token 字段。MVP 的 Codex adapter 采用两段式处理：
+Codex hooks 的 `PostToolUse` 和 `Stop` payload 不保证直接提供 token 或耗时字段。MVP 的 Codex adapter 采用两段式处理：
 
-1. hook 主路径只解析轻量字段、生成 normalized events，并把 `Stop` 对应的 transcript 补数任务放入本地 queue。
-2. 后台 worker drain queue 时读取 Codex `transcript_path` 指向的 rollout JSONL，只解析 `token_count`、`turn_context` 和任务边界字段，通过会话累计 token 的前后差值补齐 turn 级 token。
+1. hook 主路径只解析轻量字段、生成 normalized events，并把 `Stop` 和 `PostToolUse` 对应的 transcript 补数任务放入本地 queue。
+2. 后台 worker drain queue 时读取 Codex `transcript_path` 指向的 rollout JSONL，只解析 `token_count`、`turn_context`、`task_complete` 和 tool end 等元数据字段，通过会话累计 token 的前后差值补齐 turn 级 token，并补齐 turn / tool duration。
 
 如果 hook payload 缺少 `transcript_path`，后台 worker 可只读 Codex 本地 state SQLite，按 `session_id` 查询 `rollout_path` 作为 transcript 定位兜底。该 SQLite 只作为 Codex 内部状态的只读辅助来源，不作为 `himan-tracker` 事实源。
 
@@ -335,7 +335,7 @@ type AgentAdapter = {
 - JSONL 使用 append-only。
 - 单条事件必须是一行合法 JSON。
 - `queue/` 只保存已经 normalized 的事件批次，不保存 prompt、response、代码内容、stdout/stderr、shell args 或明文仓库路径。
-- Codex 补数任务可以暂存 `transcript_path`、`session_id`、`turn_id` 和发生时间，用于后台读取 token 计数字段；队列仍不得保存 prompt、response、代码内容或 stdout/stderr。
+- Codex 补数任务可以暂存 `transcript_path`、`session_id`、`turn_id`、`tool_use_id`、`tool_name` 和发生时间，用于后台读取 token 与耗时元数据字段；队列仍不得保存 prompt、response、代码内容或 stdout/stderr。
 - 多进程写入时使用文件锁或 SQLite ingestion 队列，避免交错写。
 - 文件权限建议为 `0600`，目录权限建议为 `0700`。
 
@@ -516,7 +516,7 @@ himan-tracker summary --since 7d
 - average latency
 - success rate
 - top agents
-- top capabilities by token
+- top capabilities by token, invocation, and average duration
 
 ### 8.2 `agents`
 
@@ -530,7 +530,27 @@ himan-tracker agents --date 2026-05-12
 agent | model | sessions | turns | tokens | avg latency | success rate
 ```
 
-### 8.3 `capabilities`
+### 8.3 `turns`
+
+```bash
+himan-tracker turns --since 7d
+```
+
+输出建议列：
+
+```text
+time | agent | model | turn | duration | tokens | status
+```
+
+支持参数：
+
+```text
+--since 7d
+--agent codex
+--limit 20
+```
+
+### 8.4 `capabilities`
 
 ```bash
 himan-tracker capabilities --since 30d
@@ -550,7 +570,9 @@ type | name | invocations | tokens | duration | token share | time share | succe
 --agent codex|claude-code
 ```
 
-### 8.4 `unused`
+Codex hook input 不直接提供耗时字段。Codex adapter 在后台 enrichment 阶段从 transcript 的 `task_complete.duration_ms` 补齐 turn 耗时，从 `exec_command_end`、`mcp_tool_call_end`、`patch_apply_end` 等 tool end 事件补齐 capability 耗时。skill 没有 Codex 结构化执行事件，默认用同一 turn 的 duration 作为估算。
+
+### 8.5 `unused`
 
 ```bash
 himan-tracker unused --since 30d
@@ -562,7 +584,7 @@ himan-tracker unused --since 30d
 type | name | last_used_at | historical_invocations | historical_tokens
 ```
 
-### 8.5 `ingest`
+### 8.6 `ingest`
 
 ```bash
 himan-tracker ingest
@@ -574,7 +596,7 @@ himan-tracker ingest
 - 支持 `--rebuild` 删除并重建投影数据库。
 - 支持 `--from <path>` 从指定 JSONL 导入。
 
-### 8.6 `collect`
+### 8.7 `collect`
 
 ```bash
 himan-tracker collect --agent codex
@@ -589,7 +611,7 @@ himan-tracker collect --agent codex
 - hook 场景使用 `--quiet` 关闭 stdout summary。
 - `--sync --strict` 只用于人工验证，不能用于 Codex hook。
 
-### 8.7 `setup`
+### 8.8 `setup`
 
 ```bash
 pnpm cli setup
@@ -606,7 +628,25 @@ pnpm cli setup -g
 - helper 进入当前源码项目目录并调用 `pnpm cli collect --agent codex --quiet`，吞掉 stdout/stderr 并始终 `exit 0`。
 - 默认配置 `UserPromptSubmit`、`PostToolUse` 和 `Stop`，用于显式 skill、capability 使用和 turn summary。
 
-### 8.8 `doctor`
+### 8.9 `cleanup`
+
+```bash
+himan-tracker cleanup --all
+himan-tracker cleanup --before 2026-05-01
+himan-tracker cleanup --from 2026-05-01 --to 2026-05-07
+himan-tracker cleanup --older-than 30d
+```
+
+用途：
+
+- 删除 `events/*.jsonl` 和 `errors/*.jsonl` 原始日志分片。
+- 支持 `--all`、`--before <date>`、`--from/--to`、`--older-than <period>` 四种清理范围。
+- `--before` 删除指定日期之前的分片，不包含当天；`--from/--to` 使用包含边界的日期区间。
+- 支持 `--dry-run` 预览删除范围。
+- 不删除 `himan.sqlite`，保留已经导入的统计结果。
+- 不删除 `queue/`，避免丢弃尚未落入 JSONL 和 SQLite 的待处理事件。
+
+### 8.10 `doctor`
 
 ```bash
 himan-tracker doctor

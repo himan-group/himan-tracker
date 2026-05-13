@@ -19,8 +19,9 @@
 | 隐私默认值 | 已实现，默认不采集内容，仓库路径默认 hash，shell command 默认不保存参数 |
 | JSONL 事件日志 | 已实现，`events/YYYY-MM-DD.jsonl` 保存 normalized events，`errors/YYYY-MM-DD.jsonl` 保存采集错误 |
 | SQLite 投影 | 已实现，`ingest` 可把 JSONL 导入 `himan.sqlite` 并重算每日统计 |
-| CLI 报表 | 已实现 `summary`、`agents`、`capabilities`、`unused` |
-| Agent 事件采集 | 已实现 `collect --agent codex`，默认异步入队并后台写入事件日志；Codex token 会在后台从 transcript 补齐 |
+| CLI 报表 | 已实现 `summary`、`agents`、`turns`、`capabilities`、`unused` |
+| 原始日志清理 | 已实现 `cleanup`，可按全部、截止日期、日期区间或保留窗口清理 JSONL 原始日志并保留 SQLite 统计 |
+| Agent 事件采集 | 已实现 `collect --agent codex`，默认异步入队并后台写入事件日志；Codex token 和耗时会在后台从 transcript 补齐 |
 | Codex hooks 安装 | 已实现 `setup --agent codex`，默认安装到当前项目，支持 `-g, --global` 全局安装 |
 | 发布版安装 | 尚未发布，安装方式发布后补充 |
 
@@ -145,9 +146,9 @@ pnpm cli unused --since 30d
 1. 运行 `pnpm cli doctor` 初始化本地数据目录。
 2. 在当前源码项目中运行 `pnpm cli setup` 安装当前项目 Codex hooks，或运行 `pnpm cli setup -g` 安装全局 Codex hooks。
 3. Codex hook 会把 `UserPromptSubmit`、`PostToolUse` 和 `Stop` payload 通过 stdin 传给 `pnpm cli collect --agent codex --quiet`。
-4. `collect` 立即入队并返回，后台 worker 异步写入 JSONL，并在 `Stop` 后从 Codex `transcript_path` 补齐 turn token；即使采集失败，默认也返回 0，不影响 Codex 原流程。
+4. `collect` 立即入队并返回，后台 worker 异步写入 JSONL，并从 Codex `transcript_path` 补齐 turn token、turn duration 和 tool duration；即使采集失败，默认也返回 0，不影响 Codex 原流程。
 5. 运行 `pnpm cli ingest`，把事件日志导入 SQLite 投影。
-6. 使用 `summary`、`agents` 和 `capabilities` 查看 Codex 使用情况。
+6. 使用 `summary`、`agents`、`turns` 和 `capabilities` 查看 Codex 使用情况。
 
 Hook / wrapper 中推荐使用的命令：
 
@@ -203,7 +204,7 @@ pnpm cli summary --since 7d
 }
 ```
 
-接入时不需要自己生成 `event_id`，`himan-tracker` 会用稳定字段生成幂等 ID。`session_id` 和 `turn_id` 应保持 Codex 会话内稳定；不知道 token 或耗时时可以省略字段。Codex hooks 提供 `transcript_path` 时，后台 worker 会只读取 token 计数字段来补齐报表，不保存 prompt、response 或代码内容。`UserPromptSubmit` 中显式写出的 `$skill-name` 会被提取为 skill 调用，原始 prompt 不会写入事件日志。默认隐私策略会丢弃 prompt、response、代码内容、stdout/stderr、shell 参数和明文仓库路径，只保留用于报表的元数据和仓库 hash。
+接入时不需要自己生成 `event_id`，`himan-tracker` 会用稳定字段生成幂等 ID。`session_id` 和 `turn_id` 应保持 Codex 会话内稳定；不知道 token 或耗时时可以省略字段。Codex hooks 提供 `transcript_path` 时，后台 worker 会只读取 token 和耗时相关字段来补齐报表，不保存 prompt、response 或代码内容。`UserPromptSubmit` 中显式写出的 `$skill-name` 会被提取为 skill 调用，原始 prompt 不会写入事件日志。默认隐私策略会丢弃 prompt、response、代码内容、stdout/stderr、shell 参数和明文仓库路径，只保留用于报表的元数据和仓库 hash。
 
 项目级安装写入当前仓库的 `.codex/`，只有该项目被 Codex 信任后才会加载；全局安装写入 `~/.codex`，会在所有 Codex 项目中生效。
 
@@ -390,6 +391,42 @@ pnpm cli ingest --rebuild
 
 `--rebuild` 会删除并重新生成 `himan.sqlite`、`himan.sqlite-shm` 和 `himan.sqlite-wal`，再从 JSONL 重新导入。
 
+### `cleanup`
+
+清理本地 JSONL 原始日志，保留已经导入 SQLite 的统计结果。这个命令只删除 `events/*.jsonl`、`errors/*.jsonl` 和旧版单文件原始日志，不删除 `himan.sqlite`，也不清理尚未 drain 的 `queue/`。
+
+预览全部可删除的原始日志：
+
+```bash
+pnpm cli cleanup --all --dry-run
+```
+
+清理全部原始日志：
+
+```bash
+pnpm cli cleanup --all
+```
+
+清理某个日期区间，包含起止日期：
+
+```bash
+pnpm cli cleanup --from 2026-05-01 --to 2026-05-07
+```
+
+清理某天之前的日志，不包含当天：
+
+```bash
+pnpm cli cleanup --before 2026-05-01
+```
+
+清理指定保留窗口之前的日志，例如保留最近 30 天，删除更早的原始分片：
+
+```bash
+pnpm cli cleanup --older-than 30d
+```
+
+`--before` 是开区间截止日期，`--from/--to` 是包含边界的日期区间。`--older-than` 支持 `d`、`w`、`m`，按天、周、30 天月计算。清理后现有报表仍可读取 SQLite 中的统计结果；但如果之后运行 `ingest --rebuild`，被删除的原始 JSONL 无法再用于重建历史统计。
+
 ### `summary`
 
 查看时间范围内的总体使用情况。
@@ -398,7 +435,7 @@ pnpm cli ingest --rebuild
 pnpm cli summary --since 7d
 ```
 
-输出包含 session 数、turn 数、token 总量、平均延迟、成功率、Top agents 和 Top capabilities。
+输出包含 session 数、turn 数、token 总量、平均延迟、成功率、Top agents 和 Top capabilities。Top capabilities 会展示调用次数、token 和平均耗时。报表中的 token 总量使用 1000 进制的紧凑单位显示，例如 `1.25K`、`3.56M`、`1.2G`。
 
 ### `agents`
 
@@ -409,6 +446,20 @@ pnpm cli agents --date 2026-05-12
 ```
 
 如果不传 `--date`，命令会使用当天日期。
+
+### `turns`
+
+查看最近一段时间内的逐轮对话耗时、token 和状态。
+
+```bash
+pnpm cli turns --since 7d
+```
+
+可按 agent 过滤，并限制输出行数：
+
+```bash
+pnpm cli turns --since 30d --agent codex --limit 50
+```
 
 ### `capabilities`
 
@@ -432,6 +483,8 @@ pnpm cli capabilities --since 30d --sort duration
 - `tokens`
 - `duration`
 - `failures`
+
+Codex hooks 不直接提供耗时字段。himan-tracker 会在后台从 Codex transcript 的 `task_complete` 和 tool end 事件补齐 turn / tool duration；skill 暂无 Codex 结构化执行事件，报表中的 skill duration 使用该 skill 所在 turn 的耗时作为估算。
 
 ### `unused`
 

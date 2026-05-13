@@ -3,9 +3,9 @@ import type { SqliteDatabase } from "../storage/sqlite.js";
 import { formatDateRange, type DateRange } from "./dateRange.js";
 import {
   formatDurationMs,
-  formatNullableNumber,
   formatSuccessRate,
   formatTable,
+  formatTokenCount,
 } from "./formatTable.js";
 
 export type CapabilitySort = "invocations" | "tokens" | "duration" | "failures";
@@ -101,7 +101,7 @@ export function renderCapabilityReport(
         row.capability_type,
         row.capability_name,
         String(row.invocation_count),
-        formatNullableNumber(row.total_tokens),
+        formatTokenCount(row.total_tokens),
         formatDurationMs(row.duration_ms),
         formatSuccessRate(row.success_count, row.failure_count),
         String(row.estimated_token_count),
