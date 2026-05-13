@@ -44,9 +44,12 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20.11
+          node-version: 22.14
           cache: pnpm
           registry-url: https://registry.npmjs.org
+
+      - name: Setup npm for trusted publishing
+        run: npm install -g npm@^11.5.1
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

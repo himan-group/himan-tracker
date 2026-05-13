@@ -18,6 +18,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Changed npm publish workflow configuration to publish scoped packages explicitly as public and use npm Trusted Publishing's supported Node/npm versions.
 - Changed package metadata from a private local package to the planned npm package name `@hi-man/himan-tracker`.
 - Documented the current Codex integration workflow in README.
 - Changed generated Codex hook helpers to run `pnpm cli collect` from the source checkout while no npm package is published.

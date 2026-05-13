@@ -89,7 +89,9 @@ GitHub Actions 发布流程：
 - PR 合入 `master` 前会运行 `.github/workflows/pr-verify.yml`，执行 typecheck、test、build 和 `npm pack --dry-run`。
 - PR 合入 `master` 前会运行 `.github/workflows/pr-version-check.yml`，检查 `v{version}` tag 和 npm 上的同版本包是否已存在。
 - merge 或 push 到 `master` 后，`.github/workflows/publish-npm.yml` 会重新验证、通过 npm Trusted Publishing 发布，并在发布成功后创建 `v{version}` tag。
-- npm Trusted Publisher 需要在 npm 包设置中指向 GitHub 仓库和 `publish-npm.yml` workflow；不要提交包含 token 的 `.npmrc`。
+- npm 上必须先存在 `hi-man` organization，或者发布账号必须拥有这个 scope 的发布权限；否则首次发布 `@hi-man/himan-tracker` 会返回 registry 404。
+- npm Trusted Publisher 需要在 npm 包设置中指向 GitHub 仓库 `himan-group/himan-tracker` 和 workflow filename `publish-npm.yml`；不要提交包含 token 的 `.npmrc`。
+- publish workflow 使用 Node.js `22.14` 和 npm `^11.5.1`，以满足 npm Trusted Publishing 的 OIDC 要求。Trusted Publishing 会自动生成 provenance，不需要在发布命令里手动加 `--provenance`。
 - 只在发布基础设施或认证失败时手动 rerun publish workflow，不要用它发布任意旧 commit。
 
 如果 npm 发布成功但 tag 推送失败，可在对应 release commit 上手动恢复：
