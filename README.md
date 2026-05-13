@@ -9,6 +9,7 @@
 - [x] JSONL 本地日志
 - [x] SQLite 查询投影
 - [x] summary、agents、turns、capabilities、capability-events 和 unused 报表
+- [x] 本地报表 Web server
 - [x] 原始日志清理
 - [ ] Claude Code 采集
 
@@ -27,12 +28,14 @@ himan-tracker doctor
 himan-tracker setup
 himan-tracker ingest
 himan-tracker summary --since 7d
+himan-tracker server start
 ```
 
 - `doctor` 检查并初始化本地数据目录。
 - `setup` 为当前项目安装 Codex hooks。
 - `ingest` 将本地 JSONL 事件导入 SQLite。
 - `summary` 查看最近使用总览。
+- `server start` 启动本地报表页面，并定时增量导入事件。
 
 安装全局 Codex hooks：
 
@@ -54,6 +57,9 @@ himan-tracker setup --dry-run
 | `himan-tracker setup` | 为当前项目安装 Codex hooks |
 | `himan-tracker setup -g` | 安装全局 Codex hooks |
 | `himan-tracker ingest` | 将 `events/*.jsonl` 导入 SQLite |
+| `himan-tracker server start` | 启动本地报表 Web server |
+| `himan-tracker server status` | 查看本地报表 Web server 状态 |
+| `himan-tracker server stop` | 停止本地报表 Web server |
 | `himan-tracker summary --since 7d` | 查看最近 7 天总览 |
 | `himan-tracker agents --date 2026-05-12` | 查看某天的 agent / model 使用 |
 | `himan-tracker turns --since 7d --limit 50` | 查看逐 turn 明细 |
@@ -78,6 +84,8 @@ himan-tracker setup --dry-run
 ~/.himan-tracker/errors/YYYY-MM-DD.jsonl
 ~/.himan-tracker/queue/
 ~/.himan-tracker/himan.sqlite
+~/.himan-tracker/server-state.json
+~/.himan-tracker/server.log
 ```
 
 默认隐私行为：

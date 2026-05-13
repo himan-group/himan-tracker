@@ -56,6 +56,7 @@ capability 类型目前包括：
 4. `collect` 立即入队并返回，后台 worker 异步写入 JSONL，并从 Codex `transcript_path` 补齐 turn token、turn duration、MCP tool 调用和可推断的 skill 使用。
 5. 运行 `himan-tracker ingest`，把事件日志导入 SQLite 投影。
 6. 使用 `summary`、`agents`、`turns`、`capabilities`、`capability-events` 和 `unused` 查看使用情况。
+7. 运行 `himan-tracker server start`，启动本地报表页面，并让它按固定间隔增量导入事件。
 
 ## 与 Codex 集成
 
@@ -206,6 +207,40 @@ himan-tracker ingest --rebuild
 ```
 
 `--rebuild` 会删除并重新生成 `himan.sqlite`、`himan.sqlite-shm` 和 `himan.sqlite-wal`，再从 JSONL 重新导入。
+
+### `server`
+
+启动、停止和查看本地报表 Web server。server 默认只监听 `127.0.0.1`，启动后会立即执行一次增量 `ingest`，之后按固定间隔继续导入 `events/*.jsonl`。
+
+```bash
+himan-tracker server start
+```
+
+默认地址是：
+
+```text
+http://127.0.0.1:5127
+```
+
+可调整监听地址、端口、报表范围和导入间隔：
+
+```bash
+himan-tracker server start --host 127.0.0.1 --port 5127 --since 7d --interval 300
+```
+
+查看状态和停止：
+
+```bash
+himan-tracker server status
+himan-tracker server stop
+```
+
+server 状态和日志写在 tracker home 下：
+
+```text
+~/.himan-tracker/server-state.json
+~/.himan-tracker/server.log
+```
 
 ### `cleanup`
 
@@ -358,6 +393,8 @@ himan-tracker unused --since 30d
 ~/.himan-tracker/queue/
 ~/.himan-tracker/himan.sqlite
 ~/.himan-tracker/locks/
+~/.himan-tracker/server-state.json
+~/.himan-tracker/server.log
 ```
 
 使用其他目录：
@@ -474,6 +511,8 @@ HIMAN_TRACKER_HOME=/custom/path himan-tracker doctor
 ### 为什么 `summary` 显示没有数据？
 
 报表读取的是 SQLite 投影。先确认 `events/*.jsonl` 中有合法 normalized events，然后运行 `himan-tracker ingest`；如果事件在外部文件中，运行 `himan-tracker ingest --from ./events.jsonl`。
+
+如果使用本地页面，运行 `himan-tracker server start` 后 server 会先执行一次增量导入，并在后台按 `--interval` 周期继续导入。
 
 ### JSONL 和 SQLite 分别有什么用？
 

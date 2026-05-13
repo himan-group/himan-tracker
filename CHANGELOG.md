@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Added `server start`, `server status`, and `server stop` to run a local report Web server that periodically ingests JSONL events and serves dashboard pages.
+
 ### Changed
 
 - Changed capability reports to distinguish explicit, inferred, observed, and unknown invocation origins instead of showing the misleading `Estimated tokens` column.
