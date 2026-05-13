@@ -6,7 +6,7 @@
     "repo": "https://git.garena.com/detao.li/himan-resource.git",
     "repoId": "https_git.garena.com_detao.li_himan-resource"
   },
-  "updatedAt": "2026-05-12T08:33:26.246Z",
+  "updatedAt": "2026-05-13T03:57:04.358Z",
   "resources": [
     {
       "type": "skill",
@@ -17,6 +17,16 @@
       ],
       "mode": "copy",
       "updatedAt": "2026-05-12T03:45:10.839Z"
+    },
+    {
+      "type": "skill",
+      "name": "common-git-commit",
+      "version": "0.0.2",
+      "agents": [
+        "codex"
+      ],
+      "mode": "copy",
+      "updatedAt": "2026-05-13T03:57:04.358Z"
     },
     {
       "type": "skill",

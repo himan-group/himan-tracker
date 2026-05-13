@@ -1,4 +1,4 @@
 interface:
   display_name: "Common Git Commit"
-  short_description: "Create one or more clean Git commits from the current diff."
-  default_prompt: "Analyze the current branch changes, split them into logical commits when needed, and create the commit(s) without pushing."
+  short_description: "Create clean local commits with fast targeted diff inspection."
+  default_prompt: "Quickly inspect the current project changes, split only when clearly needed, and create the local commit(s) without pushing."
