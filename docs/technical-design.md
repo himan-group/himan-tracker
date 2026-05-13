@@ -277,11 +277,11 @@ MVP 报表应展示该字段，避免把估算值表达成精确值。
 Codex hooks 的 `PostToolUse` 和 `Stop` payload 不保证直接提供 token 或耗时字段。MVP 的 Codex adapter 采用两段式处理：
 
 1. hook 主路径只解析轻量字段、生成 normalized events，并把 `Stop` 和 `PostToolUse` 对应的 transcript 补数任务放入本地 queue。
-2. 后台 worker drain queue 时读取 Codex `transcript_path` 指向的 rollout JSONL，只解析 `token_count`、`turn_context`、`task_complete` 和 tool end 等元数据字段，通过会话累计 token 的前后差值补齐 turn 级 token，并补齐 turn / tool duration。
+2. 后台 worker drain queue 时读取 Codex `transcript_path` 指向的 rollout JSONL，只解析 `token_count`、`turn_context`、`task_complete`、`mcp_tool_call_end`、tool call start 和读取 `SKILL.md` 的工具调用等元数据字段，通过会话累计 token 的前后差值补齐 turn 级 token，并补齐 turn / tool duration、transcript-derived MCP tool 调用和可推断的 skill 使用。
 
 如果 hook payload 缺少 `transcript_path`，后台 worker 可只读 Codex 本地 state SQLite，按 `session_id` 查询 `rollout_path` 作为 transcript 定位兜底。该 SQLite 只作为 Codex 内部状态的只读辅助来源，不作为 `himan-tracker` 事实源。
 
-Codex 当前没有官方结构化 skill 调用事件。MVP 只统计 `UserPromptSubmit.prompt` 中显式出现的 `$skill-name`，并在提取 skill 名称后丢弃原始 prompt；这类事件标记为 `capability_type=skill`、`attribution_confidence=exact`。其他启发式 skill 识别暂不进入默认统计。
+Codex 当前没有官方结构化 skill 调用事件。MVP 统计两类 skill 信号：`UserPromptSubmit.prompt` 中显式出现的 `$skill-name` 标记为 `attribution_confidence=exact`；transcript 中读取 `SKILL.md` 的 shell tool call 只提取 skill 名称并标记为 `attribution_confidence=estimated`。两者都不得把原始 prompt、shell 参数或 `SKILL.md` 内容写入事件日志。
 
 ### 5.3 Adapter 接口
 
@@ -570,9 +570,35 @@ type | name | invocations | tokens | duration | token share | time share | succe
 --agent codex|claude-code
 ```
 
-Codex hook input 不直接提供耗时字段。Codex adapter 在后台 enrichment 阶段从 transcript 的 `task_complete.duration_ms` 补齐 turn 耗时，从 `exec_command_end`、`mcp_tool_call_end`、`patch_apply_end` 等 tool end 事件补齐 capability 耗时。skill 没有 Codex 结构化执行事件，默认用同一 turn 的 duration 作为估算。
+Codex hook input 不直接提供耗时字段。Codex adapter 在后台 enrichment 阶段从 transcript 的 `task_complete.duration_ms` 补齐 turn 耗时，从 `mcp_tool_call_end` 和其他 tool end 事件补齐 capability 耗时；如果 hook 没有发出对应 `PostToolUse`，会从 transcript 的 `mcp_tool_call_end` 合成 MCP tool capability usage。skill 没有 Codex 结构化执行事件，默认用同一 turn 的 duration 作为估算。
 
-### 8.5 `unused`
+### 8.5 `capability-events`
+
+```bash
+himan-tracker capability-events --type skill --name common-git-commit --since 30d
+```
+
+输出建议列：
+
+```text
+time | agent | model | turn | duration | basis | tokens | status | adopted | confidence
+```
+
+用途：查看某个 capability 的逐次调用记录，便于对比 skill、MCP tool、plugin、内置工具或 shell command 优化前后的耗时、token 和状态变化。
+
+支持参数：
+
+```text
+--since 30d
+--type skill|mcp_tool|plugin|builtin_tool|shell_command|unknown
+--name <capability-name>
+--agent codex|claude-code
+--limit 50
+```
+
+`--type` 和 `--name` 必填。`basis` 用于标记耗时来源：`event` 表示 capability 事件直接提供，`turn` 表示使用同一 turn 的耗时估算，`n/a` 表示未知。
+
+### 8.6 `unused`
 
 ```bash
 himan-tracker unused --since 30d

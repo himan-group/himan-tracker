@@ -3,6 +3,7 @@ import { Command, Option } from "commander";
 
 import { runAgents } from "./commands/agents.js";
 import { runCleanup } from "./commands/cleanup.js";
+import { runCapabilityEvents } from "./commands/capabilityEvents.js";
 import { runCapabilities } from "./commands/capabilities.js";
 import { runCollect } from "./commands/collect.js";
 import { runDoctor } from "./commands/doctor.js";
@@ -179,6 +180,28 @@ type CapabilitiesCommandOptions = {
   sort?: string;
   type?: string;
   agent?: string;
+};
+
+program
+  .command("capability-events")
+  .description("Show individual capability usage records for a date range")
+  .option("--since <period>", "Date range such as 7d, 4w, or 1m", "30d")
+  .requiredOption("--type <type>", "Capability type to inspect")
+  .requiredOption("--name <name>", "Capability name to inspect")
+  .option("--agent <agent>", "Filter by agent")
+  .option("--limit <count>", "Maximum events to show, between 1 and 200", "50")
+  .action(async (options: CapabilityEventsCommandOptions) => {
+    const result = await runCapabilityEvents(options);
+    console.log(result.lines.join("\n"));
+    process.exitCode = result.ok ? 0 : 1;
+  });
+
+type CapabilityEventsCommandOptions = {
+  since?: string;
+  type?: string;
+  name?: string;
+  agent?: string;
+  limit?: string;
 };
 
 program

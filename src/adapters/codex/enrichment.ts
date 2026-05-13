@@ -6,11 +6,32 @@ import Database from "better-sqlite3";
 
 import { classifyCapability } from "../../normalizer/capabilityClassifier.js";
 import { validateNormalizedEvent } from "../../normalizer/eventSchema.js";
-import type { NormalizedEvent, TokenUsage } from "../../types/events.js";
+import { createEventId } from "../../normalizer/normalizeEvent.js";
+import type {
+  AttributionConfidence,
+  CapabilityType,
+  CapabilityUsageEvent,
+  EventStatus,
+  NormalizedEvent,
+  TokenUsage,
+} from "../../types/events.js";
 
 type RawRecord = Record<string, unknown>;
 
 const TOKEN_TIMESTAMP_TOLERANCE_MS = 5_000;
+const SKILL_NAME_SOURCE = "[a-z][a-z0-9]*(?:[-:][a-z0-9]+)*";
+const SKILL_NAME_PATTERN = new RegExp(`^${SKILL_NAME_SOURCE}$`);
+const SKILL_PATH_PATTERNS = [
+  new RegExp(
+    `(?:^|[^A-Za-z0-9_-])(?:\\.agents\\/skills|\\.codex\\/skills(?:\\/[^/\\s"']+)?|skills)\\/(${SKILL_NAME_SOURCE})\\/SKILL\\.md\\b`,
+    "g",
+  ),
+  new RegExp(
+    `\\/(?:\\.agents\\/skills|\\.codex\\/skills(?:\\/[^/\\s"']+)?|skills)\\/(${SKILL_NAME_SOURCE})\\/SKILL\\.md\\b`,
+    "g",
+  ),
+  new RegExp(`\\/skill\\/(${SKILL_NAME_SOURCE})\\/[^/\\s"']+\\/SKILL\\.md\\b`, "g"),
+];
 
 export type CodexStopEnrichmentTask = {
   kind: "codex-stop";
@@ -45,6 +66,22 @@ type TranscriptTurnUsage = {
   model: string | null;
   tokenUsage: TokenUsage | null;
   durationMs: number | null;
+  capabilities: TranscriptCapabilityUsage[];
+};
+
+type TranscriptCapabilityUsage = {
+  occurred_at: string;
+  turn_id: string | null;
+  capability_type: Extract<CapabilityType, "skill" | "mcp_tool">;
+  capability_name: string;
+  duration_ms: number | null;
+  status: EventStatus;
+  attribution_confidence: AttributionConfidence;
+};
+
+type TranscriptToolCallStart = {
+  timestampMs: number;
+  turnId: string | null;
 };
 
 type CodexThreadRow = {
@@ -137,6 +174,7 @@ export async function enrichCodexEvents(
         occurredAt: task.occurred_at,
       });
       mergeTurnUsage(enrichedEvents, task, usage);
+      mergeTranscriptCapabilities(enrichedEvents, task, usage.capabilities);
     } catch (error) {
       errors.push({
         phase: "codex_enrich",
@@ -166,6 +204,10 @@ async function parseTranscriptTurnUsage(options: {
 
   const rawTranscript = await readFile(options.transcriptPath, "utf8");
   const tokenSnapshots: TokenSnapshot[] = [];
+  const toolCallStarts = new Map<string, TranscriptToolCallStart>();
+  const capabilities: TranscriptCapabilityUsage[] = [];
+  const skillCapabilityKeys = new Set<string>();
+  let currentTurnId: string | null = null;
   let latestMatchingTurnStartMs: number | null = null;
   let latestTaskStartMs: number | null = null;
   let model: string | null = null;
@@ -189,9 +231,49 @@ async function parseTranscriptTurnUsage(options: {
     if (record.type === "turn_context") {
       const payload = getRecord(record.payload);
       const turnId = getString(payload?.turn_id);
+      currentTurnId = turnId ?? currentTurnId;
       if (!options.turnId || turnId === options.turnId) {
         latestMatchingTurnStartMs = timestampMs;
         model = getString(payload?.model) ?? model;
+      }
+      continue;
+    }
+
+    const payload = getRecord(record.payload);
+    if (!payload) {
+      continue;
+    }
+
+    if (
+      record.type === "response_item" &&
+      (payload.type === "function_call" || payload.type === "custom_tool_call")
+    ) {
+      const callId = getString(payload.call_id);
+      if (callId) {
+        toolCallStarts.set(callId, {
+          timestampMs,
+          turnId: currentTurnId,
+        });
+      }
+
+      if (shouldCollectTranscriptCapability(currentTurnId, options.turnId)) {
+        for (const skillName of extractSkillNamesFromToolCall(payload)) {
+          const key = `${currentTurnId ?? ""}\u001f${skillName}`;
+          if (skillCapabilityKeys.has(key)) {
+            continue;
+          }
+
+          skillCapabilityKeys.add(key);
+          capabilities.push({
+            occurred_at: getString(record.timestamp) ?? options.occurredAt,
+            turn_id: currentTurnId,
+            capability_type: "skill",
+            capability_name: skillName,
+            duration_ms: null,
+            status: "unknown",
+            attribution_confidence: "estimated",
+          });
+        }
       }
       continue;
     }
@@ -200,7 +282,6 @@ async function parseTranscriptTurnUsage(options: {
       continue;
     }
 
-    const payload = getRecord(record.payload);
     if (payload?.type === "task_complete") {
       const payloadTurnId = getString(payload.turn_id);
       if (!options.turnId || payloadTurnId === options.turnId) {
@@ -210,7 +291,40 @@ async function parseTranscriptTurnUsage(options: {
     }
 
     if (payload?.type === "task_started") {
-      latestTaskStartMs = timestampMs;
+      const payloadTurnId = getString(payload.turn_id);
+      currentTurnId = payloadTurnId ?? currentTurnId;
+      if (!options.turnId || payloadTurnId === options.turnId) {
+        latestTaskStartMs = timestampMs;
+      }
+      continue;
+    }
+
+    if (payload?.type === "mcp_tool_call_end") {
+      const callId = getString(payload.call_id);
+      const callStart = callId ? toolCallStarts.get(callId) : undefined;
+      const payloadTurnId = getString(payload.turn_id) ?? callStart?.turnId ?? currentTurnId;
+      const invocation = getRecord(payload.invocation);
+      const server = getString(invocation?.server);
+      const tool = getString(invocation?.tool);
+
+      if (server && tool && shouldCollectTranscriptCapability(payloadTurnId, options.turnId)) {
+        const directDuration = parseDurationMs(payload.duration) ?? getInteger(payload.duration_ms);
+        const inferredDuration =
+          directDuration ??
+          (callStart && timestampMs >= callStart.timestampMs
+            ? timestampMs - callStart.timestampMs
+            : null);
+
+        capabilities.push({
+          occurred_at: getString(record.timestamp) ?? options.occurredAt,
+          turn_id: payloadTurnId,
+          capability_type: "mcp_tool",
+          capability_name: `${server}.${tool}`,
+          duration_ms: inferredDuration,
+          status: getMcpResultStatus(payload.result),
+          attribution_confidence: "exact",
+        });
+      }
       continue;
     }
 
@@ -227,7 +341,7 @@ async function parseTranscriptTurnUsage(options: {
 
   const startMs = latestTaskStartMs ?? latestMatchingTurnStartMs;
   if (startMs === null) {
-    return { model, tokenUsage: null, durationMs };
+    return { model, tokenUsage: null, durationMs, capabilities };
   }
 
   const endSnapshot = findLatestSnapshot(
@@ -235,7 +349,7 @@ async function parseTranscriptTurnUsage(options: {
     (snapshot) => snapshot.timestampMs <= stopMs + TOKEN_TIMESTAMP_TOLERANCE_MS,
   );
   if (!endSnapshot) {
-    return { model, tokenUsage: null, durationMs };
+    return { model, tokenUsage: null, durationMs, capabilities };
   }
 
   const baselineSnapshot = findLatestSnapshot(
@@ -252,6 +366,7 @@ async function parseTranscriptTurnUsage(options: {
     model,
     tokenUsage: subtractTokenUsage(endSnapshot.usage, baseline),
     durationMs,
+    capabilities,
   };
 }
 
@@ -371,6 +486,202 @@ function mergeToolDuration(
   if (capability?.event_type === "capability_usage") {
     capability.duration_ms ??= durationMs;
   }
+}
+
+function mergeTranscriptCapabilities(
+  events: NormalizedEvent[],
+  task: CodexStopEnrichmentTask,
+  capabilities: TranscriptCapabilityUsage[],
+): void {
+  for (const capability of capabilities) {
+    const event = createTranscriptCapabilityEvent(events, task, capability);
+    if (!hasSimilarCapabilityEvent(events, event)) {
+      events.push(event);
+    }
+  }
+}
+
+function createTranscriptCapabilityEvent(
+  events: NormalizedEvent[],
+  task: CodexStopEnrichmentTask,
+  capability: TranscriptCapabilityUsage,
+): CapabilityUsageEvent {
+  const sourceEvent = findSourceEventForTranscriptCapability(events, task, capability.turn_id);
+  const eventWithoutId: Omit<CapabilityUsageEvent, "event_id"> = {
+    schema_version: "1.0",
+    event_type: "capability_usage",
+    occurred_at: capability.occurred_at,
+    agent: "codex",
+    source: "codex-transcript",
+    session_id: task.session_id,
+    turn_id: capability.turn_id,
+    repo_hash: sourceEvent?.repo_hash ?? null,
+    status: capability.status,
+    capability_type: capability.capability_type,
+    capability_name: capability.capability_name,
+    duration_ms: capability.duration_ms,
+    input_tokens: null,
+    output_tokens: null,
+    total_tokens: null,
+    adopted: "unknown",
+    attribution_confidence: capability.attribution_confidence,
+  };
+
+  return validateNormalizedEvent({
+    ...eventWithoutId,
+    event_id: createEventId(eventWithoutId),
+  }) as CapabilityUsageEvent;
+}
+
+function findSourceEventForTranscriptCapability(
+  events: NormalizedEvent[],
+  task: CodexStopEnrichmentTask,
+  turnId: string | null,
+): NormalizedEvent | undefined {
+  return (
+    events.find(
+      (event) =>
+        event.session_id === task.session_id &&
+        event.turn_id === turnId &&
+        event.repo_hash,
+    ) ??
+    events.find((event) => event.session_id === task.session_id && event.repo_hash)
+  );
+}
+
+function hasSimilarCapabilityEvent(
+  events: NormalizedEvent[],
+  candidate: CapabilityUsageEvent,
+): boolean {
+  return events.some((event) => {
+    if (
+      event.event_type !== "capability_usage" ||
+      event.session_id !== candidate.session_id ||
+      event.turn_id !== candidate.turn_id ||
+      event.capability_type !== candidate.capability_type ||
+      event.capability_name !== candidate.capability_name
+    ) {
+      return false;
+    }
+
+    if (candidate.capability_type === "skill") {
+      return true;
+    }
+
+    const eventMs = parseTimestampMs(event.occurred_at);
+    const candidateMs = parseTimestampMs(candidate.occurred_at);
+    return (
+      event.event_id === candidate.event_id ||
+      (eventMs !== null &&
+        candidateMs !== null &&
+        Math.abs(eventMs - candidateMs) <= TOKEN_TIMESTAMP_TOLERANCE_MS)
+    );
+  });
+}
+
+function shouldCollectTranscriptCapability(
+  transcriptTurnId: string | null,
+  stopTurnId: string | null,
+): boolean {
+  return Boolean(stopTurnId && transcriptTurnId === stopTurnId);
+}
+
+function extractSkillNamesFromToolCall(payload: RawRecord): string[] {
+  const toolName = getString(payload.name);
+  if (!isShellToolName(toolName)) {
+    return [];
+  }
+
+  const rawArguments = getString(payload.arguments);
+  if (!rawArguments || !rawArguments.includes("SKILL.md")) {
+    return [];
+  }
+
+  const skills = new Set<string>();
+  for (const text of collectArgumentStrings(rawArguments)) {
+    for (const skillName of extractSkillNamesFromSkillPaths(text)) {
+      skills.add(skillName);
+    }
+  }
+
+  return [...skills];
+}
+
+function isShellToolName(toolName: string | undefined): boolean {
+  return (
+    toolName === "exec_command" ||
+    toolName === "functions.exec_command" ||
+    toolName === "shell_command"
+  );
+}
+
+function collectArgumentStrings(rawArguments: string): string[] {
+  const values = new Set<string>([rawArguments]);
+
+  try {
+    collectStringValues(JSON.parse(rawArguments) as unknown, values);
+  } catch {
+    return [...values];
+  }
+
+  return [...values];
+}
+
+function collectStringValues(value: unknown, output: Set<string>): void {
+  if (typeof value === "string") {
+    output.add(value);
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectStringValues(item, output);
+    }
+    return;
+  }
+
+  const record = getRecord(value);
+  if (!record) {
+    return;
+  }
+
+  for (const item of Object.values(record)) {
+    collectStringValues(item, output);
+  }
+}
+
+function extractSkillNamesFromSkillPaths(text: string): string[] {
+  const skills = new Set<string>();
+
+  for (const pattern of SKILL_PATH_PATTERNS) {
+    pattern.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(text)) !== null) {
+      const skillName = match[1];
+      if (skillName && SKILL_NAME_PATTERN.test(skillName)) {
+        skills.add(skillName);
+      }
+    }
+  }
+
+  return [...skills];
+}
+
+function getMcpResultStatus(resultValue: unknown): EventStatus {
+  const result = getRecord(resultValue);
+  if (!result) {
+    return "unknown";
+  }
+
+  if (Object.hasOwn(result, "Ok") || Object.hasOwn(result, "ok")) {
+    return "success";
+  }
+
+  if (Object.hasOwn(result, "Err") || Object.hasOwn(result, "err")) {
+    return "failure";
+  }
+
+  return "unknown";
 }
 
 async function resolveTranscriptPathFromCodexState(sessionId: string): Promise<string | null> {

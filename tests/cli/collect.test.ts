@@ -236,6 +236,142 @@ describe("collect codex command", () => {
     }
   });
 
+  it("adds transcript-derived Codex MCP tools and inferred skill usage", async () => {
+    const homeDir = await mkdtemp(path.join(tmpdir(), "himan-collect-codex-test-"));
+    const paths = resolveTrackerPaths({ HIMAN_TRACKER_HOME: homeDir });
+    const transcriptPath = path.join(homeDir, "codex-rollout.jsonl");
+    const rawPayload = JSON.stringify({
+      events: [
+        {
+          hook_event_name: "Stop",
+          session_id: "session_456",
+          turn_id: "turn_456",
+          cwd: "/Users/example/project",
+          model: "gpt-5.5",
+          transcript_path: transcriptPath,
+        },
+      ],
+    });
+
+    try {
+      await writeUserConfig(paths, createTestConfig());
+      await writeFile(
+        transcriptPath,
+        [
+          JSON.stringify({
+            type: "event_msg",
+            timestamp: "2026-05-13T12:00:00.000Z",
+            payload: {
+              type: "task_started",
+              turn_id: "turn_456",
+            },
+          }),
+          JSON.stringify({
+            type: "turn_context",
+            timestamp: "2026-05-13T12:00:01.000Z",
+            payload: {
+              turn_id: "turn_456",
+              model: "gpt-5.5",
+            },
+          }),
+          JSON.stringify({
+            type: "response_item",
+            timestamp: "2026-05-13T12:00:02.000Z",
+            payload: {
+              type: "function_call",
+              name: "exec_command",
+              call_id: "call_skill_456",
+              arguments: JSON.stringify({
+                cmd: "sed -n '1,220p' .agents/skills/common-dev-pattern/SKILL.md",
+                workdir: "/Users/example/project",
+              }),
+            },
+          }),
+          JSON.stringify({
+            type: "response_item",
+            timestamp: "2026-05-13T12:00:03.000Z",
+            payload: {
+              type: "function_call",
+              name: "search_openai_docs",
+              call_id: "call_mcp_456",
+              arguments: JSON.stringify({ query: "should not be stored" }),
+            },
+          }),
+          JSON.stringify({
+            type: "event_msg",
+            timestamp: "2026-05-13T12:00:03.900Z",
+            payload: {
+              type: "mcp_tool_call_end",
+              call_id: "call_mcp_456",
+              invocation: {
+                server: "openaiDeveloperDocs",
+                tool: "search_openai_docs",
+                arguments: {
+                  query: "should not be stored",
+                },
+              },
+              duration: {
+                secs: 0,
+                nanos: 900_000_000,
+              },
+              result: {
+                Ok: [],
+              },
+            },
+          }),
+          JSON.stringify({
+            type: "event_msg",
+            timestamp: "2026-05-13T12:00:04.000Z",
+            payload: {
+              type: "task_complete",
+              turn_id: "turn_456",
+              duration_ms: 4_000,
+            },
+          }),
+        ].join("\n"),
+        "utf8",
+      );
+
+      const result = await runCollect({
+        paths,
+        input: rawPayload,
+        sync: true,
+        startWorker: false,
+        now: () => new Date("2026-05-13T12:00:05.000Z"),
+      });
+
+      assert.equal(result.ok, true);
+      assert.match(result.lines.join("\n"), /Queued enrichments: 1/);
+      assert.match(result.lines.join("\n"), /Written events: 3/);
+
+      const rawEvents = await readFile(
+        resolveDailyEventsPath(paths, "2026-05-13T12:00:05.000Z"),
+        "utf8",
+      );
+      const events = rawEvents
+        .trimEnd()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      const skill = events.find((event) => event.capability_type === "skill");
+      const mcpTool = events.find(
+        (event) => event.capability_name === "openaiDeveloperDocs.search_openai_docs",
+      );
+
+      assert.equal(skill?.capability_name, "common-dev-pattern");
+      assert.equal(skill?.source, "codex-transcript");
+      assert.equal(skill?.attribution_confidence, "estimated");
+      assert.equal(mcpTool?.capability_type, "mcp_tool");
+      assert.equal(mcpTool?.source, "codex-transcript");
+      assert.equal(mcpTool?.status, "success");
+      assert.equal(mcpTool?.duration_ms, 900);
+      assert.equal(rawEvents.includes("should not be stored"), false);
+      assert.equal(rawEvents.includes("SKILL.md"), false);
+      assert.equal(rawEvents.includes("/Users/example/project"), false);
+    } finally {
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
   it("reports invalid JSON input without blocking by default", async () => {
     const homeDir = await mkdtemp(path.join(tmpdir(), "himan-collect-codex-test-"));
     const paths = resolveTrackerPaths({ HIMAN_TRACKER_HOME: homeDir });

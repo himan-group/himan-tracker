@@ -8,6 +8,7 @@ import { ingestEvents } from "../../src/aggregator/aggregateEvents.js";
 import { toLocalDate } from "../../src/aggregator/dailyStats.js";
 import { appendJsonlRecord } from "../../src/collector/jsonlWriter.js";
 import { runAgents } from "../../src/cli/commands/agents.js";
+import { runCapabilityEvents } from "../../src/cli/commands/capabilityEvents.js";
 import { runCapabilities } from "../../src/cli/commands/capabilities.js";
 import { runSummary } from "../../src/cli/commands/summary.js";
 import { runTurns } from "../../src/cli/commands/turns.js";
@@ -68,6 +69,43 @@ describe("report commands", () => {
       assert.equal(skills.ok, true);
       assert.match(skills.lines.join("\n"), /common-git-commit/);
       assert.match(skills.lines.join("\n"), /1\.0s/);
+
+      const mcpEvents = await runCapabilityEvents({
+        paths,
+        since: "30d",
+        type: "mcp_tool",
+        name: "github.create_pull_request",
+        agent: "codex",
+        now: () => now,
+      });
+      assert.equal(mcpEvents.ok, true);
+      assert.match(mcpEvents.lines.join("\n"), /Capability events/);
+      assert.match(mcpEvents.lines.join("\n"), /200ms/);
+      assert.match(mcpEvents.lines.join("\n"), /event/);
+      assert.match(mcpEvents.lines.join("\n"), /1\.25K/);
+      assert.match(mcpEvents.lines.join("\n"), /failure/);
+
+      const skillEvents = await runCapabilityEvents({
+        paths,
+        since: "30d",
+        type: "skill",
+        name: "common-git-commit",
+        agent: "codex",
+        now: () => now,
+      });
+      assert.equal(skillEvents.ok, true);
+      assert.match(skillEvents.lines.join("\n"), /common-git-commit/);
+      assert.match(skillEvents.lines.join("\n"), /1\.0s/);
+      assert.match(skillEvents.lines.join("\n"), /turn/);
+
+      const invalidEvents = await runCapabilityEvents({
+        paths,
+        since: "30d",
+        type: "skill",
+        now: () => now,
+      });
+      assert.equal(invalidEvents.ok, false);
+      assert.match(invalidEvents.lines.join("\n"), /Expected --name/);
 
       const turns = await runTurns({
         paths,

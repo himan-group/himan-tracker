@@ -10,8 +10,10 @@ All notable changes to this project will be documented in this file.
 - Added `setup --agent codex` to install Codex hooks for the current project by default, with `-g, --global` for global installation.
 - Added asynchronous Codex transcript enrichment to fill turn token counts without blocking hooks.
 - Added explicit `$skill-name` extraction from Codex `UserPromptSubmit` payloads without persisting prompt content.
+- Added transcript-derived Codex MCP tool usage and inferred skill usage from `SKILL.md` reads without persisting arguments or content.
 - Added `cleanup` to delete raw JSONL logs by all, cutoff date, date range, or age while retaining SQLite statistics.
 - Added `turns` to show per-turn duration, token, and status details.
+- Added `capability-events` to inspect individual skill, MCP tool, plugin, built-in tool, shell command, or unknown capability calls.
 
 ### Changed
 
