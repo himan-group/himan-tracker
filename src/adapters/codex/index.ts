@@ -38,12 +38,17 @@ function parsePromptSubmit(
     return [];
   }
 
-  return getStringArray(event.skills).map((skill) => ({
+  const skills = new Set([
+    ...getStringArray(event.skills),
+    ...extractExplicitSkillNames(getString(event.prompt)),
+  ]);
+
+  return [...skills].map((skill) => ({
     ...base,
     event_type: "capability_usage",
     capability_type: "skill",
     capability_name: skill,
-    attribution_confidence: "unknown",
+    attribution_confidence: "exact",
   }));
 }
 
@@ -160,6 +165,25 @@ function getStatus(value: unknown): EventStatus | undefined {
   return value === "success" || value === "failure" || value === "cancelled" || value === "unknown"
     ? value
     : undefined;
+}
+
+function extractExplicitSkillNames(prompt: string | undefined): string[] {
+  if (!prompt) {
+    return [];
+  }
+
+  const skills = new Set<string>();
+  const skillPattern = /(?:^|[\s([`"'，。！？；：])\$([a-z][a-z0-9]*(?:[-:][a-z0-9]+)+)\b/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = skillPattern.exec(prompt)) !== null) {
+    const skillName = match[1];
+    if (skillName) {
+      skills.add(skillName);
+    }
+  }
+
+  return [...skills];
 }
 
 function isRecord(value: unknown): value is RawRecord {

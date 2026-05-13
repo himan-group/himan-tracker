@@ -129,8 +129,15 @@ async function hasHimanTrackerCodexHooks(codexDir: string): Promise<boolean> {
   return Boolean(
     configToml &&
       hooksJson &&
-      /(^|\n)\s*codex_hooks\s*=\s*true\s*(\n|$)/.test(configToml) &&
+      hasCodexHooksFeatureEnabled(configToml) &&
       hooksJson.includes("himan-tracker-collect.sh"),
+  );
+}
+
+function hasCodexHooksFeatureEnabled(configToml: string): boolean {
+  return (
+    /(^|\n)\s*hooks\s*=\s*true\s*(\n|$)/.test(configToml) ||
+    /(^|\n)\s*codex_hooks\s*=\s*true\s*(\n|$)/.test(configToml)
   );
 }
 

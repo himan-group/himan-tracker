@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
@@ -72,6 +72,130 @@ describe("collect codex command", () => {
       assert.equal(queuedPayload.includes("/Users/example/project"), false);
       assert.equal(queuedPayload.includes("repo_path"), false);
       assert.equal(queuedPayload.includes("repo_hash"), true);
+    } finally {
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("enriches Codex stop events from transcript token snapshots during drain", async () => {
+    const homeDir = await mkdtemp(path.join(tmpdir(), "himan-collect-codex-test-"));
+    const paths = resolveTrackerPaths({ HIMAN_TRACKER_HOME: homeDir });
+    const transcriptPath = path.join(homeDir, "codex-rollout.jsonl");
+    const rawPayload = JSON.stringify({
+      events: [
+        {
+          hook_event_name: "UserPromptSubmit",
+          session_id: "session_123",
+          turn_id: "turn_123",
+          cwd: "/Users/example/project",
+          prompt: "请使用 $common-git-commit，不要保存这段 prompt",
+        },
+        {
+          hook_event_name: "Stop",
+          session_id: "session_123",
+          turn_id: "turn_123",
+          cwd: "/Users/example/project",
+          model: "gpt-5.5",
+          transcript_path: transcriptPath,
+        },
+      ],
+    });
+
+    try {
+      await writeUserConfig(paths, createTestConfig());
+      await writeFile(
+        transcriptPath,
+        [
+          JSON.stringify({
+            type: "event_msg",
+            timestamp: "2026-05-12T11:59:59.000Z",
+            payload: {
+              type: "token_count",
+              info: {
+                total_token_usage: {
+                  input_tokens: 100,
+                  output_tokens: 20,
+                  total_tokens: 120,
+                },
+              },
+            },
+          }),
+          JSON.stringify({
+            type: "event_msg",
+            timestamp: "2026-05-12T12:00:00.000Z",
+            payload: {
+              type: "task_started",
+            },
+          }),
+          JSON.stringify({
+            type: "turn_context",
+            timestamp: "2026-05-12T12:00:01.000Z",
+            payload: {
+              turn_id: "turn_123",
+              model: "gpt-5.5",
+            },
+          }),
+          JSON.stringify({
+            type: "event_msg",
+            timestamp: "2026-05-12T12:00:02.000Z",
+            payload: {
+              type: "token_count",
+              info: {
+                total_token_usage: {
+                  input_tokens: 100,
+                  output_tokens: 20,
+                  total_tokens: 120,
+                },
+              },
+            },
+          }),
+          JSON.stringify({
+            type: "event_msg",
+            timestamp: "2026-05-12T12:00:08.000Z",
+            payload: {
+              type: "token_count",
+              info: {
+                total_token_usage: {
+                  input_tokens: 250,
+                  output_tokens: 70,
+                  total_tokens: 320,
+                },
+              },
+            },
+          }),
+        ].join("\n"),
+        "utf8",
+      );
+
+      const result = await runCollect({
+        paths,
+        input: rawPayload,
+        sync: true,
+        startWorker: false,
+        now: () => new Date("2026-05-12T12:00:10.000Z"),
+      });
+
+      assert.equal(result.ok, true);
+      assert.match(result.lines.join("\n"), /Queued enrichments: 1/);
+      assert.match(result.lines.join("\n"), /Written events: 2/);
+
+      const rawEvents = await readFile(
+        resolveDailyEventsPath(paths, "2026-05-12T12:00:10.000Z"),
+        "utf8",
+      );
+      const events = rawEvents
+        .trimEnd()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      const turn = events.find((event) => event.event_type === "turn_summary");
+      const skill = events.find((event) => event.capability_type === "skill");
+
+      assert.equal(turn?.input_tokens, 150);
+      assert.equal(turn?.output_tokens, 50);
+      assert.equal(turn?.total_tokens, 200);
+      assert.equal(skill?.capability_name, "common-git-commit");
+      assert.equal(rawEvents.includes("不要保存这段 prompt"), false);
+      assert.equal(rawEvents.includes("/Users/example/project"), false);
     } finally {
       await rm(homeDir, { recursive: true, force: true });
     }

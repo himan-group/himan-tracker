@@ -20,7 +20,7 @@
 | JSONL 事件日志 | 已实现，`events/YYYY-MM-DD.jsonl` 保存 normalized events，`errors/YYYY-MM-DD.jsonl` 保存采集错误 |
 | SQLite 投影 | 已实现，`ingest` 可把 JSONL 导入 `himan.sqlite` 并重算每日统计 |
 | CLI 报表 | 已实现 `summary`、`agents`、`capabilities`、`unused` |
-| Agent 事件采集 | 已实现 `collect --agent codex`，默认异步入队并后台写入事件日志 |
+| Agent 事件采集 | 已实现 `collect --agent codex`，默认异步入队并后台写入事件日志；Codex token 会在后台从 transcript 补齐 |
 | Codex hooks 安装 | 已实现 `setup --agent codex`，默认安装到当前项目，支持 `-g, --global` 全局安装 |
 | 发布版安装 | 尚未发布，安装方式发布后补充 |
 
@@ -28,7 +28,7 @@
 
 `himan-tracker` 使用两层本地数据：
 
-- `queue/`：hook 调用的轻量投递队列。`collect` 会先把已脱敏的 normalized events 入队，再由后台 worker 写入最终 JSONL，避免阻塞 Codex。
+- `queue/`：hook 调用的轻量投递队列。`collect` 会先把已脱敏的 normalized events 和必要的补数任务入队，再由后台 worker 写入最终 JSONL，避免阻塞 Codex。
 - `events/YYYY-MM-DD.jsonl`：按天分片的 append-only 原始事件日志，一行一个 normalized event，适合调试、回放和重新聚合。
 - `errors/YYYY-MM-DD.jsonl`：按天分片的 collector 错误日志。
 - `himan.sqlite`：由 JSONL 投影出的本地查询数据库，服务 CLI 报表。
@@ -144,8 +144,8 @@ pnpm cli unused --since 30d
 
 1. 运行 `pnpm cli doctor` 初始化本地数据目录。
 2. 在当前源码项目中运行 `pnpm cli setup` 安装当前项目 Codex hooks，或运行 `pnpm cli setup -g` 安装全局 Codex hooks。
-3. Codex hook 会把 JSON payload 通过 stdin 传给 `pnpm cli collect --agent codex --quiet`。
-4. `collect` 立即入队并返回，后台 worker 异步写入 JSONL；即使采集失败，默认也返回 0，不影响 Codex 原流程。
+3. Codex hook 会把 `UserPromptSubmit`、`PostToolUse` 和 `Stop` payload 通过 stdin 传给 `pnpm cli collect --agent codex --quiet`。
+4. `collect` 立即入队并返回，后台 worker 异步写入 JSONL，并在 `Stop` 后从 Codex `transcript_path` 补齐 turn token；即使采集失败，默认也返回 0，不影响 Codex 原流程。
 5. 运行 `pnpm cli ingest`，把事件日志导入 SQLite 投影。
 6. 使用 `summary`、`agents` 和 `capabilities` 查看 Codex 使用情况。
 
@@ -193,6 +193,7 @@ pnpm cli summary --since 7d
       "turn_id": "codex_t_001",
       "repo_path": "/Users/example/project",
       "model": "gpt-5.1-codex",
+      "transcript_path": "/path/to/codex-rollout.jsonl",
       "duration_ms": 10000,
       "input_tokens": 100,
       "output_tokens": 20,
@@ -202,7 +203,7 @@ pnpm cli summary --since 7d
 }
 ```
 
-接入时不需要自己生成 `event_id`，`himan-tracker` 会用稳定字段生成幂等 ID。`session_id` 和 `turn_id` 应保持 Codex 会话内稳定；不知道 token 或耗时时可以省略字段。默认隐私策略会丢弃 prompt、response、代码内容、stdout/stderr、shell 参数和明文仓库路径，只保留用于报表的元数据和仓库 hash。
+接入时不需要自己生成 `event_id`，`himan-tracker` 会用稳定字段生成幂等 ID。`session_id` 和 `turn_id` 应保持 Codex 会话内稳定；不知道 token 或耗时时可以省略字段。Codex hooks 提供 `transcript_path` 时，后台 worker 会只读取 token 计数字段来补齐报表，不保存 prompt、response 或代码内容。`UserPromptSubmit` 中显式写出的 `$skill-name` 会被提取为 skill 调用，原始 prompt 不会写入事件日志。默认隐私策略会丢弃 prompt、response、代码内容、stdout/stderr、shell 参数和明文仓库路径，只保留用于报表的元数据和仓库 hash。
 
 项目级安装写入当前仓库的 `.codex/`，只有该项目被 Codex 信任后才会加载；全局安装写入 `~/.codex`，会在所有 Codex 项目中生效。
 
@@ -291,14 +292,25 @@ pnpm cli setup --dry-run
 
 ```toml
 [features]
-codex_hooks = true
+hooks = true
 ```
 
-并写入 `PostToolUse` 和 `Stop` hooks。配置形态类似：
+并写入 `UserPromptSubmit`、`PostToolUse` 和 `Stop` hooks。配置形态类似：
 
 ```json
 {
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/absolute/path/.codex/hooks/himan-tracker-collect.sh'",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "*",
@@ -497,6 +509,7 @@ HIMAN_TRACKER_HOME=/custom/path pnpm cli doctor
 - 模型名称
 - session / turn 标识
 - token 数量
+- Codex transcript 中的 token 计数字段
 - 请求耗时
 - capability 类型和名称
 - 成功、失败、取消或未知状态
@@ -520,7 +533,7 @@ JSONL 是事实源，按天保存在 `events/YYYY-MM-DD.jsonl` 中，保留可�
 
 ### token 归因一定准确吗？
 
-不一定。agent 或 hook 明确提供的数据会被标记为精确值；无法精确归因的数据应标记为 `estimated` 或 `unknown`。报表会展示 estimated token 计数，避免把估算值当作精确事实。
+不一定。Codex hook payload 本身通常不直接提供 token，当前实现会在后台从 Codex transcript 的 token 计数字段补齐 turn 级 token。capability 级 token 仍可能无法精确归因，无法精确归因的数据会保持为 `null`、`estimated` 或 `unknown`，避免把估算值当作精确事实。
 
 ### 会上传我的代码或 prompt 吗？
 

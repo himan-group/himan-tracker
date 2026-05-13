@@ -14,7 +14,7 @@
     "capability_name": "common-dev-pattern",
     "duration_ms": null,
     "adopted": "unknown",
-    "attribution_confidence": "unknown",
+    "attribution_confidence": "exact",
     "input_tokens": null,
     "output_tokens": null,
     "total_tokens": null

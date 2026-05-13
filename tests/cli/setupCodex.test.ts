@@ -31,7 +31,8 @@ describe("setup command", () => {
       const helperScript = await readFile(helperPath, "utf8");
       const helperStat = await stat(helperPath);
 
-      assert.equal(configToml, "[features]\ncodex_hooks = true\n");
+      assert.equal(configToml, "[features]\nhooks = true\n");
+      assert.equal(hooksJson.hooks.UserPromptSubmit.length, 1);
       assert.equal(hooksJson.hooks.PostToolUse.length, 1);
       assert.equal(hooksJson.hooks.Stop.length, 1);
       assert.match(
@@ -58,6 +59,7 @@ describe("setup command", () => {
       ) as CodexHooksJson;
 
       assert.equal(hooksJson.hooks.PostToolUse.length, 1);
+      assert.equal(hooksJson.hooks.UserPromptSubmit.length, 1);
       assert.equal(hooksJson.hooks.Stop.length, 1);
     } finally {
       await rm(cwd, { recursive: true, force: true });
@@ -96,7 +98,30 @@ describe("setup command", () => {
       const configToml = await readFile(path.join(codexDir, "config.toml"), "utf8");
 
       assert.equal(result.ok, true);
-      assert.equal(configToml, "[features]\ncodex_hooks = true\n");
+      assert.equal(configToml, "[features]\nhooks = true\n");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("removes deprecated Codex hook feature config while preserving other features", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "himan-setup-codex-config-test-"));
+
+    try {
+      const codexDir = path.join(cwd, ".codex");
+      await mkdir(codexDir, { recursive: true });
+      await writeFile(
+        path.join(codexDir, "config.toml"),
+        "[features]\ncodex_hooks = true\nshell_snapshot = true\n",
+        "utf8",
+      );
+
+      const result = await runSetup({ cwd });
+      const configToml = await readFile(path.join(codexDir, "config.toml"), "utf8");
+
+      assert.equal(result.ok, true);
+      assert.equal(configToml, "[features]\nhooks = true\nshell_snapshot = true\n");
+      assert.equal(configToml.includes("codex_hooks"), false);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -128,6 +153,11 @@ describe("setup command", () => {
 
 type CodexHooksJson = {
   hooks: {
+    UserPromptSubmit: Array<{
+      hooks: Array<{
+        command: string;
+      }>;
+    }>;
     PostToolUse: Array<{
       hooks: Array<{
         command: string;

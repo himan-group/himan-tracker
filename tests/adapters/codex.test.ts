@@ -91,6 +91,37 @@ describe("parseCodexHookPayload", () => {
     });
     assert.equal(JSON.stringify(adapterEvents).includes("do not store"), false);
   });
+
+  it("extracts explicit skill mentions from UserPromptSubmit without storing prompt content", () => {
+    const adapterEvents = parseCodexHookPayload(
+      {
+        hook_event_name: "UserPromptSubmit",
+        session_id: "session_123",
+        turn_id: "turn_123",
+        cwd: "/Users/example/project",
+        prompt: "请使用 $common-git-commit，并忽略 $HOME 和 $py",
+      },
+      { observedAt: "2026-05-12T12:00:00.000Z" },
+    );
+
+    assert.deepEqual(adapterEvents, [
+      {
+        occurred_at: "2026-05-12T12:00:00.000Z",
+        agent: "codex",
+        source: "codex-hook",
+        session_id: "session_123",
+        turn_id: "turn_123",
+        repo_path: "/Users/example/project",
+        status: undefined,
+        event_type: "capability_usage",
+        capability_type: "skill",
+        capability_name: "common-git-commit",
+        attribution_confidence: "exact",
+      },
+    ]);
+    assert.equal(JSON.stringify(adapterEvents).includes("请使用"), false);
+    assert.equal(JSON.stringify(adapterEvents).includes("HOME"), false);
+  });
 });
 
 async function readJson(filePath: string): Promise<unknown> {

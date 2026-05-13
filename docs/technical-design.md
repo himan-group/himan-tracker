@@ -91,6 +91,7 @@ hook collector 必须 fail-open：
 - hook 路径默认只做轻量解析、隐私脱敏和本地入队，真正写入事件日志由后台 worker 异步完成。
 - hook 默认 exit code 必须保持为 `0`；人工验证才使用 `--strict`。
 - hook 中建议使用 `--quiet`，避免 collector summary 写入 stdout 干扰 agent 流程。
+- 对 Codex 来说，token 补数应放在后台 worker 中读取 `transcript_path`，hook 主路径只入队补数任务。
 
 建议错误日志路径：
 
@@ -271,7 +272,18 @@ MVP 报表应展示该字段，避免把估算值表达成精确值。
 | `PostToolUse` | 记录工具调用结果、耗时、状态 | `capability_usage` |
 | `Stop` | 聚合 turn/session 摘要 | `turn_summary`、`session_summary` |
 
-### 5.2 Adapter 接口
+### 5.2 Codex Token 与 Skill 补数
+
+Codex hooks 的 `PostToolUse` 和 `Stop` payload 不保证直接提供 token 字段。MVP 的 Codex adapter 采用两段式处理：
+
+1. hook 主路径只解析轻量字段、生成 normalized events，并把 `Stop` 对应的 transcript 补数任务放入本地 queue。
+2. 后台 worker drain queue 时读取 Codex `transcript_path` 指向的 rollout JSONL，只解析 `token_count`、`turn_context` 和任务边界字段，通过会话累计 token 的前后差值补齐 turn 级 token。
+
+如果 hook payload 缺少 `transcript_path`，后台 worker 可只读 Codex 本地 state SQLite，按 `session_id` 查询 `rollout_path` 作为 transcript 定位兜底。该 SQLite 只作为 Codex 内部状态的只读辅助来源，不作为 `himan-tracker` 事实源。
+
+Codex 当前没有官方结构化 skill 调用事件。MVP 只统计 `UserPromptSubmit.prompt` 中显式出现的 `$skill-name`，并在提取 skill 名称后丢弃原始 prompt；这类事件标记为 `capability_type=skill`、`attribution_confidence=exact`。其他启发式 skill 识别暂不进入默认统计。
+
+### 5.3 Adapter 接口
 
 建议内部接口：
 
@@ -288,7 +300,7 @@ type AgentAdapter = {
 - Normalizer 负责补默认值、生成 `event_id`、校验 schema。
 - Collector 负责落盘，不理解 agent 业务细节。
 
-### 5.3 Capability 分类规则
+### 5.4 Capability 分类规则
 
 建议从高置信到低置信依次分类：
 
@@ -323,6 +335,7 @@ type AgentAdapter = {
 - JSONL 使用 append-only。
 - 单条事件必须是一行合法 JSON。
 - `queue/` 只保存已经 normalized 的事件批次，不保存 prompt、response、代码内容、stdout/stderr、shell args 或明文仓库路径。
+- Codex 补数任务可以暂存 `transcript_path`、`session_id`、`turn_id` 和发生时间，用于后台读取 token 计数字段；队列仍不得保存 prompt、response、代码内容或 stdout/stderr。
 - 多进程写入时使用文件锁或 SQLite ingestion 队列，避免交错写。
 - 文件权限建议为 `0600`，目录权限建议为 `0700`。
 
@@ -591,7 +604,7 @@ pnpm cli setup -g
 - `-g, --global` 把 Codex hooks 安装到全局 `~/.codex`。
 - 写入或合并 `config.toml` 和 `hooks.json`，并生成 `hooks/himan-tracker-collect.sh` helper。
 - helper 进入当前源码项目目录并调用 `pnpm cli collect --agent codex --quiet`，吞掉 stdout/stderr 并始终 `exit 0`。
-- 默认配置 `PostToolUse` 和 `Stop`，用于 capability 使用和 turn summary。
+- 默认配置 `UserPromptSubmit`、`PostToolUse` 和 `Stop`，用于显式 skill、capability 使用和 turn summary。
 
 ### 8.8 `doctor`
 
@@ -756,7 +769,7 @@ MVP 至少需要以下测试：
 
 ## 14. 后续可扩展点
 
-- OpenTelemetry exporter。
+- Codex OpenTelemetry 指标接入：官方指标包含 turn token、tool call、MCP call 和 hooks run。后续可评估提供本地 OTLP receiver 或配置生成器，作为比 transcript 解析更稳定的 token/tool 数据源。
 - Langfuse / Phoenix 集成。
 - Dashboard UI。
 - 团队级聚合。

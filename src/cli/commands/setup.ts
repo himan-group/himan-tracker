@@ -2,7 +2,7 @@ import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 
-const CODEX_HOOK_EVENTS = ["PostToolUse", "Stop"] as const;
+const CODEX_HOOK_EVENTS = ["UserPromptSubmit", "PostToolUse", "Stop"] as const;
 const HOOK_TIMEOUT_SECONDS = 5;
 
 export type SetupCommandOptions = {
@@ -183,7 +183,7 @@ function ensureCodexHooksFeature(configToml: string): string {
   const featuresMatch = normalizedConfig.match(/^(\s*)\[features\]\s*$/m);
 
   if (!featuresMatch || featuresMatch.index === undefined) {
-    return appendBlock(normalizedConfig, "[features]\ncodex_hooks = true\n");
+    return appendBlock(normalizedConfig, "[features]\nhooks = true\n");
   }
 
   const sectionStart = featuresMatch.index;
@@ -194,24 +194,30 @@ function ensureCodexHooksFeature(configToml: string): string {
       ? normalizedConfig.length
       : afterHeaderStart + nextSectionMatch.index;
   const beforeSection = normalizedConfig.slice(0, afterHeaderStart);
-  const sectionBody = normalizedConfig.slice(afterHeaderStart, sectionEnd);
+  const sectionBody = removeDeprecatedCodexHooksFeature(
+    normalizedConfig.slice(afterHeaderStart, sectionEnd),
+  );
   const afterSection = normalizedConfig.slice(sectionEnd);
 
-  if (/^[ \t]*codex_hooks[ \t]*=/m.test(sectionBody)) {
+  if (/^[ \t]*hooks[ \t]*=/m.test(sectionBody)) {
     return `${beforeSection}${sectionBody.replace(
-      /^([ \t]*)codex_hooks[ \t]*=.*$/m,
-      "$1codex_hooks = true",
+      /^([ \t]*)hooks[ \t]*=.*$/m,
+      "$1hooks = true",
     )}${afterSection}\n`;
   }
 
-  return `${beforeSection}\ncodex_hooks = true${sectionBody}${afterSection}\n`;
+  return `${beforeSection}\nhooks = true${sectionBody}${afterSection}\n`;
 }
 
 function expandInlineCodexHooksFeature(configToml: string): string {
   return configToml.replace(
-    /^(\s*)\[features\]\s+codex_hooks\s*=.*$/m,
-    "$1[features]\n$1codex_hooks = true",
+    /^(\s*)\[features\]\s+(?:codex_hooks|hooks)\s*=.*$/m,
+    "$1[features]\n$1hooks = true",
   );
+}
+
+function removeDeprecatedCodexHooksFeature(sectionBody: string): string {
+  return sectionBody.replace(/^[ \t]*codex_hooks[ \t]*=.*(?:\r?\n)?/gm, "");
 }
 
 function appendBlock(configToml: string, block: string): string {

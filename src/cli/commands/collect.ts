@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { collectCodexEnrichmentTasks } from "../../adapters/codex/enrichment.js";
 import { parseCodexHookPayload } from "../../adapters/codex/index.js";
 import {
   drainQueuedEvents,
@@ -61,6 +62,7 @@ export async function runCollect(
     const config = options.config ?? (await readOrCreateUserConfig(paths));
     const observedAt = now().toISOString();
     const adapterEvents = parseAgentPayload(agent, payload, observedAt);
+    const enrichments = collectAgentEnrichments(agent, payload, observedAt);
 
     let rejectedEvents = 0;
     let errorsLogged = 0;
@@ -87,6 +89,7 @@ export async function runCollect(
       agent,
       source,
       events: normalizedEvents,
+      enrichments,
       now,
     });
 
@@ -116,6 +119,7 @@ export async function runCollect(
         `Source: ${source}`,
         `Parsed events: ${adapterEvents.length}`,
         `Queued events: ${enqueueResult.eventCount}`,
+        `Queued enrichments: ${enqueueResult.enrichmentCount}`,
         `Queue file: ${enqueueResult.queued ? enqueueResult.queuePath : "n/a"}`,
         `Worker: ${workerStatus}`,
         `Rejected events: ${rejectedEvents}`,
@@ -176,6 +180,19 @@ function parseAgentPayload(
       return parseCodexHookPayload(payload, { observedAt });
     case "claude-code":
       throw new Error('Agent "claude-code" is not supported by collect yet');
+  }
+}
+
+function collectAgentEnrichments(
+  agent: AgentName,
+  payload: unknown,
+  observedAt: string,
+) {
+  switch (agent) {
+    case "codex":
+      return collectCodexEnrichmentTasks(payload, observedAt);
+    case "claude-code":
+      return [];
   }
 }
 
@@ -250,6 +267,7 @@ function formatDrainSummary(result: DrainQueuedEventsResult): string[] {
     `Queued events drained: ${result.queuedEvents}`,
     `Written events: ${result.writtenEvents}`,
     `Failed batches: ${result.failedBatches}`,
+    `Enrichment errors: ${result.enrichmentErrors}`,
     `Drain errors logged: ${result.errorsLogged}`,
   ];
 }

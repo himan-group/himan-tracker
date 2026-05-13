@@ -8,11 +8,15 @@ All notable changes to this project will be documented in this file.
 
 - Added `collect --agent codex` as a non-blocking Codex data entry point with a local async queue and hook-friendly `--quiet` mode.
 - Added `setup --agent codex` to install Codex hooks for the current project by default, with `-g, --global` for global installation.
+- Added asynchronous Codex transcript enrichment to fill turn token counts without blocking hooks.
+- Added explicit `$skill-name` extraction from Codex `UserPromptSubmit` payloads without persisting prompt content.
 
 ### Changed
 
 - Documented the current Codex integration workflow in README.
 - Changed generated Codex hook helpers to run `pnpm cli collect` from the source checkout while no npm package is published.
+- Changed Codex hook setup to include `UserPromptSubmit` alongside `PostToolUse` and `Stop`.
+- Changed generated Codex config to use `[features].hooks` and remove deprecated `[features].codex_hooks`.
 - Updated `doctor` to report collect queue, lock directory, and Codex hook readiness.
 - Changed local JSONL storage to daily `events/` and `errors/` shards, with `ingest` scanning event shards by default.
 
