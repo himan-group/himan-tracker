@@ -14,14 +14,28 @@ export type ClassifiedCapability = {
   confidence: ClassificationConfidence;
 };
 
-const BUILTIN_TOOL_NAMES = new Set([
+export const BUILTIN_TOOL_NAMES = [
+  "Bash",
+  "Edit",
+  "Glob",
+  "Grep",
+  "LS",
+  "MultiEdit",
+  "NotebookEdit",
+  "Read",
+  "TodoWrite",
+  "WebFetch",
+  "WebSearch",
+  "Write",
   "apply_patch",
   "image_gen.imagegen",
   "web.run",
   "functions.apply_patch",
   "functions.exec_command",
   "functions.update_plan",
-]);
+] as const;
+
+const BUILTIN_TOOL_NAME_SET = new Set<string>(BUILTIN_TOOL_NAMES);
 
 const SHELL_SOURCE_PATTERN = /\b(shell|exec|command|terminal)\b/i;
 
@@ -53,7 +67,7 @@ export function classifyCapability(input: CapabilityClassificationInput): Classi
     };
   }
 
-  if (BUILTIN_TOOL_NAMES.has(name)) {
+  if (BUILTIN_TOOL_NAME_SET.has(name)) {
     return {
       type: "builtin_tool",
       name,

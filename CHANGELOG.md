@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 - Changed capability reports to distinguish explicit, inferred, observed, and unknown invocation origins instead of showing the misleading `Estimated tokens` column.
 - Changed capability event records to persist and report source and invocation origin alongside attribution confidence.
+- Changed Codex inferred skill usage to consult project `himan.lock` when available, so transcript `SKILL.md` reads only count Codex skills installed by Himan.
+- Changed `summary` to show a `Top N capabilities` heading, show up to 10 top capabilities by default, and accept `--limit` for overriding the row count.
+- Added `--exclude-system` to `summary` and `capabilities` reports to hide built-in system capabilities such as `Bash` and `apply_patch`.
 
 ## [0.0.2] - 2026-05-13
 

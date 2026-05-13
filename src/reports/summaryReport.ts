@@ -7,6 +7,7 @@ import {
   formatTable,
   formatTokenCount,
 } from "./formatTable.js";
+import { createExcludeSystemCapabilityCondition } from "./systemCapabilityFilter.js";
 
 type SummaryAggregateRow = {
   row_count: number;
@@ -34,7 +35,20 @@ type TopCapabilityRow = {
   duration_ms: number | null;
 };
 
-export function renderSummaryReport(db: SqliteDatabase, range: DateRange): string[] {
+const TOP_AGENT_LIMIT = 5;
+const DEFAULT_TOP_CAPABILITY_LIMIT = 10;
+
+export type SummaryReportOptions = {
+  capabilityLimit?: number;
+  excludeSystem?: boolean;
+};
+
+export function renderSummaryReport(
+  db: SqliteDatabase,
+  range: DateRange,
+  options: SummaryReportOptions = {},
+): string[] {
+  const capabilityLimit = options.capabilityLimit ?? DEFAULT_TOP_CAPABILITY_LIMIT;
   const summary = db
     .prepare(
       `
@@ -78,9 +92,12 @@ export function renderSummaryReport(db: SqliteDatabase, range: DateRange): strin
     "",
     ...renderTopAgents(db, range),
     "",
-    "Top capabilities",
+    `Top ${capabilityLimit} capabilities`,
     "",
-    ...renderTopCapabilities(db, range),
+    ...renderTopCapabilities(db, range, {
+      excludeSystem: options.excludeSystem ?? false,
+      limit: capabilityLimit,
+    }),
   ];
 }
 
@@ -97,7 +114,7 @@ function renderTopAgents(db: SqliteDatabase, range: DateRange): string[] {
       where date between ? and ?
       group by agent, model
       order by coalesce(total_tokens, -1) desc, turn_count desc
-      limit 5
+      limit ${TOP_AGENT_LIMIT}
       `,
     )
     .all(range.startDate, range.endDate) as TopAgentRow[];
@@ -117,7 +134,25 @@ function renderTopAgents(db: SqliteDatabase, range: DateRange): string[] {
   );
 }
 
-function renderTopCapabilities(db: SqliteDatabase, range: DateRange): string[] {
+function renderTopCapabilities(
+  db: SqliteDatabase,
+  range: DateRange,
+  filters: {
+    excludeSystem: boolean;
+    limit: number;
+  },
+): string[] {
+  const clauses = ["date between ? and ?"];
+  const params: Array<string | number> = [range.startDate, range.endDate];
+
+  if (filters.excludeSystem) {
+    const condition = createExcludeSystemCapabilityCondition();
+    clauses.push(condition.sql);
+    params.push(...condition.params);
+  }
+
+  params.push(filters.limit);
+
   const rows = db
     .prepare(
       `
@@ -129,13 +164,13 @@ function renderTopCapabilities(db: SqliteDatabase, range: DateRange): string[] {
         case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens,
         case when count(duration_ms) = 0 then null else sum(duration_ms) end as duration_ms
       from daily_capability_stats
-      where date between ? and ?
+      where ${clauses.join(" and ")}
       group by agent, capability_type, capability_name
       order by coalesce(total_tokens, -1) desc, invocation_count desc
-      limit 5
+      limit ?
       `,
     )
-    .all(range.startDate, range.endDate) as TopCapabilityRow[];
+    .all(...params) as TopCapabilityRow[];
 
   if (rows.length === 0) {
     return ["No capability usage found."];
@@ -152,4 +187,13 @@ function renderTopCapabilities(db: SqliteDatabase, range: DateRange): string[] {
       formatAverageDurationMs(row.duration_ms, row.invocation_count),
     ]),
   );
+}
+
+export function parseSummaryLimit(limit: string | number | undefined): number {
+  const value =
+    typeof limit === "number" ? limit : Number(limit ?? DEFAULT_TOP_CAPABILITY_LIMIT);
+  if (!Number.isInteger(value) || value < 1 || value > 200) {
+    throw new Error("Expected --limit to be an integer between 1 and 200");
+  }
+  return value;
 }

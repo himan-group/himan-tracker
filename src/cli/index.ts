@@ -120,6 +120,8 @@ program
   .command("summary")
   .description("Show usage summary for a date range")
   .option("--since <period>", "Date range such as 7d, 4w, or 1m", "7d")
+  .option("--limit <count>", "Maximum top capabilities to show, between 1 and 200", "10")
+  .option("--exclude-system", "Exclude built-in system capabilities from Top capabilities")
   .action(async (options: SummaryCommandOptions) => {
     const result = await runSummary(options);
     console.log(result.lines.join("\n"));
@@ -128,6 +130,8 @@ program
 
 type SummaryCommandOptions = {
   since?: string;
+  limit?: string;
+  excludeSystem?: boolean;
 };
 
 program
@@ -169,6 +173,7 @@ program
   .option("--sort <field>", "Sort by invocations, tokens, duration, or failures", "tokens")
   .option("--type <type>", "Filter by capability type")
   .option("--agent <agent>", "Filter by agent")
+  .option("--exclude-system", "Exclude built-in system capabilities")
   .action(async (options: CapabilitiesCommandOptions) => {
     const result = await runCapabilities(options);
     console.log(result.lines.join("\n"));
@@ -180,6 +185,7 @@ type CapabilitiesCommandOptions = {
   sort?: string;
   type?: string;
   agent?: string;
+  excludeSystem?: boolean;
 };
 
 program

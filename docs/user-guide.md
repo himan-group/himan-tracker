@@ -79,9 +79,9 @@ himan-tracker summary --since 7d
 
 `--sync` 会在前台 drain 队列，适合人工验证；不要把它放进 Codex hook。`--strict` 会在验证失败时返回非 0，也只建议人工调试时使用。
 
-接入时不需要自己生成 `event_id`，`himan-tracker` 会用稳定字段生成幂等 ID。`session_id` 和 `turn_id` 应保持 Codex 会话内稳定；不知道 token 或耗时时可以省略字段。Codex hooks 提供 `transcript_path` 时，后台 worker 会只读取 token、耗时、MCP tool 结束事件，以及读取 `SKILL.md` 的工具调用元数据来补齐报表，不保存 prompt、response、代码内容、MCP 参数、stdout/stderr、shell 参数或明文仓库路径。
+接入时不需要自己生成 `event_id`，`himan-tracker` 会用稳定字段生成幂等 ID。`session_id` 和 `turn_id` 应保持 Codex 会话内稳定；不知道 token 或耗时时可以省略字段。Codex hooks 提供 `transcript_path` 时，后台 worker 会只读取 token、耗时、MCP tool 结束事件，以及读取 `SKILL.md` 的工具调用元数据来补齐报表。若能从工具调用参数或 workdir 定位到项目 `himan.lock`，推断出的 skill 还会用 Himan lock 中安装到 Codex 的 skill 清单确认。不保存 prompt、response、代码内容、MCP 参数、stdout/stderr、shell 参数、`himan.lock` source URL 或明文仓库路径。
 
-`UserPromptSubmit` 中显式写出的 `$skill-name` 会被提取为 `invocation_origin=explicit`、`attribution_confidence=exact` 的 skill 调用；从 `SKILL.md` 读取行为推断出的 skill 会标记为 `invocation_origin=inferred`、`attribution_confidence=estimated`。MCP/tool 结构化事件会标记为 `invocation_origin=observed`。
+`UserPromptSubmit` 中显式写出的 `$skill-name` 会被提取为 `invocation_origin=explicit`、`attribution_confidence=exact` 的 skill 调用；从 `SKILL.md` 读取行为推断出的 skill 会标记为 `invocation_origin=inferred`、`attribution_confidence=estimated`。当项目存在可读取的 `himan.lock` 时，未安装到 Codex 的 skill 不会因为 transcript 中出现 `SKILL.md` 路径而被统计。MCP/tool 结构化事件会标记为 `invocation_origin=observed`。
 
 项目级安装写入当前仓库的 `.codex/`，只有该项目被 Codex 信任后才会加载；全局安装写入 `~/.codex`，会在所有 Codex 项目中生效。
 
@@ -249,9 +249,11 @@ himan-tracker cleanup --older-than 30d
 
 ```bash
 himan-tracker summary --since 7d
+himan-tracker summary --since 7d --limit 20
+himan-tracker summary --since 7d --exclude-system
 ```
 
-输出包含 session 数、turn 数、token 总量、平均延迟、成功率、Top agents 和 Top capabilities。Top capabilities 会展示调用次数、token 和平均耗时。报表中的 token 总量使用 1000 进制的紧凑单位显示，例如 `1.25K`、`3.56M`、`1.2G`。
+输出包含 session 数、turn 数、token 总量、平均延迟、成功率、Top agents 和 `Top N capabilities`。`Top N capabilities` 默认展示 10 个，可用 `--limit` 调整为 1 到 200；可用 `--exclude-system` 排除 `Bash`、`apply_patch` 等系统自带 capability。Top capabilities 会展示调用次数、token 和平均耗时。报表中的 token 总量使用 1000 进制的紧凑单位显示，例如 `1.25K`、`3.56M`、`1.2G`。
 
 ### `agents`
 
@@ -291,6 +293,7 @@ himan-tracker capabilities --since 30d
 himan-tracker capabilities --since 30d --type mcp_tool
 himan-tracker capabilities --since 30d --agent codex
 himan-tracker capabilities --since 30d --sort duration
+himan-tracker capabilities --since 30d --exclude-system
 ```
 
 `--sort` 支持：
@@ -300,7 +303,7 @@ himan-tracker capabilities --since 30d --sort duration
 - `duration`
 - `failures`
 
-Codex hooks 不直接提供耗时字段。himan-tracker 会在后台从 Codex transcript 的 `task_complete`、`mcp_tool_call_end` 和 tool end 事件补齐 turn 或 tool duration；Codex 暂无官方结构化 skill 执行事件，因此从显式 `$skill-name` 或读取 `SKILL.md` 的工具调用推断 skill 使用。`capabilities` 报表会用 `Explicit`、`Inferred`、`Observed` 和 `Unknown` 列拆分调用来源；报表中的 skill duration 使用该 skill 所在 turn 的耗时作为估算。
+Codex hooks 不直接提供耗时字段。himan-tracker 会在后台从 Codex transcript 的 `task_complete`、`mcp_tool_call_end` 和 tool end 事件补齐 turn 或 tool duration；Codex 暂无官方结构化 skill 执行事件，因此从显式 `$skill-name` 或读取 `SKILL.md` 的工具调用推断 skill 使用。若能读取当前项目 `himan.lock`，读取 `SKILL.md` 推断出的 skill 会先按 lock 中的 Codex 安装记录过滤。`capabilities` 报表会用 `Explicit`、`Inferred`、`Observed` 和 `Unknown` 列拆分调用来源；报表中的 skill duration 使用该 skill 所在 turn 的耗时作为估算。
 
 ### `capability-events`
 

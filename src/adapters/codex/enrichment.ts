@@ -4,6 +4,7 @@ import path from "node:path";
 
 import Database from "better-sqlite3";
 
+import { readNearestHimanLockSkillNames } from "../himan/lockfile.js";
 import { classifyCapability } from "../../normalizer/capabilityClassifier.js";
 import { validateNormalizedEvent } from "../../normalizer/eventSchema.js";
 import { createEventId } from "../../normalizer/normalizeEvent.js";
@@ -33,6 +34,8 @@ const SKILL_PATH_PATTERNS = [
   ),
   new RegExp(`\\/skill\\/(${SKILL_NAME_SOURCE})\\/[^/\\s"']+\\/SKILL\\.md\\b`, "g"),
 ];
+const PROJECT_SKILL_ROOT_MARKERS = ["/.agents/skills/", "/.codex/skills/"];
+const ABSOLUTE_PATH_PATTERN = /\/[^\s"')]+/g;
 
 export type CodexStopEnrichmentTask = {
   kind: "codex-stop";
@@ -85,6 +88,13 @@ type TranscriptToolCallStart = {
   timestampMs: number;
   turnId: string | null;
 };
+
+type SkillPathEvidence = {
+  skillName: string;
+  candidateDirs: string[];
+};
+
+type HimanLockSkillCache = Map<string, Promise<Set<string> | null>>;
 
 type CodexThreadRow = {
   rollout_path?: string | null;
@@ -209,6 +219,7 @@ async function parseTranscriptTurnUsage(options: {
   const toolCallStarts = new Map<string, TranscriptToolCallStart>();
   const capabilities: TranscriptCapabilityUsage[] = [];
   const skillCapabilityKeys = new Set<string>();
+  const himanLockSkillCache: HimanLockSkillCache = new Map();
   let currentTurnId: string | null = null;
   let latestMatchingTurnStartMs: number | null = null;
   let latestTaskStartMs: number | null = null;
@@ -259,7 +270,10 @@ async function parseTranscriptTurnUsage(options: {
       }
 
       if (shouldCollectTranscriptCapability(currentTurnId, options.turnId)) {
-        for (const skillName of extractSkillNamesFromToolCall(payload)) {
+        for (const skillName of await extractSkillNamesFromToolCall(
+          payload,
+          himanLockSkillCache,
+        )) {
           const key = `${currentTurnId ?? ""}\u001f${skillName}`;
           if (skillCapabilityKeys.has(key)) {
             continue;
@@ -591,7 +605,10 @@ function shouldCollectTranscriptCapability(
   return Boolean(stopTurnId && transcriptTurnId === stopTurnId);
 }
 
-function extractSkillNamesFromToolCall(payload: RawRecord): string[] {
+async function extractSkillNamesFromToolCall(
+  payload: RawRecord,
+  himanLockSkillCache: HimanLockSkillCache,
+): Promise<string[]> {
   const toolName = getString(payload.name);
   if (!isShellToolName(toolName)) {
     return [];
@@ -603,9 +620,9 @@ function extractSkillNamesFromToolCall(payload: RawRecord): string[] {
   }
 
   const skills = new Set<string>();
-  for (const text of collectArgumentStrings(rawArguments)) {
-    for (const skillName of extractSkillNamesFromSkillPaths(text)) {
-      skills.add(skillName);
+  for (const evidence of collectSkillPathEvidence(rawArguments)) {
+    if (await isSkillAllowedByHimanLock(evidence, himanLockSkillCache)) {
+      skills.add(evidence.skillName);
     }
   }
 
@@ -655,6 +672,36 @@ function collectStringValues(value: unknown, output: Set<string>): void {
   }
 }
 
+function collectSkillPathEvidence(rawArguments: string): SkillPathEvidence[] {
+  const argumentStrings = collectArgumentStrings(rawArguments);
+  const fallbackCandidateDirs = collectFallbackCandidateDirs(argumentStrings);
+  const evidenceBySkill = new Map<string, Set<string>>();
+
+  for (const text of argumentStrings) {
+    const skillNames = extractSkillNamesFromSkillPaths(text);
+    if (skillNames.length === 0) {
+      continue;
+    }
+
+    const rootCandidates = extractProjectRootCandidatesFromSkillPaths(text);
+    for (const skillName of skillNames) {
+      const candidateDirs = evidenceBySkill.get(skillName) ?? new Set<string>();
+      for (const rootCandidate of rootCandidates) {
+        candidateDirs.add(rootCandidate);
+      }
+      for (const fallbackCandidateDir of fallbackCandidateDirs) {
+        candidateDirs.add(fallbackCandidateDir);
+      }
+      evidenceBySkill.set(skillName, candidateDirs);
+    }
+  }
+
+  return [...evidenceBySkill].map(([skillName, candidateDirs]) => ({
+    skillName,
+    candidateDirs: [...candidateDirs],
+  }));
+}
+
 function extractSkillNamesFromSkillPaths(text: string): string[] {
   const skills = new Set<string>();
 
@@ -670,6 +717,92 @@ function extractSkillNamesFromSkillPaths(text: string): string[] {
   }
 
   return [...skills];
+}
+
+function extractProjectRootCandidatesFromSkillPaths(text: string): string[] {
+  const roots = new Set<string>();
+  const pathMatches = text.matchAll(ABSOLUTE_PATH_PATTERN);
+
+  for (const match of pathMatches) {
+    const candidatePath = trimPathCandidate(match[0] ?? "");
+    if (!isLocalAbsolutePath(candidatePath)) {
+      continue;
+    }
+
+    for (const marker of PROJECT_SKILL_ROOT_MARKERS) {
+      const markerIndex = candidatePath.indexOf(marker);
+      if (markerIndex > 0) {
+        roots.add(candidatePath.slice(0, markerIndex));
+      }
+    }
+  }
+
+  return [...roots];
+}
+
+function collectFallbackCandidateDirs(argumentStrings: string[]): string[] {
+  const candidates = new Set<string>();
+
+  for (const text of argumentStrings) {
+    for (const match of text.matchAll(ABSOLUTE_PATH_PATTERN)) {
+      const candidatePath = trimPathCandidate(match[0] ?? "");
+      if (isLocalAbsolutePath(candidatePath) && !candidatePath.includes("SKILL.md")) {
+        candidates.add(candidatePath);
+      }
+    }
+  }
+
+  return [...candidates];
+}
+
+async function isSkillAllowedByHimanLock(
+  evidence: SkillPathEvidence,
+  himanLockSkillCache: HimanLockSkillCache,
+): Promise<boolean> {
+  if (evidence.candidateDirs.length === 0) {
+    return true;
+  }
+
+  let foundHimanLock = false;
+  for (const candidateDir of evidence.candidateDirs) {
+    const skills = await readHimanLockSkills(candidateDir, himanLockSkillCache);
+    if (!skills) {
+      continue;
+    }
+
+    foundHimanLock = true;
+    if (skills.has(evidence.skillName)) {
+      return true;
+    }
+  }
+
+  return !foundHimanLock;
+}
+
+function readHimanLockSkills(
+  candidateDir: string,
+  himanLockSkillCache: HimanLockSkillCache,
+): Promise<Set<string> | null> {
+  const cacheKey = path.resolve(candidateDir);
+  const cached = himanLockSkillCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const skills = readNearestHimanLockSkillNames({
+    startDir: cacheKey,
+    agent: "codex",
+  });
+  himanLockSkillCache.set(cacheKey, skills);
+  return skills;
+}
+
+function trimPathCandidate(candidatePath: string): string {
+  return candidatePath.replace(/[.,;:]+$/g, "");
+}
+
+function isLocalAbsolutePath(candidatePath: string): boolean {
+  return path.isAbsolute(candidatePath) && !candidatePath.startsWith("//");
 }
 
 function getMcpResultStatus(resultValue: unknown): EventStatus {

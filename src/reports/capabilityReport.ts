@@ -7,6 +7,7 @@ import {
   formatTable,
   formatTokenCount,
 } from "./formatTable.js";
+import { createExcludeSystemCapabilityCondition } from "./systemCapabilityFilter.js";
 
 export type CapabilitySort = "invocations" | "tokens" | "duration" | "failures";
 
@@ -14,6 +15,7 @@ export type CapabilityReportFilters = {
   sort: CapabilitySort;
   agent?: AgentName;
   type?: CapabilityType;
+  excludeSystem?: boolean;
 };
 
 type CapabilityReportRow = {
@@ -54,6 +56,12 @@ export function renderCapabilityReport(
   if (filters.type) {
     clauses.push("capability_type = ?");
     params.push(filters.type);
+  }
+
+  if (filters.excludeSystem) {
+    const condition = createExcludeSystemCapabilityCondition();
+    clauses.push(condition.sql);
+    params.push(...condition.params);
   }
 
   const rows = db

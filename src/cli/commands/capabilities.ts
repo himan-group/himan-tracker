@@ -17,6 +17,7 @@ export type CapabilitiesCommandOptions = ReportCommandBaseOptions & {
   sort?: string;
   type?: string;
   agent?: string;
+  excludeSystem?: boolean;
   now?: () => Date;
 };
 
@@ -29,7 +30,12 @@ export async function runCapabilities(
     const agent = parseAgent(options.agent);
     const type = parseCapabilityType(options.type);
     const lines = await withReportContext(options.paths, ({ db }) =>
-      renderCapabilityReport(db, range, { sort: sort as CapabilitySort, agent, type }),
+      renderCapabilityReport(db, range, {
+        sort: sort as CapabilitySort,
+        agent,
+        type,
+        excludeSystem: options.excludeSystem ?? false,
+      }),
     );
 
     return { ok: true, lines };
