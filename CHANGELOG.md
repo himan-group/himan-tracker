@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.0.3] - 2026-05-13
+
 ### Added
 
 - Added `server start`, `server status`, and `server stop` to run a local report Web server that periodically ingests JSONL events and serves dashboard pages.
