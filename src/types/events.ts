@@ -12,6 +12,8 @@ export type CapabilityType =
 
 export type AttributionConfidence = "exact" | "estimated" | "unknown";
 
+export type CapabilityInvocationOrigin = "explicit" | "inferred" | "observed" | "unknown";
+
 export type NormalizedEventBase = {
   schema_version: "1.0";
   event_id: string;
@@ -46,6 +48,7 @@ export type CapabilityUsageEvent = NormalizedEventBase &
     duration_ms: number | null;
     adopted: "yes" | "no" | "unknown";
     attribution_confidence: AttributionConfidence;
+    invocation_origin: CapabilityInvocationOrigin;
   };
 
 export type SessionSummaryEvent = NormalizedEventBase & {
@@ -86,6 +89,7 @@ export type AdapterCapabilityUsageEvent = AdapterEventBase &
     duration_ms?: number | null;
     adopted?: "yes" | "no" | "unknown";
     attribution_confidence?: AttributionConfidence;
+    invocation_origin?: CapabilityInvocationOrigin;
   };
 
 export type AdapterSessionSummaryEvent = AdapterEventBase & {

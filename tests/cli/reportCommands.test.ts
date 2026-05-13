@@ -57,6 +57,7 @@ describe("report commands", () => {
       assert.match(capabilities.lines.join("\n"), /github\.create_pull_request/);
       assert.match(capabilities.lines.join("\n"), /1\.25K/);
       assert.match(capabilities.lines.join("\n"), /0\.0%/);
+      assert.match(capabilities.lines.join("\n"), /Observed/);
 
       const skills = await runCapabilities({
         paths,
@@ -69,6 +70,7 @@ describe("report commands", () => {
       assert.equal(skills.ok, true);
       assert.match(skills.lines.join("\n"), /common-git-commit/);
       assert.match(skills.lines.join("\n"), /1\.0s/);
+      assert.match(skills.lines.join("\n"), /Explicit/);
 
       const mcpEvents = await runCapabilityEvents({
         paths,
@@ -84,6 +86,7 @@ describe("report commands", () => {
       assert.match(mcpEvents.lines.join("\n"), /event/);
       assert.match(mcpEvents.lines.join("\n"), /1\.25K/);
       assert.match(mcpEvents.lines.join("\n"), /failure/);
+      assert.match(mcpEvents.lines.join("\n"), /observed/);
 
       const skillEvents = await runCapabilityEvents({
         paths,
@@ -97,6 +100,7 @@ describe("report commands", () => {
       assert.match(skillEvents.lines.join("\n"), /common-git-commit/);
       assert.match(skillEvents.lines.join("\n"), /1\.0s/);
       assert.match(skillEvents.lines.join("\n"), /turn/);
+      assert.match(skillEvents.lines.join("\n"), /explicit/);
 
       const invalidEvents = await runCapabilityEvents({
         paths,
@@ -231,6 +235,7 @@ function createFixtureEvents(): NormalizedEvent[] {
       total_tokens: null,
       adopted: "unknown",
       attribution_confidence: "exact",
+      invocation_origin: "explicit",
     },
     {
       schema_version: "1.0",
@@ -251,6 +256,7 @@ function createFixtureEvents(): NormalizedEvent[] {
       total_tokens: 1_250,
       adopted: "unknown",
       attribution_confidence: "estimated",
+      invocation_origin: "observed",
     },
   ];
 }

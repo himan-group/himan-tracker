@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Changed capability reports to distinguish explicit, inferred, observed, and unknown invocation origins instead of showing the misleading `Estimated tokens` column.
+- Changed capability event records to persist and report source and invocation origin alongside attribution confidence.
+
 ## [0.0.2] - 2026-05-13
 
 ### Added

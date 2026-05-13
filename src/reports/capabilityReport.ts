@@ -25,7 +25,10 @@ type CapabilityReportRow = {
   duration_ms: number | null;
   success_count: number;
   failure_count: number;
-  estimated_token_count: number;
+  explicit_invocation_count: number;
+  inferred_invocation_count: number;
+  observed_invocation_count: number;
+  unknown_origin_count: number;
 };
 
 const SORT_SQL: Record<CapabilitySort, string> = {
@@ -65,7 +68,10 @@ export function renderCapabilityReport(
         case when count(duration_ms) = 0 then null else sum(duration_ms) end as duration_ms,
         sum(success_count) as success_count,
         sum(failure_count) as failure_count,
-        sum(estimated_token_count) as estimated_token_count
+        sum(explicit_invocation_count) as explicit_invocation_count,
+        sum(inferred_invocation_count) as inferred_invocation_count,
+        sum(observed_invocation_count) as observed_invocation_count,
+        sum(unknown_origin_count) as unknown_origin_count
       from daily_capability_stats
       where ${clauses.join(" and ")}
       group by agent, capability_type, capability_name
@@ -91,20 +97,26 @@ export function renderCapabilityReport(
         "Type",
         "Capability",
         "Invocations",
+        "Explicit",
+        "Inferred",
+        "Observed",
+        "Unknown",
         "Tokens",
         "Duration",
         "Success rate",
-        "Estimated tokens",
       ],
       rows.map((row) => [
         row.agent,
         row.capability_type,
         row.capability_name,
         String(row.invocation_count),
+        String(row.explicit_invocation_count),
+        String(row.inferred_invocation_count),
+        String(row.observed_invocation_count),
+        String(row.unknown_origin_count),
         formatTokenCount(row.total_tokens),
         formatDurationMs(row.duration_ms),
         formatSuccessRate(row.success_count, row.failure_count),
-        String(row.estimated_token_count),
       ]),
     ),
   ];

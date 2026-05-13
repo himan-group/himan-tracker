@@ -13,6 +13,7 @@ export type CapabilityEventReportFilters = {
 type CapabilityEventReportRow = {
   occurred_at: string;
   agent: string;
+  source: string;
   model: string | null;
   turn_id: string | null;
   duration_ms: number | null;
@@ -21,6 +22,7 @@ type CapabilityEventReportRow = {
   status: string;
   adopted: string;
   attribution_confidence: string;
+  invocation_origin: string;
 };
 
 export function renderCapabilityEventReport(
@@ -53,6 +55,7 @@ export function renderCapabilityEventReport(
       select
         c.occurred_at,
         c.agent,
+        c.source,
         t.model,
         c.turn_id,
         coalesce(c.duration_ms, case when c.capability_type = 'skill' then t.duration_ms end) as duration_ms,
@@ -64,7 +67,8 @@ export function renderCapabilityEventReport(
         c.total_tokens,
         c.status,
         c.adopted,
-        c.attribution_confidence
+        c.attribution_confidence,
+        c.invocation_origin
       from capability_usages c
       left join turns t
         on t.id = c.turn_id
@@ -89,6 +93,7 @@ export function renderCapabilityEventReport(
       [
         "Time",
         "Agent",
+        "Source",
         "Model",
         "Turn",
         "Duration",
@@ -96,11 +101,13 @@ export function renderCapabilityEventReport(
         "Tokens",
         "Status",
         "Adopted",
+        "Origin",
         "Confidence",
       ],
       rows.map((row) => [
         formatLocalDateTime(row.occurred_at),
         row.agent,
+        row.source,
         formatNullableText(row.model),
         shortenId(row.turn_id),
         formatDurationMs(row.duration_ms),
@@ -108,6 +115,7 @@ export function renderCapabilityEventReport(
         formatTokenCount(row.total_tokens),
         row.status,
         row.adopted,
+        row.invocation_origin,
         row.attribution_confidence,
       ]),
     ),

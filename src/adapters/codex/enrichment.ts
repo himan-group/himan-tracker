@@ -9,6 +9,7 @@ import { validateNormalizedEvent } from "../../normalizer/eventSchema.js";
 import { createEventId } from "../../normalizer/normalizeEvent.js";
 import type {
   AttributionConfidence,
+  CapabilityInvocationOrigin,
   CapabilityType,
   CapabilityUsageEvent,
   EventStatus,
@@ -77,6 +78,7 @@ type TranscriptCapabilityUsage = {
   duration_ms: number | null;
   status: EventStatus;
   attribution_confidence: AttributionConfidence;
+  invocation_origin: CapabilityInvocationOrigin;
 };
 
 type TranscriptToolCallStart = {
@@ -272,6 +274,7 @@ async function parseTranscriptTurnUsage(options: {
             duration_ms: null,
             status: "unknown",
             attribution_confidence: "estimated",
+            invocation_origin: "inferred",
           });
         }
       }
@@ -323,6 +326,7 @@ async function parseTranscriptTurnUsage(options: {
           duration_ms: inferredDuration,
           status: getMcpResultStatus(payload.result),
           attribution_confidence: "exact",
+          invocation_origin: "observed",
         });
       }
       continue;
@@ -525,6 +529,7 @@ function createTranscriptCapabilityEvent(
     total_tokens: null,
     adopted: "unknown",
     attribution_confidence: capability.attribution_confidence,
+    invocation_origin: capability.invocation_origin,
   };
 
   return validateNormalizedEvent({

@@ -15,6 +15,7 @@
     "duration_ms": null,
     "adopted": "unknown",
     "attribution_confidence": "exact",
+    "invocation_origin": "explicit",
     "input_tokens": null,
     "output_tokens": null,
     "total_tokens": null
@@ -35,6 +36,7 @@
     "duration_ms": 250,
     "adopted": "unknown",
     "attribution_confidence": "unknown",
+    "invocation_origin": "observed",
     "input_tokens": null,
     "output_tokens": null,
     "total_tokens": null

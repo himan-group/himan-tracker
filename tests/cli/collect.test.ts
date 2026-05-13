@@ -228,6 +228,8 @@ describe("collect codex command", () => {
       assert.equal(turn?.total_tokens, 200);
       assert.equal(turn?.duration_ms, 9_000);
       assert.equal(skill?.capability_name, "common-git-commit");
+      assert.equal(skill?.invocation_origin, "explicit");
+      assert.equal(mcpTool?.invocation_origin, "observed");
       assert.equal(mcpTool?.duration_ms, 1_250);
       assert.equal(rawEvents.includes("不要保存这段 prompt"), false);
       assert.equal(rawEvents.includes("/Users/example/project"), false);
@@ -360,8 +362,10 @@ describe("collect codex command", () => {
       assert.equal(skill?.capability_name, "common-dev-pattern");
       assert.equal(skill?.source, "codex-transcript");
       assert.equal(skill?.attribution_confidence, "estimated");
+      assert.equal(skill?.invocation_origin, "inferred");
       assert.equal(mcpTool?.capability_type, "mcp_tool");
       assert.equal(mcpTool?.source, "codex-transcript");
+      assert.equal(mcpTool?.invocation_origin, "observed");
       assert.equal(mcpTool?.status, "success");
       assert.equal(mcpTool?.duration_ms, 900);
       assert.equal(rawEvents.includes("should not be stored"), false);

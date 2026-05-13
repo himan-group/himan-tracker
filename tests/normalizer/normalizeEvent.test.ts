@@ -107,11 +107,12 @@ describe("normalizeEvent", () => {
     );
 
     assert.equal(event.event_type, "capability_usage");
-    assert.equal(event.status, "unknown");
-    assert.equal(event.adopted, "unknown");
-    assert.equal(event.attribution_confidence, "unknown");
-    assert.equal(event.total_tokens, null);
-  });
+      assert.equal(event.status, "unknown");
+      assert.equal(event.adopted, "unknown");
+      assert.equal(event.attribution_confidence, "unknown");
+      assert.equal(event.invocation_origin, "unknown");
+      assert.equal(event.total_tokens, null);
+    });
 
   it("strips shell command arguments by default", () => {
     const event = normalizeEvent(
@@ -191,10 +192,11 @@ describe("createEventId", () => {
       duration_ms: null,
       input_tokens: null,
       output_tokens: null,
-      total_tokens: null,
-      adopted: "unknown",
-      attribution_confidence: "unknown",
-    };
+        total_tokens: null,
+        adopted: "unknown",
+        attribution_confidence: "unknown",
+        invocation_origin: "observed",
+      };
 
     const sameIdentityDifferentSource = {
       ...event,

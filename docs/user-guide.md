@@ -81,7 +81,7 @@ himan-tracker summary --since 7d
 
 接入时不需要自己生成 `event_id`，`himan-tracker` 会用稳定字段生成幂等 ID。`session_id` 和 `turn_id` 应保持 Codex 会话内稳定；不知道 token 或耗时时可以省略字段。Codex hooks 提供 `transcript_path` 时，后台 worker 会只读取 token、耗时、MCP tool 结束事件，以及读取 `SKILL.md` 的工具调用元数据来补齐报表，不保存 prompt、response、代码内容、MCP 参数、stdout/stderr、shell 参数或明文仓库路径。
 
-`UserPromptSubmit` 中显式写出的 `$skill-name` 会被提取为精确 skill 调用；从 `SKILL.md` 读取行为推断出的 skill 会标记为 `attribution_confidence=estimated`。
+`UserPromptSubmit` 中显式写出的 `$skill-name` 会被提取为 `invocation_origin=explicit`、`attribution_confidence=exact` 的 skill 调用；从 `SKILL.md` 读取行为推断出的 skill 会标记为 `invocation_origin=inferred`、`attribution_confidence=estimated`。MCP/tool 结构化事件会标记为 `invocation_origin=observed`。
 
 项目级安装写入当前仓库的 `.codex/`，只有该项目被 Codex 信任后才会加载；全局安装写入 `~/.codex`，会在所有 Codex 项目中生效。
 
@@ -300,7 +300,7 @@ himan-tracker capabilities --since 30d --sort duration
 - `duration`
 - `failures`
 
-Codex hooks 不直接提供耗时字段。himan-tracker 会在后台从 Codex transcript 的 `task_complete`、`mcp_tool_call_end` 和 tool end 事件补齐 turn 或 tool duration；Codex 暂无官方结构化 skill 执行事件，因此从显式 `$skill-name` 或读取 `SKILL.md` 的工具调用推断 skill 使用。报表中的 skill duration 使用该 skill 所在 turn 的耗时作为估算。
+Codex hooks 不直接提供耗时字段。himan-tracker 会在后台从 Codex transcript 的 `task_complete`、`mcp_tool_call_end` 和 tool end 事件补齐 turn 或 tool duration；Codex 暂无官方结构化 skill 执行事件，因此从显式 `$skill-name` 或读取 `SKILL.md` 的工具调用推断 skill 使用。`capabilities` 报表会用 `Explicit`、`Inferred`、`Observed` 和 `Unknown` 列拆分调用来源；报表中的 skill duration 使用该 skill 所在 turn 的耗时作为估算。
 
 ### `capability-events`
 
@@ -326,7 +326,7 @@ himan-tracker capability-events --type mcp_tool --name openaiDeveloperDocs.searc
 himan-tracker capability-events --type skill --name common-git-commit --agent codex --limit 50
 ```
 
-输出包含调用时间、agent、model、turn、耗时、token、状态、采纳状态和归因置信度。`Basis` 表示耗时来源：`event` 是 capability 事件自身提供的耗时，`turn` 是使用同一 turn 耗时估算，`n/a` 表示未知。
+输出包含调用时间、agent、source、model、turn、耗时、token、状态、采纳状态、调用来源和归因置信度。`Origin` 表示 `explicit`、`inferred`、`observed` 或 `unknown`；`Confidence` 表示 `exact`、`estimated` 或 `unknown`。`Basis` 表示耗时来源：`event` 是 capability 事件自身提供的耗时，`turn` 是使用同一 turn 耗时估算，`n/a` 表示未知。
 
 ### `unused`
 
@@ -397,7 +397,7 @@ HIMAN_TRACKER_HOME=/custom/path himan-tracker doctor
 示例 `capability_usage`：
 
 ```json
-{"schema_version":"1.0","event_id":"evt_capability_001","event_type":"capability_usage","occurred_at":"2026-05-12T12:00:02.000Z","agent":"codex","source":"manual-import","session_id":"s_001","turn_id":"t_001","repo_hash":"repo_hash_001","status":"failure","capability_type":"mcp_tool","capability_name":"github.create_pull_request","duration_ms":200,"input_tokens":4,"output_tokens":1,"total_tokens":5,"adopted":"unknown","attribution_confidence":"estimated"}
+{"schema_version":"1.0","event_id":"evt_capability_001","event_type":"capability_usage","occurred_at":"2026-05-12T12:00:02.000Z","agent":"codex","source":"manual-import","session_id":"s_001","turn_id":"t_001","repo_hash":"repo_hash_001","status":"failure","capability_type":"mcp_tool","capability_name":"github.create_pull_request","duration_ms":200,"input_tokens":4,"output_tokens":1,"total_tokens":5,"adopted":"unknown","attribution_confidence":"estimated","invocation_origin":"observed"}
 ```
 
 `event_id` 用于幂等导入。同一个 `event_id` 重复导入时会被跳过，不会重复计数。token 或耗时未知时可以使用 `null`，报表会显示为未知，而不是强行当作 `0`。

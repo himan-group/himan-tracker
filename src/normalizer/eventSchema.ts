@@ -14,6 +14,7 @@ const capabilityTypeSchema = z.enum([
 ]);
 const adoptedSchema = z.enum(["yes", "no", "unknown"]);
 const attributionConfidenceSchema = z.enum(["exact", "estimated", "unknown"]);
+const invocationOriginSchema = z.enum(["explicit", "inferred", "observed", "unknown"]);
 
 const nullableNonNegativeIntegerSchema = z.number().int().nonnegative().nullable();
 const nullableNonNegativeNumberSchema = z.number().nonnegative().nullable();
@@ -53,6 +54,7 @@ export const capabilityUsageEventSchema = eventBaseSchema
     duration_ms: nullableNonNegativeNumberSchema,
     adopted: adoptedSchema,
     attribution_confidence: attributionConfidenceSchema,
+    invocation_origin: invocationOriginSchema.default("unknown"),
   })
   .merge(tokenUsageSchema);
 
