@@ -112,6 +112,7 @@ describe("parseCodexHookPayload", () => {
         source: "codex-hook",
         session_id: "session_123",
         turn_id: "turn_123",
+        identity_key: "codex:UserPromptSubmit:turn_123:skill:common-git-commit",
         repo_path: "/Users/example/project",
         status: undefined,
         event_type: "capability_usage",
@@ -123,6 +124,30 @@ describe("parseCodexHookPayload", () => {
     ]);
     assert.equal(JSON.stringify(adapterEvents).includes("请使用"), false);
     assert.equal(JSON.stringify(adapterEvents).includes("HOME"), false);
+  });
+
+  it("dedupes duplicate observed PostToolUse hooks by stable tool use ID", () => {
+    const payload = {
+      hook_event_name: "PostToolUse",
+      session_id: "session_123",
+      turn_id: "turn_123",
+      cwd: "/Users/example/project",
+      tool_name: "Bash",
+      tool_use_id: "call_123",
+    };
+
+    const first = parseCodexHookPayload(payload, {
+      observedAt: "2026-05-12T12:00:00.000Z",
+    }).map((event) => normalizeEvent(event, config));
+    const second = parseCodexHookPayload(payload, {
+      observedAt: "2026-05-12T12:00:00.050Z",
+    }).map((event) => normalizeEvent(event, config));
+
+    assert.equal(first.length, 1);
+    assert.equal(second.length, 1);
+    assert.equal(first[0]?.event_id, second[0]?.event_id);
+    assert.equal(first[0]?.occurred_at, "2026-05-12T12:00:00.000Z");
+    assert.equal(second[0]?.occurred_at, "2026-05-12T12:00:00.050Z");
   });
 });
 

@@ -66,6 +66,7 @@ async function setupCodex(
     const existingConfig = await readTextFile(configTomlPath);
     const configToml = ensureCodexHooksFeature(existingConfig ?? "");
     const helperScript = createHelperScript();
+    const otherConfiguredScope = await findOtherConfiguredScope(scope, options);
 
     if (!options.dryRun) {
       await mkdir(path.dirname(helperPath), { recursive: true, mode: 0o700 });
@@ -92,6 +93,12 @@ async function setupCodex(
         `Hook helper: ${helperPath}`,
         `Hook events: ${CODEX_HOOK_EVENTS.join(", ")}`,
         `Collector command: ${collectorCommand}`,
+        ...(otherConfiguredScope
+          ? [
+              "",
+              `[warn] Himan Codex hooks are also configured in ${otherConfiguredScope} scope. Keep one scope enabled to avoid duplicate hook execution.`,
+            ]
+          : []),
         "",
         "Next steps:",
         "1. Restart Codex so it reloads hooks.",
@@ -120,6 +127,40 @@ function mergeCodexHooks(existingHooks: unknown, hookCommand: string): CodexHook
   }
 
   return hooksFile;
+}
+
+async function findOtherConfiguredScope(
+  scope: "global" | "project",
+  options: SetupCommandOptions,
+): Promise<"global" | "project" | null> {
+  const otherScope = scope === "global" ? "project" : "global";
+  const codexDir =
+    otherScope === "global"
+      ? path.join(options.homeDir ?? homedir(), ".codex")
+      : path.join(options.cwd ?? process.cwd(), ".codex");
+
+  return (await hasEnabledHimanCodexHooks(codexDir)) ? otherScope : null;
+}
+
+async function hasEnabledHimanCodexHooks(codexDir: string): Promise<boolean> {
+  const [configToml, hooksJson] = await Promise.all([
+    readTextFile(path.join(codexDir, "config.toml")),
+    readTextFile(path.join(codexDir, "hooks.json")),
+  ]);
+
+  return Boolean(
+    configToml &&
+      hooksJson &&
+      isCodexHooksFeatureEnabled(configToml) &&
+      hooksJson.includes("himan-tracker-collect.sh"),
+  );
+}
+
+function isCodexHooksFeatureEnabled(configToml: string): boolean {
+  return (
+    /(^|\n)\s*hooks\s*=\s*true\s*(\n|$)/.test(configToml) ||
+    /(^|\n)\s*codex_hooks\s*=\s*true\s*(\n|$)/.test(configToml)
+  );
 }
 
 function normalizeHooksFile(existingHooks: unknown): CodexHooksFile {

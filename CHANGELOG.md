@@ -14,9 +14,11 @@ All notable changes to this project will be documented in this file.
 - Changed the local report server Summary to show 15 non-system capabilities, and the Capabilities card to show the top 25 with total capability count.
 - Changed the local report server dashboard to show daily, weekly, and monthly token usage in a single tabbed card.
 - Changed duration formatting in reports to use readable minute and hour units for longer runs.
+- Changed Codex setup output to warn when Himan hooks are already configured in the other Codex scope.
 
 ### Fixed
 
+- Fixed duplicate Codex global/project hooks generating separate observed event IDs for the same hook payload when Codex omits source timestamps.
 - Fixed `server stop` timing out when the report server had already closed its state file but the process had not fully exited yet, and made shutdown close HTTP connections promptly.
 
 ## [0.0.3] - 2026-05-13

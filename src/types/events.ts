@@ -65,6 +65,7 @@ export type NormalizedEvent =
 export type AdapterEventBase = {
   event_type: NormalizedEvent["event_type"];
   occurred_at: string;
+  identity_key?: string | null;
   agent: AgentName;
   source: string;
   session_id: string;

@@ -142,6 +142,27 @@ describe("setup command", () => {
     }
   });
 
+  it("warns when global and project hooks would both be configured", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "himan-setup-codex-project-test-"));
+    const homeDir = await mkdtemp(path.join(tmpdir(), "himan-setup-codex-global-test-"));
+
+    try {
+      await runSetup({ cwd });
+
+      const result = await runSetup({ cwd, homeDir, global: true });
+
+      assert.equal(result.ok, true);
+      assert.match(
+        result.lines.join("\n"),
+        /Himan Codex hooks are also configured in project scope/,
+      );
+      await readFile(path.join(homeDir, ".codex", "hooks.json"), "utf8");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
   it("rejects unsupported agents", async () => {
     const result = await runSetup({ agent: "claude-code" });
 

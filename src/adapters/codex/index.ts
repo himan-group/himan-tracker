@@ -43,14 +43,18 @@ function parsePromptSubmit(
     ...extractExplicitSkillNames(getString(event.prompt)),
   ]);
 
-  return [...skills].map((skill) => ({
-    ...base,
-    event_type: "capability_usage",
-    capability_type: "skill",
-    capability_name: skill,
-    attribution_confidence: "exact",
-    invocation_origin: "explicit",
-  }));
+  return [...skills].map((skill) => {
+    const identityKey = createObservedHookIdentity(event, "UserPromptSubmit", `skill:${skill}`);
+    return {
+      ...base,
+      ...(identityKey ? { identity_key: identityKey } : {}),
+      event_type: "capability_usage",
+      capability_type: "skill",
+      capability_name: skill,
+      attribution_confidence: "exact",
+      invocation_origin: "explicit",
+    };
+  });
 }
 
 function parsePostToolUse(
@@ -65,9 +69,16 @@ function parsePostToolUse(
     return [];
   }
 
+  const toolUseId = getToolUseId(event);
+
+  const identityKey = toolUseId
+    ? createObservedHookIdentity(event, "PostToolUse", `tool:${toolUseId}:${capabilityName}`)
+    : null;
+
   return [
     {
       ...base,
+      ...(identityKey ? { identity_key: identityKey } : {}),
       event_type: "capability_usage",
       capability_name: capabilityName,
       duration_ms: getNumber(event.duration_ms),
@@ -84,9 +95,11 @@ function parseStop(event: RawRecord, options: ParseCodexHookPayloadOptions): Ada
     return [];
   }
 
+  const turnIdentityKey = createObservedHookIdentity(event, "Stop", `turn:${base.turn_id ?? ""}`);
   const events: AdapterEvent[] = [
     {
       ...base,
+      ...(turnIdentityKey ? { identity_key: turnIdentityKey } : {}),
       event_type: "turn_summary",
       model: getString(event.model),
       duration_ms: getNumber(event.duration_ms),
@@ -99,8 +112,14 @@ function parseStop(event: RawRecord, options: ParseCodexHookPayloadOptions): Ada
   const session = getRecord(event.session);
 
   if (session) {
+    const sessionIdentityKey = createObservedHookIdentity(
+      event,
+      "Stop",
+      `session:${base.turn_id ?? ""}`,
+    );
     events.push({
       ...base,
+      ...(sessionIdentityKey ? { identity_key: sessionIdentityKey } : {}),
       event_type: "session_summary",
       turn_id: null,
       turn_count: getNumber(session.turn_count),
@@ -132,6 +151,27 @@ function createBaseEvent(
     repo_path: getString(event.repo_path) ?? getString(event.cwd),
     status: getStatus(event.status),
   };
+}
+
+function createObservedHookIdentity(
+  event: RawRecord,
+  hook: string,
+  detail: string,
+): string | null {
+  if (getString(event.occurred_at)) {
+    return null;
+  }
+
+  return `codex:${hook}:${getString(event.turn_id) ?? ""}:${detail}`;
+}
+
+function getToolUseId(event: RawRecord): string | undefined {
+  return (
+    getString(event.tool_use_id) ??
+    getString(event.tool_call_id) ??
+    getString(event.call_id) ??
+    getString(event.id)
+  );
 }
 
 function getRawEvents(payload: unknown): RawRecord[] {
