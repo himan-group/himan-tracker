@@ -85,10 +85,11 @@ describe("parseCodexHookPayload", () => {
       repo_path: "/Users/example/project",
       status: undefined,
       event_type: "capability_usage",
-      capability_name: "Bash",
-      duration_ms: undefined,
-      attribution_confidence: "unknown",
-    });
+        capability_name: "Bash",
+        duration_ms: undefined,
+        attribution_confidence: "unknown",
+        invocation_origin: "observed",
+      });
     assert.equal(JSON.stringify(adapterEvents).includes("do not store"), false);
   });
 
@@ -117,6 +118,7 @@ describe("parseCodexHookPayload", () => {
         capability_type: "skill",
         capability_name: "common-git-commit",
         attribution_confidence: "exact",
+        invocation_origin: "explicit",
       },
     ]);
     assert.equal(JSON.stringify(adapterEvents).includes("请使用"), false);

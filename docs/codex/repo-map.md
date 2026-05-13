@@ -6,8 +6,8 @@
 
 Current implementation status:
 
-- CLI skeleton, `doctor`, `setup`, `collect`, `ingest`, and report commands are implemented.
-- Config/path resolution, user config defaults, normalized event contracts, schema validation, repo path hashing, token normalization, capability classification, async collect queue, Codex hook setup, JSONL collection, SQLite migrations, JSONL ingest, daily stats aggregation, CLI reports, fixture-first agent adapters, and MVP documentation are implemented.
+- CLI skeleton, `doctor`, `setup`, `collect`, `ingest`, report commands, and the local report server are implemented.
+- Config/path resolution, user config defaults, normalized event contracts, schema validation, repo path hashing, token normalization, capability classification, async collect queue, Codex hook setup, JSONL collection, SQLite migrations, JSONL ingest, daily stats aggregation, CLI reports, local report Web server, fixture-first agent adapters, and MVP documentation are implemented.
 - Richer real-world adapter fixtures remain future work.
 
 ## Commands
@@ -27,6 +27,9 @@ himan-tracker summary --since 7d
 himan-tracker agents --date YYYY-MM-DD
 himan-tracker capabilities --since 30d
 himan-tracker unused --since 30d
+himan-tracker server start
+himan-tracker server status
+himan-tracker server stop
 ```
 
 Notes:
@@ -48,6 +51,7 @@ src/
     commands/doctor.ts
     commands/ingest.ts
     commands/reportContext.ts
+    commands/server.ts
     commands/setup.ts
     commands/summary.ts
     commands/unused.ts
@@ -83,6 +87,8 @@ src/
     formatTable.ts
     summaryReport.ts
     unusedReport.ts
+  server/
+    reportServer.ts
   storage/
     sqlite.ts
     migrations/
@@ -119,6 +125,7 @@ Empty or not-yet-implemented domains currently remain as `.gitkeep` directories.
   - `setup --agent codex` -> `src/cli/commands/setup.ts`
   - `collect --agent codex` -> `src/cli/commands/collect.ts`
   - `ingest` -> `src/cli/commands/ingest.ts`
+  - `server start/status/stop` -> `src/cli/commands/server.ts`
   - `summary`
   - `agents`
   - `capabilities`
@@ -162,6 +169,8 @@ SQLite and ingest rules:
 Report rules:
 
 - Report commands read SQLite through `src/cli/commands/reportContext.ts`; they initialize migrations if needed and render empty states when no data exists.
+- `server start` launches a detached local HTTP server, records PID/state under the tracker home, runs immediate and interval-based incremental ingest, and serves a local dashboard page from SQLite reports.
+- `server status` reads the state file and checks whether the recorded PID is still running; `server stop` sends `SIGTERM` and removes stale state when needed.
 - `summary` supports `--since`, shows overall usage, top agents, and top capabilities.
 - `agents` supports `--date` and groups by agent/model.
 - `turns` supports `--since`, `--agent`, and `--limit` for per-turn duration/token/status output.
@@ -194,6 +203,8 @@ Default local paths:
 ~/.himan-tracker/queue/
 ~/.himan-tracker/himan.sqlite
 ~/.himan-tracker/locks/
+~/.himan-tracker/server-state.json
+~/.himan-tracker/server.log
 ```
 
 `HIMAN_TRACKER_HOME` overrides the default data home.
@@ -217,6 +228,7 @@ Current test files:
 - `tests/aggregator/aggregateEvents.test.ts`
 - `tests/cli/collect.test.ts`
 - `tests/cli/reportCommands.test.ts`
+- `tests/cli/server.test.ts`
 - `tests/cli/setupCodex.test.ts`
 - `tests/collector/hookCollector.test.ts`
 - `tests/collector/jsonlWriter.test.ts`

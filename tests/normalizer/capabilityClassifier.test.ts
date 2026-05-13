@@ -56,6 +56,16 @@ describe("classifyCapability", () => {
         confidence: "estimated",
       },
     );
+    assert.deepEqual(
+      classifyCapability({
+        capability_name: "Bash",
+      }),
+      {
+        type: "builtin_tool",
+        name: "Bash",
+        confidence: "estimated",
+      },
+    );
   });
 
   it("falls back to unknown for unrecognized capabilities", () => {

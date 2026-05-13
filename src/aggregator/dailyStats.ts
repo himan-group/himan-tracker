@@ -72,7 +72,12 @@ function recomputeDailyCapabilityStats(db: SqliteDatabase, date: string): void {
       duration_ms,
       success_count,
       failure_count,
-      estimated_token_count
+      estimated_token_count,
+      estimated_attribution_count,
+      explicit_invocation_count,
+      inferred_invocation_count,
+      observed_invocation_count,
+      unknown_origin_count
     )
     select
       ? as date,
@@ -90,7 +95,12 @@ function recomputeDailyCapabilityStats(db: SqliteDatabase, date: string): void {
       end as duration_ms,
       sum(case when c.status = 'success' then 1 else 0 end) as success_count,
       sum(case when c.status = 'failure' then 1 else 0 end) as failure_count,
-      sum(case when c.attribution_confidence = 'estimated' then 1 else 0 end) as estimated_token_count
+      sum(case when c.attribution_confidence = 'estimated' then 1 else 0 end) as estimated_token_count,
+      sum(case when c.attribution_confidence = 'estimated' then 1 else 0 end) as estimated_attribution_count,
+      sum(case when c.invocation_origin = 'explicit' then 1 else 0 end) as explicit_invocation_count,
+      sum(case when c.invocation_origin = 'inferred' then 1 else 0 end) as inferred_invocation_count,
+      sum(case when c.invocation_origin = 'observed' then 1 else 0 end) as observed_invocation_count,
+      sum(case when c.invocation_origin = 'unknown' then 1 else 0 end) as unknown_origin_count
     from capability_usages c
     left join turns t
       on c.turn_id = t.id

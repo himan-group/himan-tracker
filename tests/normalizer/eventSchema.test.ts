@@ -23,12 +23,13 @@ describe("validateNormalizedEvent", () => {
       input_tokens: null,
       output_tokens: null,
       total_tokens: null,
-      adopted: "unknown",
-      attribution_confidence: "unknown",
-    });
+        adopted: "unknown",
+        attribution_confidence: "unknown",
+      });
 
-    assert.equal(event.event_type, "capability_usage");
-  });
+      assert.equal(event.event_type, "capability_usage");
+      assert.equal(event.invocation_origin, "unknown");
+    });
 
   it("rejects unsupported schema versions", () => {
     assert.throws(

@@ -33,7 +33,10 @@ describe("ingestEvents", () => {
       assert.equal(first.events_read, 3);
       assert.equal(first.events_inserted, 3);
       assert.equal(first.events_skipped, 0);
-      assert.deepEqual(first.applied_migrations, ["001_initial"]);
+      assert.deepEqual(first.applied_migrations, [
+        "001_initial",
+        "002_capability_invocation_origin",
+      ]);
       assert.deepEqual(first.affected_dates, [toLocalDate(events[0].occurred_at)]);
 
       const second = await ingestEvents({
@@ -67,9 +70,12 @@ describe("ingestEvents", () => {
       await ingestEvents({ sqlitePath, eventsPath });
       const rebuilt = await ingestEvents({ sqlitePath, eventsPath, rebuild: true });
 
-      assert.equal(rebuilt.events_inserted, 3);
-      assert.equal(rebuilt.events_skipped, 0);
-      assert.deepEqual(rebuilt.applied_migrations, ["001_initial"]);
+        assert.equal(rebuilt.events_inserted, 3);
+        assert.equal(rebuilt.events_skipped, 0);
+      assert.deepEqual(rebuilt.applied_migrations, [
+        "001_initial",
+        "002_capability_invocation_origin",
+      ]);
 
       assertDatabaseStats(sqlitePath, toLocalDate(events[0].occurred_at));
     } finally {
@@ -154,6 +160,7 @@ function createFixtureEvents(): NormalizedEvent[] {
       total_tokens: 5,
       adopted: "unknown",
       attribution_confidence: "estimated",
+      invocation_origin: "observed",
     },
     {
       schema_version: "1.0",
@@ -225,6 +232,11 @@ function assertDatabaseStats(sqlitePath: string, expectedDate: string): void {
       success_count: number;
       failure_count: number;
       estimated_token_count: number;
+      estimated_attribution_count: number;
+      explicit_invocation_count: number;
+      inferred_invocation_count: number;
+      observed_invocation_count: number;
+      unknown_origin_count: number;
     };
     assert.deepEqual(capabilityStats, {
       date: expectedDate,
@@ -239,6 +251,11 @@ function assertDatabaseStats(sqlitePath: string, expectedDate: string): void {
       success_count: 0,
       failure_count: 1,
       estimated_token_count: 1,
+      estimated_attribution_count: 1,
+      explicit_invocation_count: 0,
+      inferred_invocation_count: 0,
+      observed_invocation_count: 1,
+      unknown_origin_count: 0,
     });
   } finally {
     db.close();

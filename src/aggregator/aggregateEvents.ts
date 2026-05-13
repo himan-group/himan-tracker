@@ -280,6 +280,7 @@ function insertCapabilityUsage(db: SqliteDatabase, event: CapabilityUsageEvent):
       session_id,
       turn_id,
       agent,
+      source,
       capability_type,
       capability_name,
       occurred_at,
@@ -290,15 +291,17 @@ function insertCapabilityUsage(db: SqliteDatabase, event: CapabilityUsageEvent):
       status,
       adopted,
       attribution_confidence,
+      invocation_origin,
       repo_hash
     )
-    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
   ).run(
     event.event_id,
     event.session_id,
     event.turn_id ?? null,
     event.agent,
+    event.source,
     event.capability_type,
     event.capability_name,
     event.occurred_at,
@@ -309,6 +312,7 @@ function insertCapabilityUsage(db: SqliteDatabase, event: CapabilityUsageEvent):
     event.status,
     event.adopted,
     event.attribution_confidence,
+    event.invocation_origin,
     event.repo_hash ?? null,
   );
 }

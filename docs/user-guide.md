@@ -56,6 +56,7 @@ capability 类型目前包括：
 4. `collect` 立即入队并返回，后台 worker 异步写入 JSONL，并从 Codex `transcript_path` 补齐 turn token、turn duration、MCP tool 调用和可推断的 skill 使用。
 5. 运行 `himan-tracker ingest`，把事件日志导入 SQLite 投影。
 6. 使用 `summary`、`agents`、`turns`、`capabilities`、`capability-events` 和 `unused` 查看使用情况。
+7. 运行 `himan-tracker server start`，启动本地报表页面，并让它按固定间隔增量导入事件。
 
 ## 与 Codex 集成
 
@@ -79,9 +80,9 @@ himan-tracker summary --since 7d
 
 `--sync` 会在前台 drain 队列，适合人工验证；不要把它放进 Codex hook。`--strict` 会在验证失败时返回非 0，也只建议人工调试时使用。
 
-接入时不需要自己生成 `event_id`，`himan-tracker` 会用稳定字段生成幂等 ID。`session_id` 和 `turn_id` 应保持 Codex 会话内稳定；不知道 token 或耗时时可以省略字段。Codex hooks 提供 `transcript_path` 时，后台 worker 会只读取 token、耗时、MCP tool 结束事件，以及读取 `SKILL.md` 的工具调用元数据来补齐报表，不保存 prompt、response、代码内容、MCP 参数、stdout/stderr、shell 参数或明文仓库路径。
+接入时不需要自己生成 `event_id`，`himan-tracker` 会用稳定字段生成幂等 ID。`session_id` 和 `turn_id` 应保持 Codex 会话内稳定；不知道 token 或耗时时可以省略字段。Codex hooks 提供 `transcript_path` 时，后台 worker 会只读取 token、耗时、MCP tool 结束事件，以及读取 `SKILL.md` 的工具调用元数据来补齐报表。若能从工具调用参数或 workdir 定位到项目 `himan.lock`，推断出的 skill 还会用 Himan lock 中安装到 Codex 的 skill 清单确认。不保存 prompt、response、代码内容、MCP 参数、stdout/stderr、shell 参数、`himan.lock` source URL 或明文仓库路径。
 
-`UserPromptSubmit` 中显式写出的 `$skill-name` 会被提取为精确 skill 调用；从 `SKILL.md` 读取行为推断出的 skill 会标记为 `attribution_confidence=estimated`。
+`UserPromptSubmit` 中显式写出的 `$skill-name` 会被提取为 `invocation_origin=explicit`、`attribution_confidence=exact` 的 skill 调用；从 `SKILL.md` 读取行为推断出的 skill 会标记为 `invocation_origin=inferred`、`attribution_confidence=estimated`。当项目存在可读取的 `himan.lock` 时，未安装到 Codex 的 skill 不会因为 transcript 中出现 `SKILL.md` 路径而被统计。MCP/tool 结构化事件会标记为 `invocation_origin=observed`。
 
 项目级安装写入当前仓库的 `.codex/`，只有该项目被 Codex 信任后才会加载；全局安装写入 `~/.codex`，会在所有 Codex 项目中生效。
 
@@ -207,6 +208,40 @@ himan-tracker ingest --rebuild
 
 `--rebuild` 会删除并重新生成 `himan.sqlite`、`himan.sqlite-shm` 和 `himan.sqlite-wal`，再从 JSONL 重新导入。
 
+### `server`
+
+启动、停止和查看本地报表 Web server。server 默认只监听 `127.0.0.1`，启动后会立即执行一次增量 `ingest`，之后按固定间隔继续导入 `events/*.jsonl`。
+
+```bash
+himan-tracker server start
+```
+
+默认地址是：
+
+```text
+http://127.0.0.1:5127
+```
+
+可调整监听地址、端口、报表范围和导入间隔：
+
+```bash
+himan-tracker server start --host 127.0.0.1 --port 5127 --since 7d --interval 300
+```
+
+查看状态和停止：
+
+```bash
+himan-tracker server status
+himan-tracker server stop
+```
+
+server 状态和日志写在 tracker home 下：
+
+```text
+~/.himan-tracker/server-state.json
+~/.himan-tracker/server.log
+```
+
 ### `cleanup`
 
 清理本地 JSONL 原始日志，保留已经导入 SQLite 的统计结果。这个命令只删除 `events/*.jsonl`、`errors/*.jsonl` 和旧版单文件原始日志，不删除 `himan.sqlite`，也不清理尚未 drain 的 `queue/`。
@@ -249,9 +284,11 @@ himan-tracker cleanup --older-than 30d
 
 ```bash
 himan-tracker summary --since 7d
+himan-tracker summary --since 7d --limit 20
+himan-tracker summary --since 7d --exclude-system
 ```
 
-输出包含 session 数、turn 数、token 总量、平均延迟、成功率、Top agents 和 Top capabilities。Top capabilities 会展示调用次数、token 和平均耗时。报表中的 token 总量使用 1000 进制的紧凑单位显示，例如 `1.25K`、`3.56M`、`1.2G`。
+输出包含 session 数、turn 数、token 总量、平均延迟、成功率、Top agents 和 `Top N capabilities`。`Top N capabilities` 默认展示 10 个，可用 `--limit` 调整为 1 到 200；可用 `--exclude-system` 排除 `Bash`、`apply_patch` 等系统自带 capability。Top capabilities 会展示调用次数、token 和平均耗时。报表中的 token 总量使用 1000 进制的紧凑单位显示，例如 `1.25K`、`3.56M`、`1.2G`。
 
 ### `agents`
 
@@ -291,6 +328,7 @@ himan-tracker capabilities --since 30d
 himan-tracker capabilities --since 30d --type mcp_tool
 himan-tracker capabilities --since 30d --agent codex
 himan-tracker capabilities --since 30d --sort duration
+himan-tracker capabilities --since 30d --exclude-system
 ```
 
 `--sort` 支持：
@@ -300,7 +338,7 @@ himan-tracker capabilities --since 30d --sort duration
 - `duration`
 - `failures`
 
-Codex hooks 不直接提供耗时字段。himan-tracker 会在后台从 Codex transcript 的 `task_complete`、`mcp_tool_call_end` 和 tool end 事件补齐 turn 或 tool duration；Codex 暂无官方结构化 skill 执行事件，因此从显式 `$skill-name` 或读取 `SKILL.md` 的工具调用推断 skill 使用。报表中的 skill duration 使用该 skill 所在 turn 的耗时作为估算。
+Codex hooks 不直接提供耗时字段。himan-tracker 会在后台从 Codex transcript 的 `task_complete`、`mcp_tool_call_end` 和 tool end 事件补齐 turn 或 tool duration；Codex 暂无官方结构化 skill 执行事件，因此从显式 `$skill-name` 或读取 `SKILL.md` 的工具调用推断 skill 使用。若能读取当前项目 `himan.lock`，读取 `SKILL.md` 推断出的 skill 会先按 lock 中的 Codex 安装记录过滤。`capabilities` 报表会用 `Explicit`、`Inferred`、`Observed` 和 `Unknown` 列拆分调用来源；报表中的 skill duration 使用该 skill 所在 turn 的耗时作为估算。
 
 ### `capability-events`
 
@@ -326,7 +364,7 @@ himan-tracker capability-events --type mcp_tool --name openaiDeveloperDocs.searc
 himan-tracker capability-events --type skill --name common-git-commit --agent codex --limit 50
 ```
 
-输出包含调用时间、agent、model、turn、耗时、token、状态、采纳状态和归因置信度。`Basis` 表示耗时来源：`event` 是 capability 事件自身提供的耗时，`turn` 是使用同一 turn 耗时估算，`n/a` 表示未知。
+输出包含调用时间、agent、source、model、turn、耗时、token、状态、采纳状态、调用来源和归因置信度。`Origin` 表示 `explicit`、`inferred`、`observed` 或 `unknown`；`Confidence` 表示 `exact`、`estimated` 或 `unknown`。`Basis` 表示耗时来源：`event` 是 capability 事件自身提供的耗时，`turn` 是使用同一 turn 耗时估算，`n/a` 表示未知。
 
 ### `unused`
 
@@ -355,6 +393,8 @@ himan-tracker unused --since 30d
 ~/.himan-tracker/queue/
 ~/.himan-tracker/himan.sqlite
 ~/.himan-tracker/locks/
+~/.himan-tracker/server-state.json
+~/.himan-tracker/server.log
 ```
 
 使用其他目录：
@@ -397,7 +437,7 @@ HIMAN_TRACKER_HOME=/custom/path himan-tracker doctor
 示例 `capability_usage`：
 
 ```json
-{"schema_version":"1.0","event_id":"evt_capability_001","event_type":"capability_usage","occurred_at":"2026-05-12T12:00:02.000Z","agent":"codex","source":"manual-import","session_id":"s_001","turn_id":"t_001","repo_hash":"repo_hash_001","status":"failure","capability_type":"mcp_tool","capability_name":"github.create_pull_request","duration_ms":200,"input_tokens":4,"output_tokens":1,"total_tokens":5,"adopted":"unknown","attribution_confidence":"estimated"}
+{"schema_version":"1.0","event_id":"evt_capability_001","event_type":"capability_usage","occurred_at":"2026-05-12T12:00:02.000Z","agent":"codex","source":"manual-import","session_id":"s_001","turn_id":"t_001","repo_hash":"repo_hash_001","status":"failure","capability_type":"mcp_tool","capability_name":"github.create_pull_request","duration_ms":200,"input_tokens":4,"output_tokens":1,"total_tokens":5,"adopted":"unknown","attribution_confidence":"estimated","invocation_origin":"observed"}
 ```
 
 `event_id` 用于幂等导入。同一个 `event_id` 重复导入时会被跳过，不会重复计数。token 或耗时未知时可以使用 `null`，报表会显示为未知，而不是强行当作 `0`。
@@ -471,6 +511,8 @@ HIMAN_TRACKER_HOME=/custom/path himan-tracker doctor
 ### 为什么 `summary` 显示没有数据？
 
 报表读取的是 SQLite 投影。先确认 `events/*.jsonl` 中有合法 normalized events，然后运行 `himan-tracker ingest`；如果事件在外部文件中，运行 `himan-tracker ingest --from ./events.jsonl`。
+
+如果使用本地页面，运行 `himan-tracker server start` 后 server 会先执行一次增量导入，并在后台按 `--interval` 周期继续导入。
 
 ### JSONL 和 SQLite 分别有什么用？
 

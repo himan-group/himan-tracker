@@ -230,17 +230,25 @@ himan-tracker
   "total_tokens": 920,
   "status": "success",
   "adopted": "unknown",
-  "attribution_confidence": "estimated"
+  "attribution_confidence": "estimated",
+  "invocation_origin": "observed"
 }
 ```
 
-`attribution_confidence` 用于标记 token 归因可信度：
+`attribution_confidence` 用于标记 capability 使用或指标归因的可信度：
 
-- `exact`：agent 或 hook 明确提供 capability 级 token。
-- `estimated`：按请求或工具调用上下文估算。
+- `exact`：agent、hook 或 transcript 结构化字段明确指向该 capability。
+- `estimated`：按请求、路径或工具调用上下文推断。
 - `unknown`：无法归因。
 
-MVP 报表应展示该字段，避免把估算值表达成精确值。
+`invocation_origin` 用于标记 capability 使用是如何被识别出来的：
+
+- `explicit`：用户或 hook 明确声明，例如 Codex prompt 中的 `$skill-name`。
+- `inferred`：从 transcript 元数据推断，例如读取 `SKILL.md` 的 shell tool call。
+- `observed`：由结构化 tool/MCP 事件直接观测。
+- `unknown`：旧数据或无法判断。
+
+MVP 报表应同时展示 `invocation_origin` 和 `attribution_confidence`，避免把“调用来源”和“归因置信度”混为同一口径。
 
 ### 4.4 Session Event
 
@@ -277,11 +285,11 @@ MVP 报表应展示该字段，避免把估算值表达成精确值。
 Codex hooks 的 `PostToolUse` 和 `Stop` payload 不保证直接提供 token 或耗时字段。MVP 的 Codex adapter 采用两段式处理：
 
 1. hook 主路径只解析轻量字段、生成 normalized events，并把 `Stop` 和 `PostToolUse` 对应的 transcript 补数任务放入本地 queue。
-2. 后台 worker drain queue 时读取 Codex `transcript_path` 指向的 rollout JSONL，只解析 `token_count`、`turn_context`、`task_complete`、`mcp_tool_call_end`、tool call start 和读取 `SKILL.md` 的工具调用等元数据字段，通过会话累计 token 的前后差值补齐 turn 级 token，并补齐 turn / tool duration、transcript-derived MCP tool 调用和可推断的 skill 使用。
+2. 后台 worker drain queue 时读取 Codex `transcript_path` 指向的 rollout JSONL，只解析 `token_count`、`turn_context`、`task_complete`、`mcp_tool_call_end`、tool call start 和读取 `SKILL.md` 的工具调用等元数据字段，通过会话累计 token 的前后差值补齐 turn 级 token，并补齐 turn / tool duration、transcript-derived MCP tool 调用和可推断的 skill 使用。若工具调用参数或 workdir 能定位到项目 `himan.lock`，则用 lock 中安装到 Codex 的 skill 清单确认 transcript 里的 skill 名称；未出现在 lock 中或仅属于其他 agent 的 skill 不计入 Codex inferred skill 调用。
 
 如果 hook payload 缺少 `transcript_path`，后台 worker 可只读 Codex 本地 state SQLite，按 `session_id` 查询 `rollout_path` 作为 transcript 定位兜底。该 SQLite 只作为 Codex 内部状态的只读辅助来源，不作为 `himan-tracker` 事实源。
 
-Codex 当前没有官方结构化 skill 调用事件。MVP 统计两类 skill 信号：`UserPromptSubmit.prompt` 中显式出现的 `$skill-name` 标记为 `attribution_confidence=exact`；transcript 中读取 `SKILL.md` 的 shell tool call 只提取 skill 名称并标记为 `attribution_confidence=estimated`。两者都不得把原始 prompt、shell 参数或 `SKILL.md` 内容写入事件日志。
+Codex 当前没有官方结构化 skill 调用事件。MVP 统计两类 skill 信号：`UserPromptSubmit.prompt` 中显式出现的 `$skill-name` 标记为 `invocation_origin=explicit`、`attribution_confidence=exact`；transcript 中读取 `SKILL.md` 的 shell tool call 只提取 skill 名称并标记为 `invocation_origin=inferred`、`attribution_confidence=estimated`。当可读取 `himan.lock` 时，`inferred` skill 还必须同时满足 lock 中存在 `type=skill` 且 agent 包含 `codex`；没有 lock 或无法定位项目时保留 transcript-only fallback。结构化 MCP/tool 事件标记为 `invocation_origin=observed`。这些路径都不得把原始 prompt、shell 参数、`himan.lock` source URL 或 `SKILL.md` 内容写入事件日志。
 
 ### 5.3 Adapter 接口
 
@@ -388,6 +396,7 @@ type AgentAdapter = {
 | `session_id` | text | session ID |
 | `turn_id` | text? | turn ID |
 | `agent` | text | agent 名称 |
+| `source` | text | 事件来源，例如 `codex-hook`、`codex-transcript` |
 | `capability_type` | text | capability 类型 |
 | `capability_name` | text | capability 名称 |
 | `occurred_at` | text | 发生时间 |
@@ -398,6 +407,7 @@ type AgentAdapter = {
 | `status` | text | 状态 |
 | `adopted` | text | `yes`、`no`、`unknown` |
 | `attribution_confidence` | text | `exact`、`estimated`、`unknown` |
+| `invocation_origin` | text | `explicit`、`inferred`、`observed`、`unknown` |
 
 #### `daily_agent_stats`
 
@@ -432,7 +442,12 @@ type AgentAdapter = {
 | `duration_ms` | integer | 总耗时 |
 | `success_count` | integer | 成功次数 |
 | `failure_count` | integer | 失败次数 |
-| `estimated_token_count` | integer | 使用估算 token 的事件数 |
+| `estimated_token_count` | integer | 兼容旧 schema 的估算归因事件数 |
+| `estimated_attribution_count` | integer | `attribution_confidence=estimated` 的事件数 |
+| `explicit_invocation_count` | integer | `invocation_origin=explicit` 的事件数 |
+| `inferred_invocation_count` | integer | `invocation_origin=inferred` 的事件数 |
+| `observed_invocation_count` | integer | `invocation_origin=observed` 的事件数 |
+| `unknown_origin_count` | integer | `invocation_origin=unknown` 的事件数 |
 
 主键建议为 `(date, agent, capability_type, capability_name)`。
 

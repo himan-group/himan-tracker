@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
@@ -228,6 +228,8 @@ describe("collect codex command", () => {
       assert.equal(turn?.total_tokens, 200);
       assert.equal(turn?.duration_ms, 9_000);
       assert.equal(skill?.capability_name, "common-git-commit");
+      assert.equal(skill?.invocation_origin, "explicit");
+      assert.equal(mcpTool?.invocation_origin, "observed");
       assert.equal(mcpTool?.duration_ms, 1_250);
       assert.equal(rawEvents.includes("不要保存这段 prompt"), false);
       assert.equal(rawEvents.includes("/Users/example/project"), false);
@@ -360,13 +362,140 @@ describe("collect codex command", () => {
       assert.equal(skill?.capability_name, "common-dev-pattern");
       assert.equal(skill?.source, "codex-transcript");
       assert.equal(skill?.attribution_confidence, "estimated");
+      assert.equal(skill?.invocation_origin, "inferred");
       assert.equal(mcpTool?.capability_type, "mcp_tool");
       assert.equal(mcpTool?.source, "codex-transcript");
+      assert.equal(mcpTool?.invocation_origin, "observed");
       assert.equal(mcpTool?.status, "success");
       assert.equal(mcpTool?.duration_ms, 900);
       assert.equal(rawEvents.includes("should not be stored"), false);
       assert.equal(rawEvents.includes("SKILL.md"), false);
       assert.equal(rawEvents.includes("/Users/example/project"), false);
+    } finally {
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("confirms transcript-derived Codex skill usage with himan.lock when available", async () => {
+    const homeDir = await mkdtemp(path.join(tmpdir(), "himan-collect-codex-test-"));
+    const paths = resolveTrackerPaths({ HIMAN_TRACKER_HOME: homeDir });
+    const projectDir = path.join(homeDir, "project");
+    const transcriptPath = path.join(homeDir, "codex-rollout.jsonl");
+    const rawPayload = JSON.stringify({
+      events: [
+        {
+          hook_event_name: "Stop",
+          session_id: "session_himan_lock",
+          turn_id: "turn_himan_lock",
+          cwd: projectDir,
+          model: "gpt-5.5",
+          transcript_path: transcriptPath,
+        },
+      ],
+    });
+
+    try {
+      await writeUserConfig(paths, createTestConfig());
+      await mkdir(projectDir, { recursive: true });
+      await writeFile(
+        path.join(projectDir, "himan.lock"),
+        JSON.stringify({
+          version: 1,
+          resources: [
+            {
+              type: "skill",
+              name: "managed-skill",
+              version: "1.0.0",
+              agents: ["codex"],
+              mode: "copy",
+            },
+            {
+              type: "skill",
+              name: "claude-only",
+              version: "1.0.0",
+              agents: ["claude-code"],
+              mode: "copy",
+            },
+          ],
+        }),
+        "utf8",
+      );
+      await writeFile(
+        transcriptPath,
+        [
+          JSON.stringify({
+            type: "event_msg",
+            timestamp: "2026-05-13T12:00:00.000Z",
+            payload: {
+              type: "task_started",
+              turn_id: "turn_himan_lock",
+            },
+          }),
+          JSON.stringify({
+            type: "turn_context",
+            timestamp: "2026-05-13T12:00:01.000Z",
+            payload: {
+              turn_id: "turn_himan_lock",
+              model: "gpt-5.5",
+            },
+          }),
+          JSON.stringify({
+            type: "response_item",
+            timestamp: "2026-05-13T12:00:02.000Z",
+            payload: {
+              type: "function_call",
+              name: "exec_command",
+              call_id: "call_skill_himan_lock",
+              arguments: JSON.stringify({
+                cmd: [
+                  "sed -n '1,80p' .agents/skills/managed-skill/SKILL.md",
+                  "sed -n '1,80p' .agents/skills/unmanaged-skill/SKILL.md",
+                  "sed -n '1,80p' .agents/skills/claude-only/SKILL.md",
+                ].join(" && "),
+                workdir: projectDir,
+              }),
+            },
+          }),
+          JSON.stringify({
+            type: "event_msg",
+            timestamp: "2026-05-13T12:00:04.000Z",
+            payload: {
+              type: "task_complete",
+              turn_id: "turn_himan_lock",
+              duration_ms: 4_000,
+            },
+          }),
+        ].join("\n"),
+        "utf8",
+      );
+
+      const result = await runCollect({
+        paths,
+        input: rawPayload,
+        sync: true,
+        startWorker: false,
+        now: () => new Date("2026-05-13T12:00:05.000Z"),
+      });
+
+      assert.equal(result.ok, true);
+      assert.match(result.lines.join("\n"), /Written events: 2/);
+
+      const rawEvents = await readFile(
+        resolveDailyEventsPath(paths, "2026-05-13T12:00:05.000Z"),
+        "utf8",
+      );
+      const events = rawEvents
+        .trimEnd()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      const skills = events.filter((event) => event.capability_type === "skill");
+
+      assert.equal(skills.length, 1);
+      assert.equal(skills[0]?.capability_name, "managed-skill");
+      assert.equal(skills[0]?.attribution_confidence, "estimated");
+      assert.equal(skills[0]?.invocation_origin, "inferred");
+      assert.equal(rawEvents.includes(projectDir), false);
+      assert.equal(rawEvents.includes("SKILL.md"), false);
     } finally {
       await rm(homeDir, { recursive: true, force: true });
     }

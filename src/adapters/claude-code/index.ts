@@ -44,6 +44,7 @@ function parseToolEvent(event: RawRecord): AdapterEvent[] {
       status: getStatus(event.status),
       adopted: getAdopted(event.adopted),
       attribution_confidence: getString(event.attribution_confidence) === "exact" ? "exact" : "unknown",
+      invocation_origin: "observed",
     },
   ];
 }

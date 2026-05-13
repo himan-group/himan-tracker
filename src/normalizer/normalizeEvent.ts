@@ -52,6 +52,7 @@ export function normalizeEvent(event: AdapterEvent, config: UserConfig): Normali
         duration_ms: event.duration_ms ?? null,
         adopted: event.adopted ?? "unknown",
         attribution_confidence: event.attribution_confidence ?? "unknown",
+        invocation_origin: event.invocation_origin ?? "unknown",
         ...normalizeTokenUsage(event),
       };
       break;

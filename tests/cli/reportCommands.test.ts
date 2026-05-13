@@ -31,9 +31,44 @@ describe("report commands", () => {
 
     try {
       const summary = await runSummary({ paths, since: "7d", now: () => now });
+      const summaryOutput = summary.lines.join("\n");
       assert.equal(summary.ok, true);
-      assert.match(summary.lines.join("\n"), /Total tokens\s+\|\s+3\.56M/);
-      assert.match(summary.lines.join("\n"), /github\.create_pull_request/);
+      assert.match(summaryOutput, /Total tokens\s+\|\s+3\.56M/);
+      assert.match(summaryOutput, /Top 10 capabilities/);
+      assert.match(summaryOutput, /github\.create_pull_request/);
+
+      const limitedSummary = await runSummary({
+        paths,
+        since: "7d",
+        limit: 1,
+        now: () => now,
+      });
+      const limitedSummaryOutput = limitedSummary.lines.join("\n");
+      assert.equal(limitedSummary.ok, true);
+      assert.match(limitedSummaryOutput, /Top 1 capabilities/);
+      assert.match(limitedSummaryOutput, /github\.create_pull_request/);
+      assert.equal(limitedSummaryOutput.includes("common-git-commit"), false);
+
+      const userCapabilitySummary = await runSummary({
+        paths,
+        since: "7d",
+        excludeSystem: true,
+        now: () => now,
+      });
+      const userCapabilitySummaryOutput = userCapabilitySummary.lines.join("\n");
+      assert.equal(userCapabilitySummary.ok, true);
+      assert.match(userCapabilitySummaryOutput, /github\.create_pull_request/);
+      assert.equal(userCapabilitySummaryOutput.includes("apply_patch"), false);
+      assert.equal(userCapabilitySummaryOutput.includes("Bash"), false);
+
+      const invalidSummary = await runSummary({
+        paths,
+        since: "7d",
+        limit: 0,
+        now: () => now,
+      });
+      assert.equal(invalidSummary.ok, false);
+      assert.match(invalidSummary.lines.join("\n"), /Expected --limit/);
 
       const agents = await runAgents({
         paths,
@@ -57,6 +92,7 @@ describe("report commands", () => {
       assert.match(capabilities.lines.join("\n"), /github\.create_pull_request/);
       assert.match(capabilities.lines.join("\n"), /1\.25K/);
       assert.match(capabilities.lines.join("\n"), /0\.0%/);
+      assert.match(capabilities.lines.join("\n"), /Observed/);
 
       const skills = await runCapabilities({
         paths,
@@ -69,6 +105,21 @@ describe("report commands", () => {
       assert.equal(skills.ok, true);
       assert.match(skills.lines.join("\n"), /common-git-commit/);
       assert.match(skills.lines.join("\n"), /1\.0s/);
+      assert.match(skills.lines.join("\n"), /Explicit/);
+
+      const userCapabilities = await runCapabilities({
+        paths,
+        since: "30d",
+        sort: "invocations",
+        agent: "codex",
+        excludeSystem: true,
+        now: () => now,
+      });
+      const userCapabilitiesOutput = userCapabilities.lines.join("\n");
+      assert.equal(userCapabilities.ok, true);
+      assert.match(userCapabilitiesOutput, /github\.create_pull_request/);
+      assert.equal(userCapabilitiesOutput.includes("apply_patch"), false);
+      assert.equal(userCapabilitiesOutput.includes("Bash"), false);
 
       const mcpEvents = await runCapabilityEvents({
         paths,
@@ -84,6 +135,7 @@ describe("report commands", () => {
       assert.match(mcpEvents.lines.join("\n"), /event/);
       assert.match(mcpEvents.lines.join("\n"), /1\.25K/);
       assert.match(mcpEvents.lines.join("\n"), /failure/);
+      assert.match(mcpEvents.lines.join("\n"), /observed/);
 
       const skillEvents = await runCapabilityEvents({
         paths,
@@ -97,6 +149,7 @@ describe("report commands", () => {
       assert.match(skillEvents.lines.join("\n"), /common-git-commit/);
       assert.match(skillEvents.lines.join("\n"), /1\.0s/);
       assert.match(skillEvents.lines.join("\n"), /turn/);
+      assert.match(skillEvents.lines.join("\n"), /explicit/);
 
       const invalidEvents = await runCapabilityEvents({
         paths,
@@ -231,6 +284,7 @@ function createFixtureEvents(): NormalizedEvent[] {
       total_tokens: null,
       adopted: "unknown",
       attribution_confidence: "exact",
+      invocation_origin: "explicit",
     },
     {
       schema_version: "1.0",
@@ -251,6 +305,49 @@ function createFixtureEvents(): NormalizedEvent[] {
       total_tokens: 1_250,
       adopted: "unknown",
       attribution_confidence: "estimated",
+      invocation_origin: "observed",
+    },
+    {
+      schema_version: "1.0",
+      event_id: "evt_capability_builtin_001",
+      event_type: "capability_usage",
+      occurred_at: "2026-05-12T12:00:03.000Z",
+      agent: "codex",
+      source: "fixture",
+      session_id: "s_001",
+      turn_id: "t_001",
+      repo_hash: "repo_hash_001",
+      status: "success",
+      capability_type: "builtin_tool",
+      capability_name: "apply_patch",
+      duration_ms: 100,
+      input_tokens: null,
+      output_tokens: null,
+      total_tokens: null,
+      adopted: "unknown",
+      attribution_confidence: "exact",
+      invocation_origin: "observed",
+    },
+    {
+      schema_version: "1.0",
+      event_id: "evt_capability_builtin_legacy_001",
+      event_type: "capability_usage",
+      occurred_at: "2026-05-12T12:00:04.000Z",
+      agent: "codex",
+      source: "fixture",
+      session_id: "s_001",
+      turn_id: "t_001",
+      repo_hash: "repo_hash_001",
+      status: "success",
+      capability_type: "unknown",
+      capability_name: "Bash",
+      duration_ms: null,
+      input_tokens: null,
+      output_tokens: null,
+      total_tokens: null,
+      adopted: "unknown",
+      attribution_confidence: "unknown",
+      invocation_origin: "observed",
     },
   ];
 }

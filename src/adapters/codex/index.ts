@@ -49,6 +49,7 @@ function parsePromptSubmit(
     capability_type: "skill",
     capability_name: skill,
     attribution_confidence: "exact",
+    invocation_origin: "explicit",
   }));
 }
 
@@ -72,6 +73,7 @@ function parsePostToolUse(
       duration_ms: getNumber(event.duration_ms),
       status: getStatus(event.status),
       attribution_confidence: "unknown",
+      invocation_origin: "observed",
     },
   ];
 }

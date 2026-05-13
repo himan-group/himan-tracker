@@ -8,6 +8,12 @@ import { runCapabilities } from "./commands/capabilities.js";
 import { runCollect } from "./commands/collect.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runIngest } from "./commands/ingest.js";
+import {
+  runServerServe,
+  runServerStart,
+  runServerStatus,
+  runServerStop,
+} from "./commands/server.js";
 import { runSetup } from "./commands/setup.js";
 import { runSummary } from "./commands/summary.js";
 import { runTurns } from "./commands/turns.js";
@@ -92,6 +98,65 @@ type IngestCommandOptions = {
   rebuild?: boolean;
 };
 
+const serverCommand = program
+  .command("server")
+  .description("Start and stop the local report web server");
+
+serverCommand
+  .command("start")
+  .description("Start the local report web server in the background")
+  .option("--host <host>", "Host to bind", "127.0.0.1")
+  .option("--port <port>", "Port to bind; use 0 for a random free port", "5127")
+  .option("--interval <seconds>", "Seconds between background ingest runs", "300")
+  .option("--since <period>", "Report date range such as 7d, 4w, or 1m", "7d")
+  .action(async (options: ServerStartCommandOptions) => {
+    const result = await runServerStart(options);
+    console.log(result.lines.join("\n"));
+    process.exitCode = result.ok ? 0 : 1;
+  });
+
+serverCommand
+  .command("stop")
+  .description("Stop the local report web server")
+  .action(async () => {
+    const result = await runServerStop();
+    console.log(result.lines.join("\n"));
+    process.exitCode = result.ok ? 0 : 1;
+  });
+
+serverCommand
+  .command("status")
+  .description("Show local report web server status")
+  .action(async () => {
+    const result = await runServerStatus();
+    console.log(result.lines.join("\n"));
+    process.exitCode = result.ok ? 0 : 1;
+  });
+
+serverCommand
+  .command("serve", { hidden: true })
+  .description("Run the local report web server in the foreground")
+  .option("--host <host>", "Host to bind", "127.0.0.1")
+  .option("--port <port>", "Port to bind", "5127")
+  .option("--interval <seconds>", "Seconds between background ingest runs", "300")
+  .option("--since <period>", "Report date range such as 7d, 4w, or 1m", "7d")
+  .action(async (options: ServerServeCommandOptions) => {
+    const result = await runServerServe(options);
+    if (!result.ok) {
+      console.error(result.lines.join("\n"));
+    }
+    process.exitCode = result.ok ? 0 : 1;
+  });
+
+type ServerStartCommandOptions = {
+  host?: string;
+  port?: string;
+  interval?: string;
+  since?: string;
+};
+
+type ServerServeCommandOptions = ServerStartCommandOptions;
+
 program
   .command("cleanup")
   .description("Delete raw JSONL logs while keeping SQLite statistics")
@@ -120,6 +185,8 @@ program
   .command("summary")
   .description("Show usage summary for a date range")
   .option("--since <period>", "Date range such as 7d, 4w, or 1m", "7d")
+  .option("--limit <count>", "Maximum top capabilities to show, between 1 and 200", "10")
+  .option("--exclude-system", "Exclude built-in system capabilities from Top capabilities")
   .action(async (options: SummaryCommandOptions) => {
     const result = await runSummary(options);
     console.log(result.lines.join("\n"));
@@ -128,6 +195,8 @@ program
 
 type SummaryCommandOptions = {
   since?: string;
+  limit?: string;
+  excludeSystem?: boolean;
 };
 
 program
@@ -169,6 +238,7 @@ program
   .option("--sort <field>", "Sort by invocations, tokens, duration, or failures", "tokens")
   .option("--type <type>", "Filter by capability type")
   .option("--agent <agent>", "Filter by agent")
+  .option("--exclude-system", "Exclude built-in system capabilities")
   .action(async (options: CapabilitiesCommandOptions) => {
     const result = await runCapabilities(options);
     console.log(result.lines.join("\n"));
@@ -180,6 +250,7 @@ type CapabilitiesCommandOptions = {
   sort?: string;
   type?: string;
   agent?: string;
+  excludeSystem?: boolean;
 };
 
 program
