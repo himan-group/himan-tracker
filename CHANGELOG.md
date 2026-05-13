@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-05-13
+
 ### Added
 
 - Added `build:sandbox` as a local TypeScript build script that avoids the pnpm shim path in sandboxed environments.
