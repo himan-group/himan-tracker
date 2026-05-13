@@ -27,10 +27,12 @@ describe("server command", () => {
   it("serves a dashboard page and ingests events before rendering", async () => {
     const homeDir = await mkdtemp(path.join(tmpdir(), "himan-server-test-"));
     const paths = resolveTrackerPaths({ HIMAN_TRACKER_HOME: homeDir });
-    const event = createTurnEvent();
+    const events = [createTurnEvent(), ...createServerCapabilityEvents()];
 
     await ensureTrackerDirectories(paths);
-    await appendJsonlRecord(resolveDailyEventsPath(paths, event.occurred_at), event);
+    for (const event of events) {
+      await appendJsonlRecord(resolveDailyEventsPath(paths, event.occurred_at), event);
+    }
 
     const instance = await startReportHttpServer({
       paths,
@@ -47,6 +49,27 @@ describe("server command", () => {
       assert.equal(response.status, 200);
       assert.match(html, /himan-tracker/);
       assert.match(html, /Summary/);
+      const summaryHtml = html.slice(
+        html.indexOf("<h2>Summary</h2>"),
+        html.indexOf("<h2>Token usage</h2>"),
+      );
+      assert.match(summaryHtml, /Top 15 capabilities/);
+      assert.match(summaryHtml, /server-capability-15/);
+      assert.equal(summaryHtml.includes("server-capability-16"), false);
+      assert.equal(summaryHtml.includes("apply_patch"), false);
+      assert.equal(summaryHtml.includes("Bash"), false);
+      assert.match(html, /Token usage/);
+      assert.ok(html.indexOf("<h2>Summary</h2>") < html.indexOf("<h2>Token usage</h2>"));
+      assert.match(html, /role="tablist"/);
+      assert.match(html, /role="tab"[^>]*>Daily<\/button>/);
+      assert.match(html, /role="tab"[^>]*>Weekly<\/button>/);
+      assert.match(html, /role="tab"[^>]*>Monthly<\/button>/);
+      assert.equal(html.includes("Daily tokens"), false);
+      assert.equal(html.includes("Weekly tokens"), false);
+      assert.equal(html.includes("Monthly tokens"), false);
+      assert.match(html, /Showing 25 of 32 capabilities\./);
+      assert.match(html, /server-capability-23/);
+      assert.equal(html.includes("server-capability-24"), false);
       assert.match(html, /Recent turns/);
       assert.match(html, /1\.23K/);
 
@@ -57,8 +80,8 @@ describe("server command", () => {
       };
       assert.equal(health.ok, true);
       assert.equal(health.last_ingest.ok, true);
-      assert.equal(health.last_ingest.events_read, 1);
-      assert.equal(health.last_ingest.events_skipped, 1);
+      assert.equal(health.last_ingest.events_read, events.length);
+      assert.equal(health.last_ingest.events_skipped, events.length);
 
       const status = await runServerStatus({ paths });
       assert.equal(status.ok, true);
@@ -119,5 +142,65 @@ function createTurnEvent(): NormalizedEvent {
     input_tokens: 1_000,
     output_tokens: 234,
     total_tokens: 1_234,
+  };
+}
+
+function createServerCapabilityEvents(): NormalizedEvent[] {
+  const userCapabilities = Array.from({ length: 30 }, (_, index) =>
+    createCapabilityEvent({
+      eventId: `evt_server_capability_${index + 1}`,
+      occurredAt: `2026-05-12T12:01:${String(index).padStart(2, "0")}.000Z`,
+      type: "skill",
+      name: `server-capability-${String(index + 1).padStart(2, "0")}`,
+      totalTokens: 30_000 - index,
+    }),
+  );
+
+  return [
+    createCapabilityEvent({
+      eventId: "evt_server_builtin_apply_patch",
+      occurredAt: "2026-05-12T12:02:00.000Z",
+      type: "builtin_tool",
+      name: "apply_patch",
+      totalTokens: 100_000,
+    }),
+    createCapabilityEvent({
+      eventId: "evt_server_builtin_bash",
+      occurredAt: "2026-05-12T12:02:01.000Z",
+      type: "unknown",
+      name: "Bash",
+      totalTokens: 90_000,
+    }),
+    ...userCapabilities,
+  ];
+}
+
+function createCapabilityEvent(options: {
+  eventId: string;
+  occurredAt: string;
+  type: "skill" | "builtin_tool" | "unknown";
+  name: string;
+  totalTokens: number;
+}): NormalizedEvent {
+  return {
+    schema_version: "1.0",
+    event_id: options.eventId,
+    event_type: "capability_usage",
+    occurred_at: options.occurredAt,
+    agent: "codex",
+    source: "fixture",
+    session_id: "s_server_001",
+    turn_id: "t_server_001",
+    repo_hash: "repo_hash_server_001",
+    status: "success",
+    capability_type: options.type,
+    capability_name: options.name,
+    duration_ms: 500,
+    input_tokens: null,
+    output_tokens: null,
+    total_tokens: options.totalTokens,
+    adopted: "unknown",
+    attribution_confidence: "exact",
+    invocation_origin: "observed",
   };
 }

@@ -66,7 +66,7 @@ export function normalizeEvent(event: AdapterEvent, config: UserConfig): Normali
       break;
   }
 
-  normalizedEvent.event_id = createEventId(normalizedEvent);
+  normalizedEvent.event_id = createEventId(normalizedEvent, event.identity_key ?? undefined);
   return validateNormalizedEvent(normalizedEvent);
 }
 
@@ -84,17 +84,22 @@ export function normalizeTokenUsage(tokenUsage: Partial<TokenUsage>): TokenUsage
   };
 }
 
-export function createEventId(event: Omit<NormalizedEvent, "event_id">): string {
-  const parts = [
-    event.schema_version,
-    event.event_type,
-    event.agent,
-    event.session_id,
-    event.turn_id ?? "",
-    event.occurred_at,
-    "capability_type" in event ? event.capability_type : "",
-    "capability_name" in event ? event.capability_name : "",
-  ];
+export function createEventId(
+  event: Omit<NormalizedEvent, "event_id">,
+  identityKey?: string,
+): string {
+  const parts = identityKey
+    ? [event.schema_version, event.event_type, event.agent, event.session_id, identityKey]
+    : [
+        event.schema_version,
+        event.event_type,
+        event.agent,
+        event.session_id,
+        event.turn_id ?? "",
+        event.occurred_at,
+        "capability_type" in event ? event.capability_type : "",
+        "capability_name" in event ? event.capability_name : "",
+      ];
 
   return createHash("sha256").update(parts.join("\u001f")).digest("hex");
 }

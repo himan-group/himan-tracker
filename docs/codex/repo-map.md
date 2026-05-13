@@ -16,6 +16,7 @@ Common commands:
 
 ```bash
 pnpm run build
+npm run build:sandbox
 pnpm run typecheck
 pnpm test
 himan-tracker --help
@@ -24,6 +25,7 @@ himan-tracker setup --dry-run
 himan-tracker collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
 himan-tracker ingest
 himan-tracker summary --since 7d
+himan-tracker tokens --period week --since 12w
 himan-tracker agents --date YYYY-MM-DD
 himan-tracker capabilities --since 30d
 himan-tracker unused --since 30d
@@ -34,7 +36,7 @@ himan-tracker server stop
 
 Notes:
 
-- The published `himan-tracker` bin points to `./dist/cli/index.js`, so run `pnpm run build` before local package-link or packed CLI testing.
+- The published `himan-tracker` bin points to `./dist/cli/index.js`, so run `pnpm run build` before local package-link or packed CLI testing. In Codex sandboxed sessions, prefer `npm run build:sandbox` because `pnpm run build` may hang and fail with `fetch failed`; `node node_modules/typescript/bin/tsc -p tsconfig.json` is the direct fallback.
 - The `doctor` command creates/checks local tracker files. Use `HIMAN_TRACKER_HOME=/tmp/path` or another temp path during tests/manual checks when you do not want to touch `~/.himan-tracker`.
 - The `setup` command installs current-project Codex hooks by default and supports `-g, --global` for `~/.codex` setup. Generated helpers call `himan-tracker collect --agent codex --quiet`.
 - The `collect` command is hook-safe by default: it returns 0 unless `--strict` is used, queues sanitized normalized events, and drains asynchronously unless `--sync` is used. Use `--quiet` in hooks.
@@ -54,6 +56,7 @@ src/
     commands/server.ts
     commands/setup.ts
     commands/summary.ts
+    commands/tokens.ts
     commands/unused.ts
   aggregator/
     aggregateEvents.ts
@@ -86,6 +89,7 @@ src/
     dateRange.ts
     formatTable.ts
     summaryReport.ts
+    tokenReport.ts
     unusedReport.ts
   server/
     reportServer.ts
@@ -127,6 +131,7 @@ Empty or not-yet-implemented domains currently remain as `.gitkeep` directories.
   - `ingest` -> `src/cli/commands/ingest.ts`
   - `server start/status/stop` -> `src/cli/commands/server.ts`
   - `summary`
+  - `tokens`
   - `agents`
   - `capabilities`
   - `unused`
@@ -172,6 +177,7 @@ Report rules:
 - `server start` launches a detached local HTTP server, records PID/state under the tracker home, runs immediate and interval-based incremental ingest, and serves a local dashboard page from SQLite reports.
 - `server status` reads the state file and checks whether the recorded PID is still running; `server stop` sends `SIGTERM` and removes stale state when needed.
 - `summary` supports `--since`, shows overall usage, top agents, and top capabilities.
+- `tokens` supports `--since` and `--period day|week|month` to show input, output, total, and average token consumption by period.
 - `agents` supports `--date` and groups by agent/model.
 - `turns` supports `--since`, `--agent`, and `--limit` for per-turn duration/token/status output.
 - `capabilities` supports `--since`, `--sort`, `--type`, and `--agent`.
@@ -258,6 +264,12 @@ Do not edit `dist/` directly. Rebuild from `src/` with:
 pnpm run build
 ```
 
+In Codex sandboxed sessions, use:
+
+```bash
+npm run build:sandbox
+```
+
 Vendored/dependency output:
 
 - `node_modules/`
@@ -281,6 +293,7 @@ Before finalizing code changes, run:
 ```bash
 pnpm run typecheck
 pnpm test
+npm run build:sandbox
 ```
 
 For CLI smoke checks:

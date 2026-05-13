@@ -11,6 +11,7 @@ import { runAgents } from "../../src/cli/commands/agents.js";
 import { runCapabilityEvents } from "../../src/cli/commands/capabilityEvents.js";
 import { runCapabilities } from "../../src/cli/commands/capabilities.js";
 import { runSummary } from "../../src/cli/commands/summary.js";
+import { runTokens } from "../../src/cli/commands/tokens.js";
 import { runTurns } from "../../src/cli/commands/turns.js";
 import { runUnused } from "../../src/cli/commands/unused.js";
 import {
@@ -70,6 +71,12 @@ describe("report commands", () => {
       assert.equal(invalidSummary.ok, false);
       assert.match(invalidSummary.lines.join("\n"), /Expected --limit/);
 
+      const tokens = await runTokens({ paths, since: "7d", period: "day", now: () => now });
+      assert.equal(tokens.ok, true);
+      assert.match(tokens.lines.join("\n"), /Token usage by day/);
+      assert.match(tokens.lines.join("\n"), /2026-05-12/);
+      assert.match(tokens.lines.join("\n"), /3\.56M/);
+
       const agents = await runAgents({
         paths,
         date: toLocalDate(events[0].occurred_at),
@@ -104,7 +111,7 @@ describe("report commands", () => {
       });
       assert.equal(skills.ok, true);
       assert.match(skills.lines.join("\n"), /common-git-commit/);
-      assert.match(skills.lines.join("\n"), /1\.0s/);
+      assert.match(skills.lines.join("\n"), /1s/);
       assert.match(skills.lines.join("\n"), /Explicit/);
 
       const userCapabilities = await runCapabilities({
@@ -147,7 +154,7 @@ describe("report commands", () => {
       });
       assert.equal(skillEvents.ok, true);
       assert.match(skillEvents.lines.join("\n"), /common-git-commit/);
-      assert.match(skillEvents.lines.join("\n"), /1\.0s/);
+      assert.match(skillEvents.lines.join("\n"), /1s/);
       assert.match(skillEvents.lines.join("\n"), /turn/);
       assert.match(skillEvents.lines.join("\n"), /explicit/);
 
@@ -168,7 +175,7 @@ describe("report commands", () => {
       });
       assert.equal(turns.ok, true);
       assert.match(turns.lines.join("\n"), /gpt-5\.1-codex/);
-      assert.match(turns.lines.join("\n"), /1\.0s/);
+      assert.match(turns.lines.join("\n"), /1s/);
 
       const unused = await runUnused({ paths, since: "30d", now: () => now });
       const unusedOutput = unused.lines.join("\n");
@@ -186,9 +193,49 @@ describe("report commands", () => {
     try {
       const paths = resolveTrackerPaths({ HIMAN_TRACKER_HOME: homeDir });
       const summary = await runSummary({ paths, since: "7d", now: () => now });
+      const tokens = await runTokens({ paths, since: "7d", period: "week", now: () => now });
 
       assert.equal(summary.ok, true);
       assert.match(summary.lines.join("\n"), /No usage data found/);
+      assert.equal(tokens.ok, true);
+      assert.match(tokens.lines.join("\n"), /No token usage found/);
+    } finally {
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders token usage grouped by day, week, and month", async () => {
+    const { homeDir, paths } = await createIngestedTokenFixture();
+
+    try {
+      const daily = await runTokens({ paths, since: "30d", period: "day", now: () => now });
+      const dailyOutput = daily.lines.join("\n");
+      assert.equal(daily.ok, true);
+      assert.match(dailyOutput, /Token usage by day/);
+      assert.match(dailyOutput, /2026-04-28\s+\|\s+1\s+\|\s+1K\s+\|\s+500\s+\|\s+1\.5K/);
+      assert.match(dailyOutput, /2026-05-01\s+\|\s+1\s+\|\s+2K\s+\|\s+500\s+\|\s+2\.5K/);
+      assert.match(dailyOutput, /2026-05-12\s+\|\s+1\s+\|\s+2\.5K\s+\|\s+500\s+\|\s+3K/);
+
+      const weekly = await runTokens({ paths, since: "30d", period: "week", now: () => now });
+      const weeklyOutput = weekly.lines.join("\n");
+      assert.equal(weekly.ok, true);
+      assert.match(weeklyOutput, /2026-04-27 to 2026-05-03\s+\|\s+2\s+\|\s+3K\s+\|\s+1K\s+\|\s+4K\s+\|\s+2K/);
+      assert.match(weeklyOutput, /2026-05-11 to 2026-05-17\s+\|\s+1\s+\|\s+2\.5K\s+\|\s+500\s+\|\s+3K\s+\|\s+3K/);
+
+      const monthly = await runTokens({ paths, since: "30d", period: "month", now: () => now });
+      const monthlyOutput = monthly.lines.join("\n");
+      assert.equal(monthly.ok, true);
+      assert.match(monthlyOutput, /2026-04\s+\|\s+1\s+\|\s+1K\s+\|\s+500\s+\|\s+1\.5K/);
+      assert.match(monthlyOutput, /2026-05\s+\|\s+2\s+\|\s+4\.5K\s+\|\s+1K\s+\|\s+5\.5K/);
+
+      const invalidPeriod = await runTokens({
+        paths,
+        since: "30d",
+        period: "quarter",
+        now: () => now,
+      });
+      assert.equal(invalidPeriod.ok, false);
+      assert.match(invalidPeriod.lines.join("\n"), /Expected --period/);
     } finally {
       await rm(homeDir, { recursive: true, force: true });
     }
@@ -218,6 +265,29 @@ async function createIngestedFixture(): Promise<{
   });
 
   return { homeDir, paths, events };
+}
+
+async function createIngestedTokenFixture(): Promise<{
+  homeDir: string;
+  paths: TrackerPaths;
+}> {
+  const homeDir = await mkdtemp(path.join(tmpdir(), "himan-token-report-test-"));
+  const paths = resolveTrackerPaths({ HIMAN_TRACKER_HOME: homeDir });
+  const events = createTokenFixtureEvents();
+
+  await ensureTrackerDirectories(paths);
+
+  for (const event of events) {
+    await appendJsonlRecord(resolveDailyEventsPath(paths, event.occurred_at), event);
+  }
+
+  await ingestEvents({
+    sqlitePath: paths.sqlitePath,
+    eventsDir: paths.eventsDir,
+    now: () => now,
+  });
+
+  return { homeDir, paths };
 }
 
 function createTestConfig(): UserConfig {
@@ -350,4 +420,56 @@ function createFixtureEvents(): NormalizedEvent[] {
       invocation_origin: "observed",
     },
   ];
+}
+
+function createTokenFixtureEvents(): NormalizedEvent[] {
+  return [
+    createTokenTurnEvent({
+      eventId: "evt_token_001",
+      occurredAt: "2026-04-28T12:00:00.000Z",
+      inputTokens: 1_000,
+      outputTokens: 500,
+      totalTokens: 1_500,
+    }),
+    createTokenTurnEvent({
+      eventId: "evt_token_002",
+      occurredAt: "2026-05-01T12:00:00.000Z",
+      inputTokens: 2_000,
+      outputTokens: 500,
+      totalTokens: 2_500,
+    }),
+    createTokenTurnEvent({
+      eventId: "evt_token_003",
+      occurredAt: "2026-05-12T12:00:00.000Z",
+      inputTokens: 2_500,
+      outputTokens: 500,
+      totalTokens: 3_000,
+    }),
+  ];
+}
+
+function createTokenTurnEvent(options: {
+  eventId: string;
+  occurredAt: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}): NormalizedEvent {
+  return {
+    schema_version: "1.0",
+    event_id: options.eventId,
+    event_type: "turn_summary",
+    occurred_at: options.occurredAt,
+    agent: "codex",
+    source: "fixture",
+    session_id: "s_tokens",
+    turn_id: options.eventId.replace("evt_", "turn_"),
+    repo_hash: "repo_hash_tokens",
+    status: "success",
+    model: "gpt-5.1-codex",
+    duration_ms: 1_000,
+    input_tokens: options.inputTokens,
+    output_tokens: options.outputTokens,
+    total_tokens: options.totalTokens,
+  };
 }

@@ -114,6 +114,38 @@ describe("normalizeEvent", () => {
       assert.equal(event.total_tokens, null);
     });
 
+  it("uses adapter identity keys to dedupe observed duplicate events", () => {
+    const first = normalizeEvent(
+      {
+        event_type: "capability_usage",
+        occurred_at: "2026-05-12T03:45:12.000Z",
+        identity_key: "codex:PostToolUse:turn_001:tool:call_001:Bash",
+        agent: "codex",
+        source: "codex-hook",
+        session_id: "s_001",
+        turn_id: "turn_001",
+        capability_name: "Bash",
+      },
+      config,
+    );
+    const second = normalizeEvent(
+      {
+        event_type: "capability_usage",
+        occurred_at: "2026-05-12T03:45:12.050Z",
+        identity_key: "codex:PostToolUse:turn_001:tool:call_001:Bash",
+        agent: "codex",
+        source: "codex-hook",
+        session_id: "s_001",
+        turn_id: "turn_001",
+        capability_name: "Bash",
+      },
+      config,
+    );
+
+    assert.equal(first.event_id, second.event_id);
+    assert.equal("identity_key" in first, false);
+  });
+
   it("strips shell command arguments by default", () => {
     const event = normalizeEvent(
       {

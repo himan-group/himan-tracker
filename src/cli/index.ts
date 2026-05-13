@@ -16,6 +16,7 @@ import {
 } from "./commands/server.js";
 import { runSetup } from "./commands/setup.js";
 import { runSummary } from "./commands/summary.js";
+import { runTokens } from "./commands/tokens.js";
 import { runTurns } from "./commands/turns.js";
 import { runUnused } from "./commands/unused.js";
 
@@ -145,7 +146,7 @@ serverCommand
     if (!result.ok) {
       console.error(result.lines.join("\n"));
     }
-    process.exitCode = result.ok ? 0 : 1;
+    process.exit(result.ok ? 0 : 1);
   });
 
 type ServerStartCommandOptions = {
@@ -197,6 +198,22 @@ type SummaryCommandOptions = {
   since?: string;
   limit?: string;
   excludeSystem?: boolean;
+};
+
+program
+  .command("tokens")
+  .description("Show token usage grouped by day, week, or month")
+  .option("--since <period>", "Date range such as 30d, 12w, or 12m", "30d")
+  .option("--period <period>", "Group by day, week, month, daily, weekly, or monthly", "day")
+  .action(async (options: TokensCommandOptions) => {
+    const result = await runTokens(options);
+    console.log(result.lines.join("\n"));
+    process.exitCode = result.ok ? 0 : 1;
+  });
+
+type TokensCommandOptions = {
+  since?: string;
+  period?: string;
 };
 
 program

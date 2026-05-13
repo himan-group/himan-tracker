@@ -1,6 +1,6 @@
 {
   "name": "@hi-man/himan-tracker",
-  "version": "0.0.3",
+  "version": "0.1.0",
   "description": "Local-first observability and analytics for AI coding agents.",
   "type": "module",
   "license": "Apache-2.0",
@@ -26,6 +26,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "build:sandbox": "node node_modules/typescript/bin/tsc -p tsconfig.json",
     "changelog:release": "node scripts/release-changelog.mjs",
     "cli": "tsx src/cli/index.ts",
     "release": "pnpm run verify && npm publish --access public",
