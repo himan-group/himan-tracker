@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitHub npm Publish"
+  short_description: "Build reusable GitHub npm release flows"
+  default_prompt: "Use $github-npm-publish to add or audit a GitHub Actions npm publish workflow."
