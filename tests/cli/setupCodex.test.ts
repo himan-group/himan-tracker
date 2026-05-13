@@ -19,7 +19,7 @@ describe("setup command", () => {
       assert.match(result.lines.join("\n"), /Scope: project/);
       assert.match(
         result.lines.join("\n"),
-        /Collector command: .*pnpm cli collect --agent codex --quiet/,
+        /Collector command: himan-tracker collect --agent codex --quiet/,
       );
 
       const codexDir = path.join(cwd, ".codex");
@@ -39,8 +39,8 @@ describe("setup command", () => {
         hooksJson.hooks.PostToolUse[0]?.hooks[0]?.command ?? "",
         /himan-tracker-collect\.sh'$/,
       );
-      assert.match(helperScript, /pnpm cli collect --agent codex --quiet/);
-      assert.equal(helperScript.includes("himan-tracker collect"), false);
+      assert.match(helperScript, /himan-tracker collect --agent codex --quiet/);
+      assert.equal(helperScript.includes(["pnpm", "cli"].join(" ")), false);
       assert.notEqual(helperStat.mode & 0o111, 0);
     } finally {
       await rm(cwd, { recursive: true, force: true });

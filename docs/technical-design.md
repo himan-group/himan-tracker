@@ -640,9 +640,9 @@ himan-tracker collect --agent codex
 ### 8.8 `setup`
 
 ```bash
-pnpm cli setup
-pnpm cli setup --agent codex
-pnpm cli setup -g
+himan-tracker setup
+himan-tracker setup --agent codex
+himan-tracker setup -g
 ```
 
 用途：
@@ -651,7 +651,7 @@ pnpm cli setup -g
 - 默认把 Codex hooks 安装到当前项目 `.codex/`。
 - `-g, --global` 把 Codex hooks 安装到全局 `~/.codex`。
 - 写入或合并 `config.toml` 和 `hooks.json`，并生成 `hooks/himan-tracker-collect.sh` helper。
-- helper 进入当前源码项目目录并调用 `pnpm cli collect --agent codex --quiet`，吞掉 stdout/stderr 并始终 `exit 0`。
+- helper 调用 `himan-tracker collect --agent codex --quiet`，吞掉 stdout/stderr 并始终 `exit 0`。
 - 默认配置 `UserPromptSubmit`、`PostToolUse` 和 `Stop`，用于显式 skill、capability 使用和 turn summary。
 
 ### 8.9 `cleanup`

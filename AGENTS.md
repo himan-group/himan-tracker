@@ -12,28 +12,28 @@ Current implementation is early MVP:
 
 ## Commands
 
-Use the package scripts from `package.json`:
+Use the package scripts from `package.json` for build/test, and the published CLI command for smoke checks:
 
 ```bash
 pnpm run build
 pnpm run typecheck
 pnpm test
-pnpm cli --help
-pnpm cli doctor
-pnpm cli setup --dry-run
-pnpm cli collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
+himan-tracker --help
+himan-tracker doctor
+himan-tracker setup --dry-run
+himan-tracker collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
 ```
 
 When running `doctor`, prefer a temp data home:
 
 ```bash
-HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli doctor
+HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker doctor
 ```
 
 When validating `collect`, prefer a temp data home and `--sync --strict` for deterministic foreground processing:
 
 ```bash
-HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
+HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
 ```
 
 ## Architecture
@@ -103,10 +103,10 @@ pnpm test
 For CLI behavior changes, also run a smoke command such as:
 
 ```bash
-pnpm cli --help
-pnpm cli setup --dry-run
-HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli doctor
-HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
+himan-tracker --help
+himan-tracker setup --dry-run
+HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker doctor
+HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
 ```
 
 If a check cannot be run, report the reason and the risk.

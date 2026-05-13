@@ -1,6 +1,6 @@
 # 开发与验证
 
-本文档面向项目开发者和维护者，记录从源码运行、构建、测试和 smoke check 的常用命令。最终用户快速使用说明见 [README.md](../README.md)，完整用户手册见 [用户手册](./user-guide.md)。
+本文档面向项目开发者和维护者，记录构建、测试、已发布 CLI smoke check 和发布流程的常用命令。最终用户快速使用说明见 [README.md](../README.md)，完整用户手册见 [用户手册](./user-guide.md)。
 
 ## 环境要求
 
@@ -13,18 +13,18 @@
 pnpm install
 ```
 
-## 从源码运行 CLI
+## CLI Smoke Check
 
 查看帮助：
 
 ```bash
-pnpm cli --help
+himan-tracker --help
 ```
 
 运行 `doctor` 时建议使用临时 tracker home，避免污染真实用户目录：
 
 ```bash
-HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli doctor
+HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker doctor
 ```
 
 如果没有在真实 Codex 配置中运行过 `setup`，`doctor` 输出 `codex hooks: not configured yet` 是预期结果。
@@ -47,20 +47,20 @@ pnpm run build
 CLI 行为变更后至少运行：
 
 ```bash
-pnpm cli --help
-pnpm cli setup --dry-run
-HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli doctor
-HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
+himan-tracker --help
+himan-tracker setup --dry-run
+HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker doctor
+HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
 ```
 
 涉及 ingest 或报表时，可以继续用临时 tracker home 做 smoke check：
 
 ```bash
-HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli ingest --rebuild
-HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli summary --since 7d
-HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli agents --date 2026-05-12
-HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli capabilities --since 30d
-HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli unused --since 30d
+HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker ingest --rebuild
+HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker summary --since 7d
+HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker agents --date 2026-05-12
+HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker capabilities --since 30d
+HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker unused --since 30d
 ```
 
 ## npm 发布流程
