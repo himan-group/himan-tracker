@@ -16,6 +16,8 @@ export type CapabilityReportFilters = {
   agent?: AgentName;
   type?: CapabilityType;
   excludeSystem?: boolean;
+  limit?: number;
+  showTotal?: boolean;
 };
 
 type CapabilityReportRow = {
@@ -87,11 +89,19 @@ export function renderCapabilityReport(
       `,
     )
     .all(...params) as CapabilityReportRow[];
+  const visibleRows = filters.limit === undefined ? rows : rows.slice(0, filters.limit);
+  const countLines = filters.showTotal
+    ? [
+        `Showing ${visibleRows.length} of ${rows.length} capabilities.`,
+        "",
+      ]
+    : [];
 
   if (rows.length === 0) {
     return [
       `Capabilities (${formatDateRange(range)})`,
       "",
+      ...countLines,
       "No capability usage found for this range.",
     ];
   }
@@ -99,6 +109,7 @@ export function renderCapabilityReport(
   return [
     `Capabilities (${formatDateRange(range)})`,
     "",
+    ...countLines,
     ...formatTable(
       [
         "Agent",
@@ -113,7 +124,7 @@ export function renderCapabilityReport(
         "Duration",
         "Success rate",
       ],
-      rows.map((row) => [
+      visibleRows.map((row) => [
         row.agent,
         row.capability_type,
         row.capability_name,

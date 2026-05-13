@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Changed the local report server Summary to show 15 non-system capabilities, and the Capabilities card to show the top 25 with total capability count.
 - Changed the local report server dashboard to show daily, weekly, and monthly token usage in a single tabbed card.
 - Changed duration formatting in reports to use readable minute and hour units for longer runs.
 

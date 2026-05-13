@@ -311,7 +311,10 @@ function renderDashboardPage(options: {
   try {
     const summarySection: DashboardSection = {
       title: "Summary",
-      lines: renderSummaryReport(db, range, { capabilityLimit: 10 }),
+      lines: renderSummaryReport(db, range, {
+        capabilityLimit: 15,
+        excludeSystem: true,
+      }),
     };
     const sections: DashboardSection[] = [
       {
@@ -320,7 +323,11 @@ function renderDashboardPage(options: {
       },
       {
         title: "Capabilities",
-        lines: renderCapabilityReport(db, range, { sort: "tokens" }),
+        lines: renderCapabilityReport(db, range, {
+          sort: "tokens",
+          limit: 25,
+          showTotal: true,
+        }),
       },
       {
         title: "Recent turns",
