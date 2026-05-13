@@ -18,10 +18,16 @@
 
 ### 1. 准备环境
 
-`himan-tracker` 当前尚未发布 npm 包，请先从源码仓库运行：
+`himan-tracker` 当前尚未发布 npm 包，计划发布包名为 `@hi-man/himan-tracker`。发布前请先从源码仓库运行：
 
 ```bash
 pnpm install
+```
+
+发布后可通过 npm 全局安装：
+
+```bash
+npm install -g @hi-man/himan-tracker
 ```
 
 要求：

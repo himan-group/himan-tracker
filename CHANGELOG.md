@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Added npm publishing configuration for the public scoped package `@hi-man/himan-tracker`, including release/version scripts and GitHub Actions publish workflows.
 - Added `collect --agent codex` as a non-blocking Codex data entry point with a local async queue and hook-friendly `--quiet` mode.
 - Added `setup --agent codex` to install Codex hooks for the current project by default, with `-g, --global` for global installation.
 - Added asynchronous Codex transcript enrichment to fill turn token counts without blocking hooks.
@@ -17,6 +18,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Changed package metadata from a private local package to the planned npm package name `@hi-man/himan-tracker`.
 - Documented the current Codex integration workflow in README.
 - Changed generated Codex hook helpers to run `pnpm cli collect` from the source checkout while no npm package is published.
 - Changed Codex hook setup to include `UserPromptSubmit` alongside `PostToolUse` and `Stop`.

@@ -63,6 +63,42 @@ HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli capabilities --since 30d
 HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli unused --since 30d
 ```
 
+## npm 发布流程
+
+包名配置为 `@hi-man/himan-tracker`，使用 npm public scoped package 发布。维护者发布前应先把用户可见变更写入 `CHANGELOG.md` 的 `## [Unreleased]`。
+
+发布版本准备：
+
+```bash
+pnpm run version:patch
+pnpm run version:minor
+pnpm run version:major
+```
+
+这些脚本会使用 `npm version --no-git-tag-version` 更新 `package.json`，并运行 `scripts/release-changelog.mjs`，把 `[Unreleased]` 内容移动到当前版本的日期分区。
+
+本地发布前检查：
+
+```bash
+pnpm run verify
+pnpm run release:dry
+```
+
+GitHub Actions 发布流程：
+
+- PR 合入 `master` 前会运行 `.github/workflows/pr-verify.yml`，执行 typecheck、test、build 和 `npm pack --dry-run`。
+- PR 合入 `master` 前会运行 `.github/workflows/pr-version-check.yml`，检查 `v{version}` tag 和 npm 上的同版本包是否已存在。
+- merge 或 push 到 `master` 后，`.github/workflows/publish-npm.yml` 会重新验证、通过 npm Trusted Publishing 发布，并在发布成功后创建 `v{version}` tag。
+- npm Trusted Publisher 需要在 npm 包设置中指向 GitHub 仓库和 `publish-npm.yml` workflow；不要提交包含 token 的 `.npmrc`。
+- 只在发布基础设施或认证失败时手动 rerun publish workflow，不要用它发布任意旧 commit。
+
+如果 npm 发布成功但 tag 推送失败，可在对应 release commit 上手动恢复：
+
+```bash
+git tag -a v<version> <commit-sha> -m "Release v<version>"
+git push origin v<version>
+```
+
 ## 开发注意事项
 
 - 不要直接编辑 `dist/` 输出。

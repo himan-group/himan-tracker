@@ -1,18 +1,41 @@
 {
-  "name": "himan-tracker",
+  "name": "@hi-man/himan-tracker",
   "version": "0.0.1",
   "description": "Local-first observability and analytics for AI coding agents.",
   "type": "module",
-  "private": true,
+  "license": "Apache-2.0",
   "packageManager": "pnpm@10.33.4",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/himan-group/himan-tracker.git"
+  },
+  "bugs": {
+    "url": "https://github.com/himan-group/himan-tracker/issues"
+  },
+  "homepage": "https://github.com/himan-group/himan-tracker#readme",
   "bin": {
-    "himan-tracker": "./dist/cli/index.js"
+    "himan-tracker": "dist/cli/index.js"
+  },
+  "files": [
+    "dist",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "changelog:release": "node scripts/release-changelog.mjs",
     "cli": "tsx src/cli/index.ts",
+    "release": "pnpm run verify && npm publish --provenance",
+    "release:dry": "pnpm run verify && npm publish --dry-run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test tests/**/*.test.ts"
+    "test": "node --import tsx --test tests/**/*.test.ts",
+    "verify": "pnpm run typecheck && pnpm test && pnpm run build",
+    "version:major": "npm version major --no-git-tag-version && pnpm run changelog:release",
+    "version:minor": "npm version minor --no-git-tag-version && pnpm run changelog:release",
+    "version:patch": "npm version patch --no-git-tag-version && pnpm run changelog:release"
   },
   "engines": {
     "node": ">=20.11"

@@ -1,0 +1,99 @@
+name: Publish npm Package
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: npm-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    name: Verify, publish, and tag
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure release branch
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF}" != "refs/heads/master" ]]; then
+            echo "::error::npm publish is only allowed from master."
+            exit 1
+          fi
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.4
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.11
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check version availability
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          package_name="$(node -p "require('./package.json').name")"
+          package_version="$(node -p "require('./package.json').version")"
+          tag_name="v${package_version}"
+
+          git fetch --tags origin
+
+          if git rev-parse -q --verify "refs/tags/${tag_name}" >/dev/null; then
+            echo "::error::Git tag ${tag_name} already exists."
+            exit 1
+          fi
+
+          if npm view "${package_name}@${package_version}" version --registry=https://registry.npmjs.org >/tmp/npm-version.txt 2>/tmp/npm-view.err; then
+            published_version="$(cat /tmp/npm-version.txt)"
+            echo "::error::${package_name}@${published_version} is already published to npm."
+            exit 1
+          fi
+
+          if grep -Eiq "E404|404|not found" /tmp/npm-view.err; then
+            echo "${package_name}@${package_version} is available for publish."
+            exit 0
+          fi
+
+          echo "::error::Unable to verify npm version availability."
+          cat /tmp/npm-view.err
+          exit 1
+
+      - name: Publish to npm
+        run: pnpm run release
+
+      - name: Tag published version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          package_version="$(node -p "require('./package.json').version")"
+          tag_name="v${package_version}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${tag_name}" -m "Release ${tag_name}"
+          git push origin "${tag_name}"

@@ -4,7 +4,7 @@
 
 ## 使用状态
 
-当前项目处于早期 MVP，尚未发布面向最终用户的 npm 包。当前可用方式是从源码运行：
+当前项目处于早期 MVP，尚未发布面向最终用户的 npm 包。计划发布包名为 `@hi-man/himan-tracker`，当前可用方式是从源码运行：
 
 ```bash
 pnpm cli <command>
@@ -14,6 +14,12 @@ pnpm cli <command>
 
 ```bash
 himan-tracker <command>
+```
+
+发布后可通过 npm 全局安装：
+
+```bash
+npm install -g @hi-man/himan-tracker
 ```
 
 当前 `collect` 只支持 Codex：
