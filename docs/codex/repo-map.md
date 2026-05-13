@@ -8,33 +8,32 @@ Current implementation status:
 
 - CLI skeleton, `doctor`, `setup`, `collect`, `ingest`, and report commands are implemented.
 - Config/path resolution, user config defaults, normalized event contracts, schema validation, repo path hashing, token normalization, capability classification, async collect queue, Codex hook setup, JSONL collection, SQLite migrations, JSONL ingest, daily stats aggregation, CLI reports, fixture-first agent adapters, and MVP documentation are implemented.
-- Package release and richer real-world adapter fixtures remain future work.
+- Richer real-world adapter fixtures remain future work.
 
 ## Commands
 
-From `package.json`:
+Common commands:
 
 ```bash
 pnpm run build
 pnpm run typecheck
 pnpm test
-pnpm cli --help
-pnpm cli doctor
-pnpm cli setup --dry-run
-pnpm cli collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
-pnpm cli ingest
-pnpm cli summary --since 7d
-pnpm cli agents --date YYYY-MM-DD
-pnpm cli capabilities --since 30d
-pnpm cli unused --since 30d
+himan-tracker --help
+himan-tracker doctor
+himan-tracker setup --dry-run
+himan-tracker collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
+himan-tracker ingest
+himan-tracker summary --since 7d
+himan-tracker agents --date YYYY-MM-DD
+himan-tracker capabilities --since 30d
+himan-tracker unused --since 30d
 ```
 
 Notes:
 
-- `pnpm cli` runs `tsx src/cli/index.ts`.
-- The package bin points to `./dist/cli/index.js`, so run `pnpm run build` before testing the built CLI path.
+- The published `himan-tracker` bin points to `./dist/cli/index.js`, so run `pnpm run build` before local package-link or packed CLI testing.
 - The `doctor` command creates/checks local tracker files. Use `HIMAN_TRACKER_HOME=/tmp/path` or another temp path during tests/manual checks when you do not want to touch `~/.himan-tracker`.
-- The `setup` command installs current-project Codex hooks by default and supports `-g, --global` for `~/.codex` setup. While no npm package is published, generated helpers must call `pnpm cli collect --agent codex --quiet` from the source checkout.
+- The `setup` command installs current-project Codex hooks by default and supports `-g, --global` for `~/.codex` setup. Generated helpers call `himan-tracker collect --agent codex --quiet`.
 - The `collect` command is hook-safe by default: it returns 0 unless `--strict` is used, queues sanitized normalized events, and drains asynchronously unless `--sync` is used. Use `--quiet` in hooks.
 
 ## Source Layout
@@ -275,10 +274,10 @@ pnpm test
 For CLI smoke checks:
 
 ```bash
-pnpm cli --help
-pnpm cli setup --dry-run
-HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli doctor
-HIMAN_TRACKER_HOME=/tmp/himan-tracker-check pnpm cli collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
+himan-tracker --help
+himan-tracker setup --dry-run
+HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker doctor
+HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
 ```
 
 Use a temporary `HIMAN_TRACKER_HOME` for manual `doctor` and `collect` checks to avoid changing the user's real tracker home. Use `--dry-run` for setup smoke checks unless intentionally writing `.codex/`.

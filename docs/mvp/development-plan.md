@@ -51,17 +51,17 @@
 - `pnpm run typecheck`：通过。
 - `pnpm test`：通过，46 个测试全部通过。
 - `pnpm run build`：通过。
-- `pnpm cli --help`：通过。
-- `pnpm cli setup --dry-run`：通过，可预览项目级 Codex hooks 安装内容且不写入文件。
-- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-final-check-95ad7ef pnpm cli doctor`：通过，SQLite 可初始化并应用 `001_initial` migration，未安装 hooks 时显示 `codex hooks` warning。
-- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-final-check-95ad7ef pnpm cli ingest --rebuild`：通过，空事件日志可重建 SQLite 投影。
-- `HIMAN_TRACKER_HOME=/tmp/himan-tracker-collect-check pnpm cli collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict`：通过，Codex payload 可入队并前台 drain 到日分片 JSONL。
-- `HIMAN_TRACKER_HOME=/tmp/himan-tracker-async-check pnpm cli collect --agent codex --from tests/fixtures/codex/raw/session.json`：通过，默认异步 worker 可 drain 队列且命令返回 0。
-- `HIMAN_TRACKER_HOME=/tmp/himan-tracker-quiet-check pnpm cli collect --agent codex --from tests/fixtures/codex/raw/session.json --quiet`：通过，hook 场景可关闭 collector summary 输出并异步写入事件。
-- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-final-check-95ad7ef pnpm cli summary --since 7d`：通过，空数据库输出明确空状态。
-- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-report-check-9b56998 pnpm cli agents --date 2026-05-12`：通过，空数据库输出明确空状态。
-- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-report-check-9b56998 pnpm cli capabilities --since 30d`：通过，空数据库输出明确空状态。
-- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-report-check-9b56998 pnpm cli unused --since 30d`：通过，空数据库输出明确空状态。
+- `himan-tracker --help`：通过。
+- `himan-tracker setup --dry-run`：通过，可预览项目级 Codex hooks 安装内容且不写入文件。
+- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-final-check-95ad7ef himan-tracker doctor`：通过，SQLite 可初始化并应用 `001_initial` migration，未安装 hooks 时显示 `codex hooks` warning。
+- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-final-check-95ad7ef himan-tracker ingest --rebuild`：通过，空事件日志可重建 SQLite 投影。
+- `HIMAN_TRACKER_HOME=/tmp/himan-tracker-collect-check himan-tracker collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict`：通过，Codex payload 可入队并前台 drain 到日分片 JSONL。
+- `HIMAN_TRACKER_HOME=/tmp/himan-tracker-async-check himan-tracker collect --agent codex --from tests/fixtures/codex/raw/session.json`：通过，默认异步 worker 可 drain 队列且命令返回 0。
+- `HIMAN_TRACKER_HOME=/tmp/himan-tracker-quiet-check himan-tracker collect --agent codex --from tests/fixtures/codex/raw/session.json --quiet`：通过，hook 场景可关闭 collector summary 输出并异步写入事件。
+- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-final-check-95ad7ef himan-tracker summary --since 7d`：通过，空数据库输出明确空状态。
+- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-report-check-9b56998 himan-tracker agents --date 2026-05-12`：通过，空数据库输出明确空状态。
+- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-report-check-9b56998 himan-tracker capabilities --since 30d`：通过，空数据库输出明确空状态。
+- `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-report-check-9b56998 himan-tracker unused --since 30d`：通过，空数据库输出明确空状态。
 
 ## Step 1：工程骨架与 CLI 基础
 

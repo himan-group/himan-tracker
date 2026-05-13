@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-05-13
+
 ### Added
 
 - Added npm publishing configuration for the public scoped package `@hi-man/himan-tracker`, including release/version scripts and GitHub Actions publish workflows.
@@ -19,9 +21,9 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Changed npm publish workflow configuration to publish scoped packages explicitly as public and use npm Trusted Publishing's supported Node/npm versions.
-- Changed package metadata from a private local package to the planned npm package name `@hi-man/himan-tracker`.
+- Changed package metadata from a private local package to the published npm package name `@hi-man/himan-tracker`.
 - Documented the current Codex integration workflow in README.
-- Changed generated Codex hook helpers to run `pnpm cli collect` from the source checkout while no npm package is published.
+- Changed generated Codex hook helpers to run the published `himan-tracker collect` command instead of the source checkout command.
 - Changed Codex hook setup to include `UserPromptSubmit` alongside `PostToolUse` and `Stop`.
 - Changed generated Codex config to use `[features].hooks` and remove deprecated `[features].codex_hooks`.
 - Changed Codex transcript enrichment to fill turn and tool duration metrics when available.

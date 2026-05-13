@@ -190,8 +190,8 @@ himan-tracker unused --since 30d
 ### 范围
 
 - 解析 Codex hook 或 wrapper payload。
-- 提供 `pnpm cli collect --agent codex` 作为源码阶段默认非阻塞数据入口。
-- 提供 `pnpm cli setup --agent codex` 安装项目级或全局 Codex hooks。
+- 提供 `himan-tracker collect --agent codex` 作为默认非阻塞数据入口。
+- 提供 `himan-tracker setup --agent codex` 安装项目级或全局 Codex hooks。
 - 映射 `UserPromptSubmit`、`PreToolUse`、`PostToolUse`、`Stop`。
 - 输出 normalized events。
 - 提供 Codex fixtures。
