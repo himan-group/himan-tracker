@@ -158,7 +158,11 @@ export async function runServerStop(
       }
     }
 
-    const stopped = await waitForProcessExit(state.pid, options.waitMs ?? READY_TIMEOUT_MS);
+    const stopped = await waitForServerStopped(
+      paths,
+      state.pid,
+      options.waitMs ?? READY_TIMEOUT_MS,
+    );
     if (!stopped) {
       return {
         ok: false,
@@ -380,10 +384,19 @@ async function waitForServerReady(
   );
 }
 
-async function waitForProcessExit(pid: number, timeoutMs: number): Promise<boolean> {
+async function waitForServerStopped(
+  paths: TrackerPaths,
+  pid: number,
+  timeoutMs: number,
+): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
+    const state = await readReportServerState(paths);
+    if (!state || state.pid !== pid) {
+      return true;
+    }
+
     if (!isProcessRunning(pid)) {
       return true;
     }
@@ -391,7 +404,8 @@ async function waitForProcessExit(pid: number, timeoutMs: number): Promise<boole
     await sleep(100);
   }
 
-  return !isProcessRunning(pid);
+  const state = await readReportServerState(paths);
+  return !state || state.pid !== pid || !isProcessRunning(pid);
 }
 
 function resolveReportServerStateLabel(paths: TrackerPaths): string {

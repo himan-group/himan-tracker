@@ -24,6 +24,18 @@ himan-tracker setup --dry-run
 himan-tracker collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
 ```
 
+In Codex sandboxed sessions, prefer this build command because `pnpm run build` may hang and then fail with `fetch failed`:
+
+```bash
+npm run build:sandbox
+```
+
+If npm is not available, run the same compiler directly:
+
+```bash
+node node_modules/typescript/bin/tsc -p tsconfig.json
+```
+
 When running `doctor`, prefer a temp data home:
 
 ```bash
@@ -98,6 +110,7 @@ For code changes, run:
 ```bash
 pnpm run typecheck
 pnpm test
+npm run build:sandbox
 ```
 
 For CLI behavior changes, also run a smoke command such as:

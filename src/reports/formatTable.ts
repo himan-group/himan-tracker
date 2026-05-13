@@ -47,10 +47,31 @@ export function formatDurationMs(value: number | null | undefined): string {
   }
 
   if (value < 1_000) {
-    return `${value}ms`;
+    return `${Math.round(value)}ms`;
   }
 
-  return `${(value / 1_000).toFixed(1)}s`;
+  const seconds = value / 1_000;
+  if (seconds < 60) {
+    return `${trimTrailingZeros(seconds.toFixed(1))}s`;
+  }
+
+  const roundedSeconds = Math.round(seconds);
+  const hours = Math.floor(roundedSeconds / 3_600);
+  const minutes = Math.floor((roundedSeconds % 3_600) / 60);
+  const remainingSeconds = roundedSeconds % 60;
+
+  if (hours > 0) {
+    const parts = [`${hours}h`];
+    if (minutes > 0) {
+      parts.push(`${minutes}m`);
+    } else if (remainingSeconds > 0) {
+      parts.push(`${remainingSeconds}s`);
+    }
+
+    return parts.join(" ");
+  }
+
+  return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
 }
 
 export function formatAverageDurationMs(

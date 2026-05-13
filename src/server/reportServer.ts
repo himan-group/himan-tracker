@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import type { AddressInfo } from "node:net";
+import type { AddressInfo, Socket } from "node:net";
 import path from "node:path";
 import { readFile, rm, writeFile } from "node:fs/promises";
 
@@ -13,6 +13,7 @@ import {
 import { renderAgentReport } from "../reports/agentReport.js";
 import { renderCapabilityReport } from "../reports/capabilityReport.js";
 import { renderSummaryReport } from "../reports/summaryReport.js";
+import { renderTokenReport } from "../reports/tokenReport.js";
 import { renderTurnReport } from "../reports/turnReport.js";
 import { initializeTrackerDatabase } from "../storage/sqlite.js";
 
@@ -66,6 +67,12 @@ export type ReportHttpServerInstance = {
 
 type DashboardSection = {
   title: string;
+  lines: string[];
+};
+
+type DashboardTab = {
+  id: string;
+  label: string;
   lines: string[];
 };
 
@@ -126,6 +133,13 @@ export async function startReportHttpServer(
       writeResponse(response, 500, "text/plain; charset=utf-8", getErrorMessage(error));
     });
   });
+  const sockets = new Set<Socket>();
+  server.on("connection", (socket) => {
+    sockets.add(socket);
+    socket.once("close", () => {
+      sockets.delete(socket);
+    });
+  });
 
   await listen(server, port, host);
   const address = server.address();
@@ -153,7 +167,7 @@ export async function startReportHttpServer(
     state: currentState,
     close: async () => {
       clearInterval(timer);
-      await closeServer(server);
+      await closeServer(server, sockets);
       await removeReportServerState(paths, process.pid);
     },
     runIngestNow,
@@ -295,11 +309,11 @@ function renderDashboardPage(options: {
   const { db } = initializeTrackerDatabase(options.paths.sqlitePath);
 
   try {
+    const summarySection: DashboardSection = {
+      title: "Summary",
+      lines: renderSummaryReport(db, range, { capabilityLimit: 10 }),
+    };
     const sections: DashboardSection[] = [
-      {
-        title: "Summary",
-        lines: renderSummaryReport(db, range, { capabilityLimit: 10 }),
-      },
       {
         title: "Agents",
         lines: renderAgentReport(db, agentDate),
@@ -311,6 +325,23 @@ function renderDashboardPage(options: {
       {
         title: "Recent turns",
         lines: renderTurnReport(db, range, { limit: 20 }),
+      },
+    ];
+    const tokenTabs: DashboardTab[] = [
+      {
+        id: "day",
+        label: "Daily",
+        lines: renderTokenReport(db, range, "day"),
+      },
+      {
+        id: "week",
+        label: "Weekly",
+        lines: renderTokenReport(db, range, "week"),
+      },
+      {
+        id: "month",
+        label: "Monthly",
+        lines: renderTokenReport(db, range, "month"),
       },
     ];
 
@@ -420,12 +451,68 @@ function renderDashboardPage(options: {
       overflow: hidden;
     }
 
-    h2 {
+    section > h2 {
       margin: 0;
       padding: 13px 14px;
       border-bottom: 1px solid var(--line);
       font-size: 16px;
       line-height: 1.25;
+    }
+
+    .section-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .section-heading h2 {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.25;
+    }
+
+    .tabs {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      padding: 3px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f4f6f8;
+    }
+
+    .tab {
+      appearance: none;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 650;
+      line-height: 1.2;
+      padding: 7px 10px;
+    }
+
+    .tab:hover,
+    .tab:focus-visible {
+      color: var(--text);
+      outline: 2px solid rgba(17, 122, 101, 0.22);
+      outline-offset: 1px;
+    }
+
+    .tab.is-active {
+      background: var(--panel);
+      color: var(--text);
+      box-shadow: 0 1px 2px rgba(23, 32, 42, 0.08);
+    }
+
+    [hidden] {
+      display: none;
     }
 
     pre {
@@ -442,6 +529,11 @@ function renderDashboardPage(options: {
     @media (max-width: 820px) {
       .metrics {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .section-heading {
+        align-items: flex-start;
+        flex-direction: column;
       }
     }
 
@@ -473,8 +565,33 @@ function renderDashboardPage(options: {
       ${renderMetric("Tokens", formatTokenCount(summary.total_tokens))}
       ${renderMetric("Avg latency", formatAverageDurationMs(summary.duration_ms, summary.turn_count))}
     </div>
+    ${renderSection(summarySection)}
+    ${renderTabbedSection("Token usage", tokenTabs)}
     ${sections.map(renderSection).join("\n")}
   </main>
+  <script>
+    document.querySelectorAll("[data-tabs]").forEach((root) => {
+      const tabs = [...root.querySelectorAll("[role='tab']")];
+      const panels = [...root.querySelectorAll("[role='tabpanel']")];
+
+      tabs.forEach((tab) => {
+        tab.addEventListener("click", () => {
+          const selectedPanel = tab.getAttribute("aria-controls");
+
+          tabs.forEach((candidate) => {
+            const active = candidate === tab;
+            candidate.classList.toggle("is-active", active);
+            candidate.setAttribute("aria-selected", String(active));
+            candidate.setAttribute("tabindex", active ? "0" : "-1");
+          });
+
+          panels.forEach((panel) => {
+            panel.hidden = panel.id !== selectedPanel;
+          });
+        });
+      });
+    });
+  </script>
 </body>
 </html>`;
   } finally {
@@ -530,6 +647,37 @@ function renderSection(section: DashboardSection): string {
   )}</pre></section>`;
 }
 
+function renderTabbedSection(title: string, tabs: DashboardTab[]): string {
+  const tabButtons = tabs
+    .map((tab, index) => {
+      const active = index === 0;
+      return `<button class="tab${active ? " is-active" : ""}" id="token-tab-${escapeHtml(
+        tab.id,
+      )}" role="tab" type="button" aria-selected="${String(
+        active,
+      )}" aria-controls="token-panel-${escapeHtml(tab.id)}" tabindex="${
+        active ? "0" : "-1"
+      }">${escapeHtml(tab.label)}</button>`;
+    })
+    .join("");
+  const panels = tabs
+    .map((tab, index) => {
+      const hidden = index === 0 ? "" : " hidden";
+      return `<div id="token-panel-${escapeHtml(
+        tab.id,
+      )}" role="tabpanel" aria-labelledby="token-tab-${escapeHtml(
+        tab.id,
+      )}"${hidden}><pre>${escapeHtml(tab.lines.join("\n"))}</pre></div>`;
+    })
+    .join("");
+
+  return `<section data-tabs><div class="section-heading"><h2>${escapeHtml(
+    title,
+  )}</h2><div class="tabs" role="tablist" aria-label="${escapeHtml(
+    title,
+  )}">${tabButtons}</div></div>${panels}</section>`;
+}
+
 function renderIngestStatus(snapshot: ReportServerIngestSnapshot | null): string {
   if (!snapshot) {
     return "<strong>Ingest pending</strong>";
@@ -563,7 +711,7 @@ function listen(server: Server, port: number, host: string): Promise<void> {
   });
 }
 
-function closeServer(server: Server): Promise<void> {
+function closeServer(server: Server, sockets: Set<Socket>): Promise<void> {
   return new Promise((resolve, reject) => {
     server.close((error) => {
       if (error) {
@@ -573,6 +721,12 @@ function closeServer(server: Server): Promise<void> {
 
       resolve();
     });
+
+    server.closeIdleConnections();
+    server.closeAllConnections();
+    for (const socket of sockets) {
+      socket.destroy();
+    }
   });
 }
 

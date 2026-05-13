@@ -55,7 +55,7 @@ capability 类型目前包括：
 3. Codex hook 会把 `UserPromptSubmit`、`PostToolUse` 和 `Stop` payload 通过 stdin 传给 `himan-tracker collect --agent codex --quiet`。
 4. `collect` 立即入队并返回，后台 worker 异步写入 JSONL，并从 Codex `transcript_path` 补齐 turn token、turn duration、MCP tool 调用和可推断的 skill 使用。
 5. 运行 `himan-tracker ingest`，把事件日志导入 SQLite 投影。
-6. 使用 `summary`、`agents`、`turns`、`capabilities`、`capability-events` 和 `unused` 查看使用情况。
+6. 使用 `summary`、`tokens`、`agents`、`turns`、`capabilities`、`capability-events` 和 `unused` 查看使用情况。
 7. 运行 `himan-tracker server start`，启动本地报表页面，并让它按固定间隔增量导入事件。
 
 ## 与 Codex 集成
@@ -210,7 +210,7 @@ himan-tracker ingest --rebuild
 
 ### `server`
 
-启动、停止和查看本地报表 Web server。server 默认只监听 `127.0.0.1`，启动后会立即执行一次增量 `ingest`，之后按固定间隔继续导入 `events/*.jsonl`。
+启动、停止和查看本地报表 Web server。server 默认只监听 `127.0.0.1`，启动后会立即执行一次增量 `ingest`，之后按固定间隔继续导入 `events/*.jsonl`。页面会展示总览、一个可切换日/周/月的 token 消耗卡片、agent、capability 和近期 turn。
 
 ```bash
 himan-tracker server start
@@ -289,6 +289,18 @@ himan-tracker summary --since 7d --exclude-system
 ```
 
 输出包含 session 数、turn 数、token 总量、平均延迟、成功率、Top agents 和 `Top N capabilities`。`Top N capabilities` 默认展示 10 个，可用 `--limit` 调整为 1 到 200；可用 `--exclude-system` 排除 `Bash`、`apply_patch` 等系统自带 capability。Top capabilities 会展示调用次数、token 和平均耗时。报表中的 token 总量使用 1000 进制的紧凑单位显示，例如 `1.25K`、`3.56M`、`1.2G`。
+
+### `tokens`
+
+查看指定时间范围内按日、自然周或自然月聚合的 token 消耗。
+
+```bash
+himan-tracker tokens --period day --since 30d
+himan-tracker tokens --period week --since 12w
+himan-tracker tokens --period month --since 12m
+```
+
+`--period` 支持 `day`、`week`、`month`，也支持 `daily`、`weekly`、`monthly`。自然周按本地时间的周一到周日聚合。输出包含 turns、input tokens、output tokens、total tokens 和平均每 turn token。
 
 ### `agents`
 

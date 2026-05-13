@@ -47,6 +47,15 @@ describe("server command", () => {
       assert.equal(response.status, 200);
       assert.match(html, /himan-tracker/);
       assert.match(html, /Summary/);
+      assert.match(html, /Token usage/);
+      assert.ok(html.indexOf("<h2>Summary</h2>") < html.indexOf("<h2>Token usage</h2>"));
+      assert.match(html, /role="tablist"/);
+      assert.match(html, /role="tab"[^>]*>Daily<\/button>/);
+      assert.match(html, /role="tab"[^>]*>Weekly<\/button>/);
+      assert.match(html, /role="tab"[^>]*>Monthly<\/button>/);
+      assert.equal(html.includes("Daily tokens"), false);
+      assert.equal(html.includes("Weekly tokens"), false);
+      assert.equal(html.includes("Monthly tokens"), false);
       assert.match(html, /Recent turns/);
       assert.match(html, /1\.23K/);
 

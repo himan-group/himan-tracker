@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Added `build:sandbox` as a local TypeScript build script that avoids the pnpm shim path in sandboxed environments.
+- Added `tokens --period day|week|month` for daily, weekly, and monthly token usage reports, and surfaced the same token trend tables on the local report server dashboard.
+
+### Changed
+
+- Changed the local report server dashboard to show daily, weekly, and monthly token usage in a single tabbed card.
+- Changed duration formatting in reports to use readable minute and hour units for longer runs.
+
+### Fixed
+
+- Fixed `server stop` timing out when the report server had already closed its state file but the process had not fully exited yet, and made shutdown close HTTP connections promptly.
+
 ## [0.0.3] - 2026-05-13
 
 ### Added
