@@ -5,22 +5,22 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 
 import { ingestEvents } from "../aggregator/aggregateEvents.js";
 import { ensureTrackerDirectories, type TrackerPaths } from "../config/paths.js";
-import { parseSinceRange, todayLocalDate } from "../reports/dateRange.js";
+import { formatDateRange, parseSinceRange, todayLocalDate } from "../reports/dateRange.js";
 import {
   formatAverageDurationMs,
+  formatDurationMs,
+  formatNullableText,
+  formatSuccessRate,
   formatTokenCount,
 } from "../reports/formatTable.js";
-import { renderAgentReport } from "../reports/agentReport.js";
-import { renderCapabilityReport } from "../reports/capabilityReport.js";
-import { renderSummaryReport } from "../reports/summaryReport.js";
-import { renderTokenReport } from "../reports/tokenReport.js";
-import { renderTurnReport } from "../reports/turnReport.js";
+import { createExcludeSystemCapabilityCondition } from "../reports/systemCapabilityFilter.js";
 import { initializeTrackerDatabase } from "../storage/sqlite.js";
 
 export const DEFAULT_SERVER_HOST = "127.0.0.1";
 export const DEFAULT_SERVER_PORT = 5127;
 export const DEFAULT_SERVER_INTERVAL_SECONDS = 300;
 export const DEFAULT_SERVER_SINCE = "7d";
+const DASHBOARD_CAPABILITY_CALL_LIMIT = 50;
 
 export type ReportServerIngestSnapshot =
   | {
@@ -65,15 +65,115 @@ export type ReportHttpServerInstance = {
   runIngestNow: () => Promise<void>;
 };
 
-type DashboardSection = {
-  title: string;
-  lines: string[];
-};
-
 type DashboardTab = {
   id: string;
   label: string;
-  lines: string[];
+  table: DashboardTable;
+};
+
+type DashboardSection = {
+  title: string;
+  table: DashboardTable;
+};
+
+type DashboardTable = {
+  columns: string[];
+  rows: string[][];
+  emptyText: string;
+  note?: string;
+};
+
+type DashboardData = {
+  generatedAt: string;
+  lastIngest: ReportServerIngestSnapshot | null;
+  summary: DashboardSummary;
+  summarySection: DashboardSection;
+  tokenTabs: DashboardTab[];
+  sections: DashboardSection[];
+  capabilityCallTabs: DashboardTab[];
+  recentTurnsSection: DashboardSection;
+};
+
+type DashboardCapabilityCallType = "skill" | "mcp_tool";
+
+type DashboardSummary = {
+  session_count: number;
+  turn_count: number;
+  total_tokens: number | null;
+  duration_ms: number | null;
+};
+
+type DashboardCapabilityCallRow = {
+  occurred_at: string;
+  agent: string;
+  source: string;
+  capability_name: string;
+  duration_ms: number | null;
+  duration_basis: string;
+  total_tokens: number | null;
+  status: string;
+  invocation_origin: string;
+};
+
+type DashboardAgentRow = {
+  agent: string;
+  model: string;
+  session_count: number;
+  turn_count: number;
+  total_tokens: number | null;
+  duration_ms: number | null;
+  success_count: number;
+  failure_count: number;
+};
+
+type DashboardCapabilityRow = {
+  agent: string;
+  capability_type: string;
+  capability_name: string;
+  invocation_count: number;
+  total_tokens: number | null;
+  duration_ms: number | null;
+  duration_count: number;
+  min_duration_ms: number | null;
+  max_duration_ms: number | null;
+  success_count: number;
+  failure_count: number;
+  explicit_invocation_count: number;
+  inferred_invocation_count: number;
+  observed_invocation_count: number;
+  unknown_origin_count: number;
+};
+
+type DashboardTokenDayRow = {
+  date: string;
+  turn_count: number;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  total_tokens: number | null;
+};
+
+type DashboardTokenBucket = {
+  key: string;
+  label: string;
+  turn_count: number;
+  input_tokens: number;
+  input_count: number;
+  output_tokens: number;
+  output_count: number;
+  total_tokens: number;
+  total_count: number;
+};
+
+type DashboardTokenPeriod = "day" | "week" | "month";
+
+type DashboardTurnRow = {
+  occurred_at: string;
+  agent: string;
+  model: string;
+  id: string;
+  duration_ms: number | null;
+  total_tokens: number | null;
+  status: string;
 };
 
 export async function startReportHttpServer(
@@ -282,6 +382,23 @@ async function handleRequest(options: {
     return;
   }
 
+  if (url.pathname === "/dashboard.json") {
+    await options.runIngestNow();
+    const data = readDashboardData({
+      paths: options.paths,
+      since: options.since,
+      now: options.now,
+      lastIngest: options.getLastIngest(),
+    });
+    writeResponse(
+      options.response,
+      200,
+      "application/json; charset=utf-8",
+      `${JSON.stringify(data, null, 2)}\n`,
+    );
+    return;
+  }
+
   if (url.pathname !== "/") {
     writeResponse(options.response, 404, "text/plain; charset=utf-8", "Not found");
     return;
@@ -303,58 +420,94 @@ function renderDashboardPage(options: {
   now: () => Date;
   lastIngest: ReportServerIngestSnapshot | null;
 }): string {
+  return renderDashboardHtml(readDashboardData(options));
+}
+
+function readDashboardData(options: {
+  paths: TrackerPaths;
+  since: string;
+  now: () => Date;
+  lastIngest: ReportServerIngestSnapshot | null;
+}): DashboardData {
   const generatedAt = options.now();
   const range = parseSinceRange(options.since, generatedAt);
   const agentDate = todayLocalDate(generatedAt);
   const { db } = initializeTrackerDatabase(options.paths.sqlitePath);
 
   try {
-    const summarySection: DashboardSection = {
-      title: "Summary",
-      lines: renderSummaryReport(db, range, {
-        capabilityLimit: 15,
-        excludeSystem: true,
-      }),
-    };
-    const sections: DashboardSection[] = [
-      {
-        title: "Agents",
-        lines: renderAgentReport(db, agentDate),
-      },
-      {
-        title: "Capabilities",
-        lines: renderCapabilityReport(db, range, {
-          sort: "tokens",
-          limit: 25,
-          showTotal: true,
-        }),
-      },
-      {
-        title: "Recent turns",
-        lines: renderTurnReport(db, range, { limit: 20 }),
-      },
-    ];
-    const tokenTabs: DashboardTab[] = [
-      {
-        id: "day",
-        label: "Daily",
-        lines: renderTokenReport(db, range, "day"),
-      },
-      {
-        id: "week",
-        label: "Weekly",
-        lines: renderTokenReport(db, range, "week"),
-      },
-      {
-        id: "month",
-        label: "Monthly",
-        lines: renderTokenReport(db, range, "month"),
-      },
-    ];
-
     const summary = readDashboardSummary(db, range);
 
-    return `<!doctype html>
+    return {
+      generatedAt: generatedAt.toISOString(),
+      lastIngest: options.lastIngest,
+      summary,
+      summarySection: {
+        title: "Summary",
+        table: readDashboardCapabilities(db, range, {
+          excludeSystem: true,
+          limit: 15,
+          sort: "tokens",
+          noteLabel: "top non-system capabilities",
+        }),
+      },
+      tokenTabs: [
+        {
+          id: "day",
+          label: "Daily",
+          table: readDashboardTokenUsage(db, range, "day"),
+        },
+        {
+          id: "week",
+          label: "Weekly",
+          table: readDashboardTokenUsage(db, range, "week"),
+        },
+        {
+          id: "month",
+          label: "Monthly",
+          table: readDashboardTokenUsage(db, range, "month"),
+        },
+      ],
+      sections: [
+        {
+          title: "Agents",
+          table: readDashboardAgents(db, agentDate),
+        },
+        {
+          title: "Capabilities",
+          table: readDashboardCapabilities(db, range, {
+            excludeSystem: false,
+            limit: 25,
+            sort: "tokens",
+            noteLabel: "capabilities",
+          }),
+        },
+      ],
+      capabilityCallTabs: [
+        {
+          id: "skills",
+          label: "Skills",
+          table: readDashboardCapabilityCalls(db, range, "skill"),
+        },
+        {
+          id: "mcp-tools",
+          label: "MCP tools",
+          table: readDashboardCapabilityCalls(db, range, "mcp_tool"),
+        },
+      ],
+      recentTurnsSection: {
+        title: "Recent turns",
+        table: readDashboardTurns(db, range, 20),
+      },
+    };
+  } finally {
+    db.close();
+  }
+}
+
+function renderDashboardHtml(data: DashboardData): string {
+  const generatedAt = new Date(data.generatedAt);
+
+  return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -414,7 +567,7 @@ function renderDashboardPage(options: {
     }
 
     .status strong {
-      color: ${options.lastIngest?.ok === false ? "var(--danger)" : "var(--accent)"};
+      color: ${data.lastIngest?.ok === false ? "var(--danger)" : "var(--accent)"};
     }
 
     main {
@@ -524,15 +677,53 @@ function renderDashboardPage(options: {
       display: none;
     }
 
-    pre {
+    .table-note,
+    .empty-state {
       margin: 0;
-      padding: 14px;
-      overflow: auto;
-      color: #24313d;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      padding: 12px 14px;
+      color: var(--muted);
       font-size: 13px;
-      line-height: 1.5;
-      white-space: pre;
+      line-height: 1.4;
+    }
+
+    .table-note {
+      border-bottom: 1px solid var(--line);
+    }
+
+    .table-scroll {
+      overflow: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th,
+    td {
+      padding: 9px 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      white-space: nowrap;
+    }
+
+    th {
+      background: #f8fafb;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    td {
+      color: #24313d;
+      font-variant-numeric: tabular-nums;
+    }
+
+    tbody tr:last-child td {
+      border-bottom: 0;
     }
 
     @media (max-width: 820px) {
@@ -562,21 +753,23 @@ function renderDashboardPage(options: {
   <header>
     <div class="header-inner">
       <h1>himan-tracker</h1>
-      <div class="status">${renderIngestStatus(options.lastIngest)} · Generated ${escapeHtml(
+      <div class="status">${renderIngestStatus(data.lastIngest)} · Generated ${escapeHtml(
         formatLocalDateTime(generatedAt),
       )}</div>
     </div>
   </header>
   <main>
     <div class="metrics">
-      ${renderMetric("Sessions", String(summary.session_count))}
-      ${renderMetric("Turns", String(summary.turn_count))}
-      ${renderMetric("Tokens", formatTokenCount(summary.total_tokens))}
-      ${renderMetric("Avg latency", formatAverageDurationMs(summary.duration_ms, summary.turn_count))}
+      ${renderMetric("Sessions", String(data.summary.session_count))}
+      ${renderMetric("Turns", String(data.summary.turn_count))}
+      ${renderMetric("Tokens", formatTokenCount(data.summary.total_tokens))}
+      ${renderMetric("Avg latency", formatAverageDurationMs(data.summary.duration_ms, data.summary.turn_count))}
     </div>
-    ${renderSection(summarySection)}
-    ${renderTabbedSection("Token usage", tokenTabs)}
-    ${sections.map(renderSection).join("\n")}
+    ${renderSection(data.summarySection)}
+    ${renderTabbedSection("Token usage", "token", data.tokenTabs)}
+    ${data.sections.map(renderSection).join("\n")}
+    ${renderTabbedSection("Capability calls", "capability-calls", data.capabilityCallTabs)}
+    ${renderSection(data.recentTurnsSection)}
   </main>
   <script>
     document.querySelectorAll("[data-tabs]").forEach((root) => {
@@ -603,20 +796,309 @@ function renderDashboardPage(options: {
   </script>
 </body>
 </html>`;
-  } finally {
-    db.close();
+}
+
+function readDashboardCapabilityCalls(
+  db: ReturnType<typeof initializeTrackerDatabase>["db"],
+  range: { startDate: string; endDate: string },
+  type: DashboardCapabilityCallType,
+): DashboardTable {
+  const rows = db
+    .prepare(
+      `
+      select
+        c.occurred_at,
+        c.agent,
+        c.source,
+        c.capability_name,
+        coalesce(c.duration_ms, case when c.capability_type = 'skill' then t.duration_ms end)
+          as duration_ms,
+        case
+          when c.duration_ms is not null then 'event'
+          when c.capability_type = 'skill' and t.duration_ms is not null then 'turn'
+          else 'n/a'
+        end as duration_basis,
+        c.total_tokens,
+        c.status,
+        c.invocation_origin
+      from capability_usages c
+      left join turns t
+        on t.id = c.turn_id
+        and t.session_id = c.session_id
+        and t.agent = c.agent
+      where date(c.occurred_at, 'localtime') between ? and ?
+        and c.capability_type = ?
+      order by c.occurred_at desc
+      limit ?
+      `,
+    )
+    .all(
+      range.startDate,
+      range.endDate,
+      type,
+      DASHBOARD_CAPABILITY_CALL_LIMIT,
+    ) as DashboardCapabilityCallRow[];
+  const label = type === "skill" ? "skill" : "MCP tool";
+
+  return {
+    columns: ["Time", "Agent", "Source", "Capability", "Duration", "Basis", "Tokens", "Status", "Origin"],
+    rows: rows.map((row) => [
+        formatLocalDateTime(row.occurred_at),
+        row.agent,
+        row.source,
+        row.capability_name,
+        formatDurationMs(row.duration_ms),
+        row.duration_basis,
+        formatTokenCount(row.total_tokens),
+        row.status,
+        formatNullableText(row.invocation_origin),
+      ]),
+    emptyText: `No ${label} calls found for ${formatDateRange(range)}.`,
+    note: `Showing latest ${rows.length} ${label} calls (${formatDateRange(range)}).`,
+  };
+}
+
+function readDashboardAgents(
+  db: ReturnType<typeof initializeTrackerDatabase>["db"],
+  date: string,
+): DashboardTable {
+  const rows = db
+    .prepare(
+      `
+      select
+        agent,
+        model,
+        sum(session_count) as session_count,
+        sum(turn_count) as turn_count,
+        case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens,
+        case when count(duration_ms) = 0 then null else sum(duration_ms) end as duration_ms,
+        sum(success_count) as success_count,
+        sum(failure_count) as failure_count
+      from daily_agent_stats
+      where date = ?
+      group by agent, model
+      order by coalesce(total_tokens, -1) desc, turn_count desc
+      `,
+    )
+    .all(date) as DashboardAgentRow[];
+
+  return {
+    columns: ["Agent", "Model", "Sessions", "Turns", "Tokens", "Avg latency", "Success rate"],
+    rows: rows.map((row) => [
+      row.agent,
+      formatNullableText(row.model),
+      String(row.session_count),
+      String(row.turn_count),
+      formatTokenCount(row.total_tokens),
+      formatAverageDurationMs(row.duration_ms, row.turn_count),
+      formatSuccessRate(row.success_count, row.failure_count),
+    ]),
+    emptyText: "No agent usage found for this date.",
+    note: `Agents (${date}).`,
+  };
+}
+
+function readDashboardCapabilities(
+  db: ReturnType<typeof initializeTrackerDatabase>["db"],
+  range: { startDate: string; endDate: string },
+  filters: {
+    excludeSystem: boolean;
+    limit: number;
+    sort: "tokens" | "invocations" | "duration" | "failures";
+    noteLabel: string;
+  },
+): DashboardTable {
+  const clauses = ["date(c.occurred_at, 'localtime') between ? and ?"];
+  const params: Array<string | number> = [range.startDate, range.endDate];
+
+  if (filters.excludeSystem) {
+    const condition = createExcludeSystemCapabilityCondition("c");
+    clauses.push(condition.sql);
+    params.push(...condition.params);
   }
+
+  const sortSql = {
+    invocations: "invocation_count",
+    tokens: "coalesce(total_tokens, -1)",
+    duration: "case when duration_count = 0 then -1 else duration_ms * 1.0 / duration_count end",
+    failures: "failure_count",
+  }[filters.sort];
+
+  const rows = db
+    .prepare(
+      `
+      with capability_events as (
+        select
+          c.agent,
+          c.capability_type,
+          c.capability_name,
+          c.total_tokens,
+          coalesce(c.duration_ms, case when c.capability_type = 'skill' then t.duration_ms end)
+            as effective_duration_ms,
+          c.status,
+          c.invocation_origin
+        from capability_usages c
+        left join turns t
+          on t.id = c.turn_id
+          and t.session_id = c.session_id
+          and t.agent = c.agent
+        where ${clauses.join(" and ")}
+      ),
+      capability_stats as (
+        select
+          agent,
+          capability_type,
+          capability_name,
+          count(*) as invocation_count,
+          case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens,
+          count(effective_duration_ms) as duration_count,
+          case
+            when count(effective_duration_ms) = 0 then null
+            else sum(effective_duration_ms)
+          end as duration_ms,
+          min(effective_duration_ms) as min_duration_ms,
+          max(effective_duration_ms) as max_duration_ms,
+          sum(case when status = 'success' then 1 else 0 end) as success_count,
+          sum(case when status = 'failure' then 1 else 0 end) as failure_count,
+          sum(case when invocation_origin = 'explicit' then 1 else 0 end) as explicit_invocation_count,
+          sum(case when invocation_origin = 'inferred' then 1 else 0 end) as inferred_invocation_count,
+          sum(case when invocation_origin = 'observed' then 1 else 0 end) as observed_invocation_count,
+          sum(case when invocation_origin = 'unknown' then 1 else 0 end) as unknown_origin_count
+        from capability_events
+        group by agent, capability_type, capability_name
+      )
+      select *
+      from capability_stats
+      order by ${sortSql} desc, invocation_count desc, capability_name asc
+      `,
+    )
+    .all(...params) as DashboardCapabilityRow[];
+  const visibleRows = rows.slice(0, filters.limit);
+
+  return {
+    columns: [
+      "Agent",
+      "Type",
+      "Capability",
+      "Invocations",
+      "Explicit",
+      "Inferred",
+      "Observed",
+      "Unknown",
+      "Tokens",
+      "Avg duration",
+      "Min duration",
+      "Max duration",
+      "Success rate",
+    ],
+    rows: visibleRows.map((row) => [
+      row.agent,
+      row.capability_type,
+      row.capability_name,
+      String(row.invocation_count),
+      String(row.explicit_invocation_count),
+      String(row.inferred_invocation_count),
+      String(row.observed_invocation_count),
+      String(row.unknown_origin_count),
+      formatTokenCount(row.total_tokens),
+      formatAverageDurationMs(row.duration_ms, row.duration_count),
+      formatDurationMs(row.min_duration_ms),
+      formatDurationMs(row.max_duration_ms),
+      formatSuccessRate(row.success_count, row.failure_count),
+    ]),
+    emptyText: "No capability usage found for this range.",
+    note: `Showing ${visibleRows.length} of ${rows.length} ${filters.noteLabel} (${formatDateRange(
+      range,
+    )}).`,
+  };
+}
+
+function readDashboardTokenUsage(
+  db: ReturnType<typeof initializeTrackerDatabase>["db"],
+  range: { startDate: string; endDate: string },
+  period: DashboardTokenPeriod,
+): DashboardTable {
+  const rows = db
+    .prepare(
+      `
+      select
+        date,
+        coalesce(sum(turn_count), 0) as turn_count,
+        case when count(input_tokens) = 0 then null else sum(input_tokens) end as input_tokens,
+        case when count(output_tokens) = 0 then null else sum(output_tokens) end as output_tokens,
+        case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens
+      from daily_agent_stats
+      where date between ? and ?
+      group by date
+      order by date asc
+      `,
+    )
+    .all(range.startDate, range.endDate) as DashboardTokenDayRow[];
+  const buckets = aggregateDashboardTokenRows(rows, period);
+
+  return {
+    columns: ["Period", "Turns", "Input", "Output", "Total", "Avg / turn"],
+    rows: buckets.map((bucket) => {
+      const totalTokens = bucket.total_count > 0 ? bucket.total_tokens : null;
+
+      return [
+        bucket.label,
+        String(bucket.turn_count),
+        formatNullableTokenCount(bucket.input_tokens, bucket.input_count),
+        formatNullableTokenCount(bucket.output_tokens, bucket.output_count),
+        formatTokenCount(totalTokens),
+        formatAverageTokens(totalTokens, bucket.turn_count),
+      ];
+    }),
+    emptyText: "No token usage found for this range.",
+    note: `Token usage by ${period} (${formatDateRange(range)}).`,
+  };
+}
+
+function readDashboardTurns(
+  db: ReturnType<typeof initializeTrackerDatabase>["db"],
+  range: { startDate: string; endDate: string },
+  limit: number,
+): DashboardTable {
+  const rows = db
+    .prepare(
+      `
+      select
+        occurred_at,
+        agent,
+        model,
+        id,
+        duration_ms,
+        total_tokens,
+        status
+      from turns
+      where date(occurred_at, 'localtime') between ? and ?
+      order by occurred_at desc
+      limit ?
+      `,
+    )
+    .all(range.startDate, range.endDate, limit) as DashboardTurnRow[];
+
+  return {
+    columns: ["Time", "Agent", "Model", "Turn", "Duration", "Tokens", "Status"],
+    rows: rows.map((row) => [
+      formatLocalDateTime(row.occurred_at),
+      row.agent,
+      formatNullableText(row.model),
+      shortenId(row.id),
+      formatDurationMs(row.duration_ms),
+      formatTokenCount(row.total_tokens),
+      row.status,
+    ]),
+    emptyText: "No turn usage found for this range.",
+    note: `Showing latest ${rows.length} turns (${formatDateRange(range)}).`,
+  };
 }
 
 function readDashboardSummary(
   db: ReturnType<typeof initializeTrackerDatabase>["db"],
   range: { startDate: string; endDate: string },
-): {
-  session_count: number;
-  turn_count: number;
-  total_tokens: number | null;
-  duration_ms: number | null;
-} {
+): DashboardSummary {
   const row = db
     .prepare(
       `
@@ -644,6 +1126,114 @@ function readDashboardSummary(
   };
 }
 
+function aggregateDashboardTokenRows(
+  rows: DashboardTokenDayRow[],
+  period: DashboardTokenPeriod,
+): DashboardTokenBucket[] {
+  const buckets = new Map<string, DashboardTokenBucket>();
+
+  for (const row of rows) {
+    const descriptor = describeDashboardTokenPeriod(row.date, period);
+    const bucket = buckets.get(descriptor.key) ?? {
+      key: descriptor.key,
+      label: descriptor.label,
+      turn_count: 0,
+      input_tokens: 0,
+      input_count: 0,
+      output_tokens: 0,
+      output_count: 0,
+      total_tokens: 0,
+      total_count: 0,
+    };
+
+    bucket.turn_count += row.turn_count;
+    if (row.input_tokens !== null) {
+      bucket.input_tokens += row.input_tokens;
+      bucket.input_count += 1;
+    }
+    if (row.output_tokens !== null) {
+      bucket.output_tokens += row.output_tokens;
+      bucket.output_count += 1;
+    }
+    if (row.total_tokens !== null) {
+      bucket.total_tokens += row.total_tokens;
+      bucket.total_count += 1;
+    }
+
+    buckets.set(descriptor.key, bucket);
+  }
+
+  return [...buckets.values()].sort((left, right) => left.key.localeCompare(right.key));
+}
+
+function describeDashboardTokenPeriod(
+  dateText: string,
+  period: DashboardTokenPeriod,
+): { key: string; label: string } {
+  if (period === "day") {
+    return { key: dateText, label: dateText };
+  }
+
+  if (period === "month") {
+    const month = dateText.slice(0, 7);
+    return { key: month, label: month };
+  }
+
+  const weekStart = startOfLocalWeek(parseLocalDate(dateText));
+  const weekEnd = addDays(weekStart, 6);
+
+  return {
+    key: formatLocalDate(weekStart),
+    label: `${formatLocalDate(weekStart)} to ${formatLocalDate(weekEnd)}`,
+  };
+}
+
+function parseLocalDate(dateText: string): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateText);
+  if (!match) {
+    throw new Error(`Invalid local date: ${dateText}`);
+  }
+
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+function startOfLocalWeek(date: Date): Date {
+  const start = new Date(date);
+  const daysSinceMonday = (start.getDay() + 6) % 7;
+  start.setDate(start.getDate() - daysSinceMonday);
+  return start;
+}
+
+function addDays(date: Date, days: number): Date {
+  const result = new Date(date);
+  result.setDate(result.getDate() + days);
+  return result;
+}
+
+function formatLocalDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function formatNullableTokenCount(value: number, count: number): string {
+  return count > 0 ? formatTokenCount(value) : "n/a";
+}
+
+function formatAverageTokens(totalTokens: number | null, turnCount: number): string {
+  if (totalTokens === null || turnCount <= 0) {
+    return "n/a";
+  }
+
+  return formatTokenCount(Math.round(totalTokens / turnCount));
+}
+
+function shortenId(id: string): string {
+  return id.length > 12 ? id.slice(0, 12) : id;
+}
+
 function renderMetric(label: string, value: string): string {
   return `<div class="metric"><div class="metric-label">${escapeHtml(
     label,
@@ -651,20 +1241,22 @@ function renderMetric(label: string, value: string): string {
 }
 
 function renderSection(section: DashboardSection): string {
-  return `<section><h2>${escapeHtml(section.title)}</h2><pre>${escapeHtml(
-    section.lines.join("\n"),
-  )}</pre></section>`;
+  return `<section><h2>${escapeHtml(section.title)}</h2>${renderDashboardTable(
+    section.table,
+  )}</section>`;
 }
 
-function renderTabbedSection(title: string, tabs: DashboardTab[]): string {
+function renderTabbedSection(title: string, idPrefix: string, tabs: DashboardTab[]): string {
   const tabButtons = tabs
     .map((tab, index) => {
       const active = index === 0;
-      return `<button class="tab${active ? " is-active" : ""}" id="token-tab-${escapeHtml(
+      return `<button class="tab${active ? " is-active" : ""}" id="${escapeHtml(
+        idPrefix,
+      )}-tab-${escapeHtml(
         tab.id,
       )}" role="tab" type="button" aria-selected="${String(
         active,
-      )}" aria-controls="token-panel-${escapeHtml(tab.id)}" tabindex="${
+      )}" aria-controls="${escapeHtml(idPrefix)}-panel-${escapeHtml(tab.id)}" tabindex="${
         active ? "0" : "-1"
       }">${escapeHtml(tab.label)}</button>`;
     })
@@ -672,11 +1264,11 @@ function renderTabbedSection(title: string, tabs: DashboardTab[]): string {
   const panels = tabs
     .map((tab, index) => {
       const hidden = index === 0 ? "" : " hidden";
-      return `<div id="token-panel-${escapeHtml(
+      return `<div id="${escapeHtml(idPrefix)}-panel-${escapeHtml(
         tab.id,
-      )}" role="tabpanel" aria-labelledby="token-tab-${escapeHtml(
+      )}" role="tabpanel" aria-labelledby="${escapeHtml(idPrefix)}-tab-${escapeHtml(
         tab.id,
-      )}"${hidden}><pre>${escapeHtml(tab.lines.join("\n"))}</pre></div>`;
+      )}"${hidden}>${renderDashboardTable(tab.table)}</div>`;
     })
     .join("");
 
@@ -685,6 +1277,29 @@ function renderTabbedSection(title: string, tabs: DashboardTab[]): string {
   )}</h2><div class="tabs" role="tablist" aria-label="${escapeHtml(
     title,
   )}">${tabButtons}</div></div>${panels}</section>`;
+}
+
+function renderDashboardTable(table: DashboardTable): string {
+  const note = table.note
+    ? `<p class="table-note">${escapeHtml(table.note)}</p>`
+    : "";
+  if (table.rows.length === 0) {
+    return `${note}<p class="empty-state">${escapeHtml(table.emptyText)}</p>`;
+  }
+
+  const header = table.columns
+    .map((column) => `<th scope="col">${escapeHtml(column)}</th>`)
+    .join("");
+  const rows = table.rows
+    .map(
+      (row) =>
+        `<tr>${row
+          .map((cell) => `<td>${escapeHtml(cell)}</td>`)
+          .join("")}</tr>`,
+    )
+    .join("");
+
+  return `${note}<div class="table-scroll"><table><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function renderIngestStatus(snapshot: ReportServerIngestSnapshot | null): string {

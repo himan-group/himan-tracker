@@ -7,6 +7,13 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - Added a favicon for the local report server dashboard and `server start --open` to launch the dashboard in the default browser.
+- Added `/dashboard.json` to the local report server for structured dashboard data.
+- Added a tabbed local report server card for recent skill and MCP tool calls.
+
+### Changed
+
+- Changed the local report server dashboard to render structured HTML tables instead of preformatted CLI text blocks.
+- Changed the `capabilities` duration output to show average, minimum, and maximum duration in separate columns and sort `--sort duration` by average duration.
 
 ## [0.1.0] - 2026-05-13
 

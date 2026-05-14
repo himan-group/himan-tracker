@@ -210,7 +210,7 @@ himan-tracker ingest --rebuild
 
 ### `server`
 
-启动、停止和查看本地报表 Web server。server 默认只监听 `127.0.0.1`，启动后会立即执行一次增量 `ingest`，之后按固定间隔继续导入 `events/*.jsonl`。页面会展示总览、一个可切换日/周/月的 token 消耗卡片、agent、capability 和近期 turn。
+启动、停止和查看本地报表 Web server。server 默认只监听 `127.0.0.1`，启动后会立即执行一次增量 `ingest`，之后按固定间隔继续导入 `events/*.jsonl`。页面会以 HTML 表格展示总览、一个可切换日/周/月的 token 消耗卡片、agent、capability、一个可切换 skill/MCP tool 的调用列表卡片和近期 turn，并提供 `/dashboard.json` 结构化数据端点。
 
 ```bash
 himan-tracker server start
@@ -357,6 +357,8 @@ himan-tracker capabilities --since 30d --exclude-system
 - `failures`
 
 Codex hooks 不直接提供耗时字段。himan-tracker 会在后台从 Codex transcript 的 `task_complete`、`mcp_tool_call_end` 和 tool end 事件补齐 turn 或 tool duration；Codex 暂无官方结构化 skill 执行事件，因此从显式 `$skill-name` 或读取 `SKILL.md` 的工具调用推断 skill 使用。若能读取当前项目 `himan.lock`，读取 `SKILL.md` 推断出的 skill 会先按 lock 中的 Codex 安装记录过滤。`capabilities` 报表会用 `Explicit`、`Inferred`、`Observed` 和 `Unknown` 列拆分调用来源；报表中的 skill duration 使用该 skill 所在 turn 的耗时作为估算。
+
+`capabilities` 报表会用 `Avg duration`、`Min duration` 和 `Max duration` 分开展示已知耗时的平均值、最小值和最大值；`--sort duration` 仍按平均耗时排序。
 
 ### `capability-events`
 
