@@ -1,0 +1,30 @@
+name: common-git-commit
+type: skill
+version: 0.0.4
+entry: SKILL.md
+description: Create clean local Git commits quickly from the current project
+  changes without pushing. Use when the user asks Codex to commit code, generate
+  a commit message and commit, split a large diff into logical commits, or
+  simplify a Git commit workflow based on conversation context and project
+  diffs.
+agents:
+  - codex
+analysis:
+  content:
+    tokenizer: approx-char-v1
+    tokenEstimator: ceil(chars/4)
+    entryTokens: 1035
+    packageTokens: 1105
+    contentHash: sha256:0fdd62ada44598e7ed263f112ab119fa86608dd3555800fc6abea1385d51555e
+    measuredAt: 2026-05-14T07:52:32.580Z
+    measuredBy: codex
+  dependencies:
+    skills:
+      - common-dev-pattern
+    scripts: []
+    mcpTools: []
+  generation:
+    generatedBy: codex
+    generatedAt: 2026-05-14T07:52:32.580Z
+    model: gpt-5
+    promptRef: himan-skill-metadata

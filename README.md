@@ -29,7 +29,7 @@ himan-tracker setup
 himan-tracker ingest
 himan-tracker summary --since 7d
 himan-tracker tokens --period week --since 12w
-himan-tracker server start
+himan-tracker server start --open
 ```
 
 - `doctor` 检查并初始化本地数据目录。
@@ -37,7 +37,7 @@ himan-tracker server start
 - `ingest` 将本地 JSONL 事件导入 SQLite。
 - `summary` 查看最近使用总览。
 - `tokens` 查看每日、每周或每月 token 消耗。
-- `server start` 启动本地报表页面，并定时增量导入事件。
+- `server start` 启动本地报表页面，并定时增量导入事件；加 `--open` 会自动打开浏览器。
 
 安装全局 Codex hooks：
 
@@ -60,6 +60,7 @@ himan-tracker setup --dry-run
 | `himan-tracker setup -g` | 安装全局 Codex hooks |
 | `himan-tracker ingest` | 将 `events/*.jsonl` 导入 SQLite |
 | `himan-tracker server start` | 启动本地报表 Web server |
+| `himan-tracker server start --open` | 启动并用默认浏览器打开报表页面 |
 | `himan-tracker server status` | 查看本地报表 Web server 状态 |
 | `himan-tracker server stop` | 停止本地报表 Web server |
 | `himan-tracker summary --since 7d` | 查看最近 7 天总览 |

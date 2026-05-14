@@ -1,7 +1,8 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { closeSync, openSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 import {
   ensureTrackerDirectories,
@@ -31,6 +32,8 @@ export type ServerCommandResult = {
 export type ServerStartCommandOptions = ServerCommonOptions & {
   waitMs?: number;
   spawnServer?: SpawnReportServer;
+  open?: boolean;
+  openBrowser?: OpenBrowser;
 };
 
 export type ServerStopCommandOptions = ServerCommonOptions & {
@@ -63,8 +66,10 @@ type SpawnReportServerInput = ParsedServerOptions & {
 };
 
 type SpawnReportServer = (input: SpawnReportServerInput) => { pid: number };
+type OpenBrowser = (url: string) => Promise<void>;
 
 const READY_TIMEOUT_MS = 5_000;
+const execFileAsync = promisify(execFile);
 
 export async function runServerStart(
   options: ServerStartCommandOptions & {
@@ -83,6 +88,7 @@ export async function runServerStart(
 
     const existingState = await readReportServerState(paths);
     if (existingState && isProcessRunning(existingState.pid)) {
+      const browserLines = await resolveBrowserLines(existingState.url, options);
       return {
         ok: true,
         lines: [
@@ -91,6 +97,7 @@ export async function runServerStart(
           `Already running: ${existingState.url}`,
           `PID: ${existingState.pid}`,
           `State: ${resolveReportServerStateLabel(paths)}`,
+          ...browserLines,
         ],
       };
     }
@@ -102,6 +109,7 @@ export async function runServerStart(
     const spawnServer = options.spawnServer ?? spawnDetachedReportServer;
     const child = spawnServer({ paths, ...parsed });
     const state = await waitForServerReady(paths, child.pid, options.waitMs ?? READY_TIMEOUT_MS);
+    const browserLines = await resolveBrowserLines(state.url, options);
 
     return {
       ok: true,
@@ -114,6 +122,7 @@ export async function runServerStart(
         `Report range: ${state.since}`,
         `State: ${resolveReportServerStateLabel(paths)}`,
         `Log: ${resolveReportServerLogPath(paths)}`,
+        ...browserLines,
       ],
     };
   } catch (error) {
@@ -313,6 +322,39 @@ function spawnDetachedReportServer(input: SpawnReportServerInput): { pid: number
   } finally {
     closeSync(logFd);
   }
+}
+
+async function resolveBrowserLines(
+  url: string,
+  options: Pick<ServerStartCommandOptions, "open" | "openBrowser">,
+): Promise<string[]> {
+  if (!options.open) {
+    return [];
+  }
+
+  try {
+    await (options.openBrowser ?? openUrlInDefaultBrowser)(url);
+    return [`Opened browser: ${url}`];
+  } catch (error) {
+    return [`[warn] Could not open browser: ${getErrorMessage(error)}`];
+  }
+}
+
+async function openUrlInDefaultBrowser(url: string): Promise<void> {
+  if (process.platform === "darwin") {
+    await execFileAsync("open", [url], { timeout: 5_000, windowsHide: true });
+    return;
+  }
+
+  if (process.platform === "win32") {
+    await execFileAsync("cmd", ["/c", "start", "", url], {
+      timeout: 5_000,
+      windowsHide: true,
+    });
+    return;
+  }
+
+  await execFileAsync("xdg-open", [url], { timeout: 5_000, windowsHide: true });
 }
 
 function parseServerOptions(options: {

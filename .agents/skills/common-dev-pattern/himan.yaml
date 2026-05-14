@@ -1,0 +1,29 @@
+name: common-dev-pattern
+type: skill
+version: 0.0.6
+entry: SKILL.md
+description: Follow existing repository patterns for code changes and validate
+  them before the final response. Use for nontrivial edits across pages,
+  components, services, tests, build config, generated files, APIs, migrations,
+  or integration code.
+agents:
+  - codex
+analysis:
+  content:
+    tokenizer: approx-char-v1
+    tokenEstimator: ceil(chars/4)
+    entryTokens: 847
+    packageTokens: 847
+    contentHash: sha256:df99d6f14d663886e426a711940733d4202d0d6dfbb1678cf914d0ffb5e8eba6
+    measuredAt: 2026-05-14T07:52:32.527Z
+    measuredBy: codex
+  dependencies:
+    skills:
+      - common-project-changelog
+    scripts: []
+    mcpTools: []
+  generation:
+    generatedBy: codex
+    generatedAt: 2026-05-14T07:52:32.527Z
+    model: gpt-5
+    promptRef: himan-skill-metadata

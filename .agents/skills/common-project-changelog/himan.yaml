@@ -1,0 +1,28 @@
+name: common-project-changelog
+type: skill
+version: 0.0.5
+entry: SKILL.md
+description: Maintain project CHANGELOG.md and package version history
+  correctly. Use for user-visible CLI behavior changes, new commands/options,
+  direct CHANGELOG.md edits, moving Unreleased entries into a release, package
+  version bumps, release notes, or changelog placement fixes.
+agents:
+  - codex
+analysis:
+  content:
+    tokenizer: approx-char-v1
+    tokenEstimator: ceil(chars/4)
+    entryTokens: 1030
+    packageTokens: 1030
+    contentHash: sha256:e724c04a1ebbf0784438df7783081a8f37450bb2424feea0c7b9178e8abb51aa
+    measuredAt: 2026-05-14T07:52:32.682Z
+    measuredBy: codex
+  dependencies:
+    skills: []
+    scripts: []
+    mcpTools: []
+  generation:
+    generatedBy: codex
+    generatedAt: 2026-05-14T07:52:32.682Z
+    model: gpt-5
+    promptRef: himan-skill-metadata

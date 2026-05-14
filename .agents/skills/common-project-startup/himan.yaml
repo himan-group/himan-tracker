@@ -1,0 +1,32 @@
+name: common-project-startup
+type: skill
+version: 0.0.4
+entry: SKILL.md
+description: Onboard Codex to an existing repository by inspecting structure,
+  commands, rules, generated files, and validation workflow; create or update
+  docs/codex/repo-map.md and AGENTS.md. Use when starting work in an unfamiliar
+  project, refreshing project guidance, or syncing local rules into Codex
+  instructions.
+agents:
+  - codex
+analysis:
+  content:
+    tokenizer: approx-char-v1
+    tokenEstimator: ceil(chars/4)
+    entryTokens: 823
+    packageTokens: 823
+    contentHash: sha256:e76753d3001ee860a169d4505f6ae088d42b14e27df9622c25aad68acbfc58ae
+    measuredAt: 2026-05-14T07:52:32.801Z
+    measuredBy: codex
+  dependencies:
+    skills:
+      - common-dev-pattern
+      - common-issue-spec
+      - common-project-changelog
+    scripts: []
+    mcpTools: []
+  generation:
+    generatedBy: codex
+    generatedAt: 2026-05-14T07:52:32.801Z
+    model: gpt-5
+    promptRef: himan-skill-metadata

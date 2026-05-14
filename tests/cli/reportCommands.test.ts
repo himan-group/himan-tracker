@@ -98,6 +98,7 @@ describe("report commands", () => {
       assert.equal(capabilities.ok, true);
       assert.match(capabilities.lines.join("\n"), /github\.create_pull_request/);
       assert.match(capabilities.lines.join("\n"), /1\.25K/);
+      assert.match(capabilities.lines.join("\n"), /400ms\s+\|\s+200ms\s+\|\s+600ms/);
       assert.match(capabilities.lines.join("\n"), /0\.0%/);
       assert.match(capabilities.lines.join("\n"), /Observed/);
 
@@ -111,7 +112,7 @@ describe("report commands", () => {
       });
       assert.equal(skills.ok, true);
       assert.match(skills.lines.join("\n"), /common-git-commit/);
-      assert.match(skills.lines.join("\n"), /1s/);
+      assert.match(skills.lines.join("\n"), /2s\s+\|\s+1s\s+\|\s+3s/);
       assert.match(skills.lines.join("\n"), /Explicit/);
 
       const userCapabilities = await runCapabilities({
@@ -337,6 +338,23 @@ function createFixtureEvents(): NormalizedEvent[] {
     },
     {
       schema_version: "1.0",
+      event_id: "evt_turn_002",
+      event_type: "turn_summary",
+      occurred_at: "2026-05-12T12:00:05.000Z",
+      agent: "codex",
+      source: "fixture",
+      session_id: "s_001",
+      turn_id: "t_002",
+      repo_hash: "repo_hash_001",
+      status: "success",
+      model: "gpt-5.1-codex",
+      duration_ms: 3_000,
+      input_tokens: null,
+      output_tokens: null,
+      total_tokens: null,
+    },
+    {
+      schema_version: "1.0",
       event_id: "evt_capability_002",
       event_type: "capability_usage",
       occurred_at: "2026-05-12T12:00:01.000Z",
@@ -344,6 +362,27 @@ function createFixtureEvents(): NormalizedEvent[] {
       source: "fixture",
       session_id: "s_001",
       turn_id: "t_001",
+      repo_hash: "repo_hash_001",
+      status: "success",
+      capability_type: "skill",
+      capability_name: "common-git-commit",
+      duration_ms: null,
+      input_tokens: null,
+      output_tokens: null,
+      total_tokens: null,
+      adopted: "unknown",
+      attribution_confidence: "exact",
+      invocation_origin: "explicit",
+    },
+    {
+      schema_version: "1.0",
+      event_id: "evt_capability_004",
+      event_type: "capability_usage",
+      occurred_at: "2026-05-12T12:00:06.000Z",
+      agent: "codex",
+      source: "fixture",
+      session_id: "s_001",
+      turn_id: "t_002",
       repo_hash: "repo_hash_001",
       status: "success",
       capability_type: "skill",
@@ -373,6 +412,27 @@ function createFixtureEvents(): NormalizedEvent[] {
       input_tokens: 1_000,
       output_tokens: 250,
       total_tokens: 1_250,
+      adopted: "unknown",
+      attribution_confidence: "estimated",
+      invocation_origin: "observed",
+    },
+    {
+      schema_version: "1.0",
+      event_id: "evt_capability_003",
+      event_type: "capability_usage",
+      occurred_at: "2026-05-12T12:00:07.000Z",
+      agent: "codex",
+      source: "fixture",
+      session_id: "s_001",
+      turn_id: "t_001",
+      repo_hash: "repo_hash_001",
+      status: "failure",
+      capability_type: "mcp_tool",
+      capability_name: "github.create_pull_request",
+      duration_ms: 600,
+      input_tokens: null,
+      output_tokens: null,
+      total_tokens: null,
       adopted: "unknown",
       attribution_confidence: "estimated",
       invocation_origin: "observed",

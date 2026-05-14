@@ -48,12 +48,15 @@ describe("server command", () => {
       const html = await response.text();
       assert.equal(response.status, 200);
       assert.match(html, /himan-tracker/);
+      assert.match(html, /<link rel="icon" type="image\/svg\+xml" href="data:image\/svg\+xml,/);
+      assert.match(html, /<table>/);
+      assert.equal(html.includes("<pre>"), false);
       assert.match(html, /Summary/);
       const summaryHtml = html.slice(
         html.indexOf("<h2>Summary</h2>"),
         html.indexOf("<h2>Token usage</h2>"),
       );
-      assert.match(summaryHtml, /Top 15 capabilities/);
+      assert.match(summaryHtml, /Showing 15 of 31 top non-system capabilities/);
       assert.match(summaryHtml, /server-capability-15/);
       assert.equal(summaryHtml.includes("server-capability-16"), false);
       assert.equal(summaryHtml.includes("apply_patch"), false);
@@ -67,11 +70,37 @@ describe("server command", () => {
       assert.equal(html.includes("Daily tokens"), false);
       assert.equal(html.includes("Weekly tokens"), false);
       assert.equal(html.includes("Monthly tokens"), false);
-      assert.match(html, /Showing 25 of 32 capabilities\./);
-      assert.match(html, /server-capability-23/);
-      assert.equal(html.includes("server-capability-24"), false);
+      assert.match(html, /Capability calls/);
+      const capabilitiesHtml = html.slice(
+        html.indexOf("<h2>Capabilities</h2>"),
+        html.indexOf("<h2>Capability calls</h2>"),
+      );
+      assert.match(capabilitiesHtml, /Showing 25 of 33 capabilities/);
+      assert.match(capabilitiesHtml, /server-capability-23/);
+      assert.equal(capabilitiesHtml.includes("server-capability-24"), false);
+      assert.match(html, /role="tab"[^>]*>Skills<\/button>/);
+      assert.match(html, /role="tab"[^>]*>MCP tools<\/button>/);
+      assert.match(html, /Showing latest 30 skill calls/);
+      assert.match(html, /server-capability-24/);
+      assert.match(html, /github\.create_pull_request/);
       assert.match(html, /Recent turns/);
       assert.match(html, /1\.23K/);
+
+      const dashboardJsonResponse = await fetch(`${instance.url}/dashboard.json`);
+      const dashboard = (await dashboardJsonResponse.json()) as {
+        summary: { turn_count: number };
+        summarySection: { table: { rows: string[][] } };
+        capabilityCallTabs: Array<{ id: string; table: { rows: string[][] } }>;
+      };
+      assert.equal(dashboardJsonResponse.status, 200);
+      assert.equal(dashboard.summary.turn_count, 1);
+      assert.equal(dashboard.summarySection.table.rows.length, 15);
+      assert.equal(
+        dashboard.capabilityCallTabs
+          .find((tab) => tab.id === "mcp-tools")
+          ?.table.rows.some((row) => row.includes("github.create_pull_request")),
+        true,
+      );
 
       const healthResponse = await fetch(`${instance.url}/healthz`);
       const health = (await healthResponse.json()) as {
@@ -88,14 +117,21 @@ describe("server command", () => {
       assert.match(status.lines.join("\n"), /running/);
       assert.match(status.lines.join("\n"), new RegExp(String(instance.state.port)));
 
+      const openedUrls: string[] = [];
       const alreadyRunning = await runServerStart({
         paths,
+        open: true,
+        openBrowser: async (url) => {
+          openedUrls.push(url);
+        },
         spawnServer: () => {
           throw new Error("should not spawn when state is already active");
         },
       });
       assert.equal(alreadyRunning.ok, true);
       assert.match(alreadyRunning.lines.join("\n"), /Already running/);
+      assert.match(alreadyRunning.lines.join("\n"), /Opened browser/);
+      assert.deepEqual(openedUrls, [instance.url]);
     } finally {
       await instance.close();
       assert.equal(await readReportServerState(paths), null);
@@ -171,6 +207,13 @@ function createServerCapabilityEvents(): NormalizedEvent[] {
       name: "Bash",
       totalTokens: 90_000,
     }),
+    createCapabilityEvent({
+      eventId: "evt_server_mcp_tool",
+      occurredAt: "2026-05-12T12:03:00.000Z",
+      type: "mcp_tool",
+      name: "github.create_pull_request",
+      totalTokens: 10,
+    }),
     ...userCapabilities,
   ];
 }
@@ -178,7 +221,7 @@ function createServerCapabilityEvents(): NormalizedEvent[] {
 function createCapabilityEvent(options: {
   eventId: string;
   occurredAt: string;
-  type: "skill" | "builtin_tool" | "unknown";
+  type: "skill" | "mcp_tool" | "builtin_tool" | "unknown";
   name: string;
   totalTokens: number;
 }): NormalizedEvent {

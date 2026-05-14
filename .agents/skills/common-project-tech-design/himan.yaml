@@ -1,0 +1,31 @@
+name: common-project-tech-design
+type: skill
+version: 0.0.3
+entry: SKILL.md
+description: Create or update project technical design docs and bootstrap
+  repository structure from a blueprint. Use when Codex is asked to design
+  architecture, modules, data contracts, storage, CLI/API behavior, file layout,
+  testing strategy, or initialize directories and file conventions for a
+  project.
+agents:
+  - codex
+analysis:
+  content:
+    tokenizer: approx-char-v1
+    tokenEstimator: ceil(chars/4)
+    entryTokens: 786
+    packageTokens: 837
+    contentHash: sha256:00fe4a50aeb7ae644e3c84db1875c96687f14b1918a429cebc4cc533a25f9f5e
+    measuredAt: 2026-05-14T07:52:32.858Z
+    measuredBy: codex
+  dependencies:
+    skills:
+      - common-project-blueprint
+      - common-project-mvp
+    scripts: []
+    mcpTools: []
+  generation:
+    generatedBy: codex
+    generatedAt: 2026-05-14T07:52:32.858Z
+    model: gpt-5
+    promptRef: himan-skill-metadata
