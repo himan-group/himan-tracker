@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { Command, Option } from "commander";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import { runAgents } from "./commands/agents.js";
 import { runCleanup } from "./commands/cleanup.js";
@@ -20,7 +22,21 @@ import { runTokens } from "./commands/tokens.js";
 import { runTurns } from "./commands/turns.js";
 import { runUnused } from "./commands/unused.js";
 
-const VERSION = "0.0.1";
+const VERSION = getCliVersion();
+
+function getCliVersion(): string {
+  try {
+    const packagePath = fileURLToPath(new URL("../../package.json", import.meta.url));
+    const rawPackage = readFileSync(packagePath, "utf8");
+    const parsedPackage = JSON.parse(rawPackage);
+
+    return typeof parsedPackage.version === "string" && parsedPackage.version.length > 0
+      ? parsedPackage.version
+      : "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
 
 const program = new Command();
 

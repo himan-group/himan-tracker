@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-05-14
+
 ### Added
 
 - Added a favicon for the local report server dashboard and `server start --open` to launch the dashboard in the default browser.
@@ -14,6 +16,10 @@ All notable changes to this project will be documented in this file.
 
 - Changed the local report server dashboard to render structured HTML tables instead of preformatted CLI text blocks.
 - Changed the `capabilities` duration output to show average, minimum, and maximum duration in separate columns and sort `--sort duration` by average duration.
+
+### Fixed
+
+- Fixed `himan-tracker -v/--version` to report the current `package.json` version instead of a hard-coded `0.0.1` value.
 
 ## [0.1.0] - 2026-05-13
 
