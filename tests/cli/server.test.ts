@@ -48,6 +48,7 @@ describe("server command", () => {
       const html = await response.text();
       assert.equal(response.status, 200);
       assert.match(html, /himan-tracker/);
+      assert.match(html, /<link rel="icon" type="image\/svg\+xml" href="data:image\/svg\+xml,/);
       assert.match(html, /Summary/);
       const summaryHtml = html.slice(
         html.indexOf("<h2>Summary</h2>"),
@@ -88,14 +89,21 @@ describe("server command", () => {
       assert.match(status.lines.join("\n"), /running/);
       assert.match(status.lines.join("\n"), new RegExp(String(instance.state.port)));
 
+      const openedUrls: string[] = [];
       const alreadyRunning = await runServerStart({
         paths,
+        open: true,
+        openBrowser: async (url) => {
+          openedUrls.push(url);
+        },
         spawnServer: () => {
           throw new Error("should not spawn when state is already active");
         },
       });
       assert.equal(alreadyRunning.ok, true);
       assert.match(alreadyRunning.lines.join("\n"), /Already running/);
+      assert.match(alreadyRunning.lines.join("\n"), /Opened browser/);
+      assert.deepEqual(openedUrls, [instance.url]);
     } finally {
       await instance.close();
       assert.equal(await readReportServerState(paths), null);

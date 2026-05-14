@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Added a favicon for the local report server dashboard and `server start --open` to launch the dashboard in the default browser.
+
 ## [0.1.0] - 2026-05-13
 
 ### Added

@@ -222,6 +222,12 @@ himan-tracker server start
 http://127.0.0.1:5127
 ```
 
+如果希望启动后直接打开默认浏览器：
+
+```bash
+himan-tracker server start --open
+```
+
 可调整监听地址、端口、报表范围和导入间隔：
 
 ```bash

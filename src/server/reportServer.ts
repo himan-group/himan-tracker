@@ -360,6 +360,8 @@ function renderDashboardPage(options: {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>himan-tracker</title>
+  <link rel="icon" type="image/svg+xml" href="${escapeHtml(DASHBOARD_ICON_DATA_URL)}">
+  <meta name="theme-color" content="#117a65">
   <style>
     :root {
       color-scheme: light;
@@ -813,3 +815,7 @@ function isNodeErrorCode(error: unknown, code: string): boolean {
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+const DASHBOARD_ICON_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#117a65"/><path d="M18 16v32M46 16v32M18 32h28" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="46" cy="18" r="6" fill="#8ee6d6"/></svg>';
+const DASHBOARD_ICON_DATA_URL = `data:image/svg+xml,${encodeURIComponent(DASHBOARD_ICON_SVG)}`;
