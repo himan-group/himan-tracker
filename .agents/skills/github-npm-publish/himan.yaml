@@ -1,0 +1,30 @@
+name: github-npm-publish
+type: skill
+version: 0.0.3
+entry: SKILL.md
+description: Design, audit, or maintain a reusable GitHub Actions workflow for
+  publishing npm packages. Use when Codex needs to add or review local package
+  version scripts that update CHANGELOG.md, PR checks before merging to
+  main/master, duplicate npm version/tag prevention, npm Trusted Publishing or
+  NPM_TOKEN publishing, post-merge npm publish jobs, release tags, or release
+  documentation for JavaScript/TypeScript npm packages.
+agents:
+  - codex
+analysis:
+  content:
+    tokenizer: approx-char-v1
+    tokenEstimator: ceil(chars/4)
+    entryTokens: 2197
+    packageTokens: 2250
+    contentHash: sha256:a8c138dd81ec8089f8173ecc48f10b34d413e6cbd9df939083d11fc90e52fae8
+    measuredAt: 2026-05-14T07:52:32.964Z
+    measuredBy: codex
+  dependencies:
+    skills: []
+    scripts: []
+    mcpTools: []
+  generation:
+    generatedBy: codex
+    generatedAt: 2026-05-14T07:52:32.964Z
+    model: gpt-5
+    promptRef: himan-skill-metadata

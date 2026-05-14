@@ -1,0 +1,32 @@
+name: common-sprint-autopilot
+type: skill
+version: 0.0.3
+entry: SKILL.md
+description: Plan and execute a named sprint or development stage across
+  multiple requirements. Use when Codex is asked to run a sprint, execute an
+  MVP/stage plan step by step, convert stage requirements plus technical design
+  into a development plan, or repeatedly implement requirements with
+  dev-pattern, changelog updates, and git commits until the stage is complete.
+agents:
+  - codex
+analysis:
+  content:
+    tokenizer: approx-char-v1
+    tokenEstimator: ceil(chars/4)
+    entryTokens: 1244
+    packageTokens: 1298
+    contentHash: sha256:cde42998b0bfbbfe2e25c28b514b404a28a12f1b7848c217e8ebb22f768ef49c
+    measuredAt: 2026-05-14T07:52:32.914Z
+    measuredBy: codex
+  dependencies:
+    skills:
+      - common-dev-pattern
+      - common-git-commit
+      - common-project-changelog
+    scripts: []
+    mcpTools: []
+  generation:
+    generatedBy: codex
+    generatedAt: 2026-05-14T07:52:32.914Z
+    model: gpt-5
+    promptRef: himan-skill-metadata

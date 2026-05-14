@@ -1,0 +1,30 @@
+name: common-project-mvp
+type: skill
+version: 0.0.3
+entry: SKILL.md
+description: Create or update MVP planning docs from a blueprint and technical
+  design. Use when Codex is asked to split MVP features, define priorities,
+  dependencies, milestones, acceptance criteria, detailed implementation plans,
+  delivery phases, or MVP definition of done.
+agents:
+  - codex
+analysis:
+  content:
+    tokenizer: approx-char-v1
+    tokenEstimator: ceil(chars/4)
+    entryTokens: 820
+    packageTokens: 870
+    contentHash: sha256:64b97befd633cd6a45d27511a1df1e4922267b5898bc7d1b273c0af2723b6845
+    measuredAt: 2026-05-14T07:52:32.740Z
+    measuredBy: codex
+  dependencies:
+    skills:
+      - common-project-blueprint
+      - common-project-tech-design
+    scripts: []
+    mcpTools: []
+  generation:
+    generatedBy: codex
+    generatedAt: 2026-05-14T07:52:32.740Z
+    model: gpt-5
+    promptRef: himan-skill-metadata

@@ -1,0 +1,30 @@
+name: common-project-blueprint
+type: skill
+version: 0.0.3
+entry: SKILL.md
+description: Create or update project blueprint and user-facing README content
+  for early-stage repositories. Use when Codex is asked to define project
+  positioning, target users, goals, scope, non-goals, long-term vision, product
+  description, or user-focused README/manual content from a project idea or
+  rough notes.
+agents:
+  - codex
+analysis:
+  content:
+    tokenizer: approx-char-v1
+    tokenEstimator: ceil(chars/4)
+    entryTokens: 779
+    packageTokens: 828
+    contentHash: sha256:896f5d21ce9d31a79e9a065aabf41595d0a07c5b79dc92b71a18b3918439955d
+    measuredAt: 2026-05-14T07:52:32.635Z
+    measuredBy: codex
+  dependencies:
+    skills:
+      - common-project-tech-design
+    scripts: []
+    mcpTools: []
+  generation:
+    generatedBy: codex
+    generatedAt: 2026-05-14T07:52:32.635Z
+    model: gpt-5
+    promptRef: himan-skill-metadata
