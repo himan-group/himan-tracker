@@ -35,6 +35,7 @@ describe("report commands", () => {
       const summaryOutput = summary.lines.join("\n");
       assert.equal(summary.ok, true);
       assert.match(summaryOutput, /Total tokens\s+\|\s+3\.56M/);
+      assert.match(summaryOutput, /Top 5 agents/);
       assert.match(summaryOutput, /Top 10 capabilities/);
       assert.match(summaryOutput, /github\.create_pull_request/);
 
@@ -216,18 +217,28 @@ describe("report commands", () => {
       assert.match(dailyOutput, /2026-04-28\s+\|\s+1\s+\|\s+1K\s+\|\s+500\s+\|\s+1\.5K/);
       assert.match(dailyOutput, /2026-05-01\s+\|\s+1\s+\|\s+2K\s+\|\s+500\s+\|\s+2\.5K/);
       assert.match(dailyOutput, /2026-05-12\s+\|\s+1\s+\|\s+2\.5K\s+\|\s+500\s+\|\s+3K/);
+      assert.deepEqual(extractTokenReportPeriods(dailyOutput), [
+        "2026-05-12",
+        "2026-05-01",
+        "2026-04-28",
+      ]);
 
       const weekly = await runTokens({ paths, since: "30d", period: "week", now: () => now });
       const weeklyOutput = weekly.lines.join("\n");
       assert.equal(weekly.ok, true);
-      assert.match(weeklyOutput, /2026-04-27 to 2026-05-03\s+\|\s+2\s+\|\s+3K\s+\|\s+1K\s+\|\s+4K\s+\|\s+2K/);
-      assert.match(weeklyOutput, /2026-05-11 to 2026-05-17\s+\|\s+1\s+\|\s+2\.5K\s+\|\s+500\s+\|\s+3K\s+\|\s+3K/);
+      assert.match(weeklyOutput, /2026 Week 18 \(04-27 ~ 05-03\)\s+\|\s+2\s+\|\s+3K\s+\|\s+1K\s+\|\s+4K\s+\|\s+2K/);
+      assert.match(weeklyOutput, /2026 Week 20 \(05-11 ~ 05-17\)\s+\|\s+1\s+\|\s+2\.5K\s+\|\s+500\s+\|\s+3K\s+\|\s+3K/);
+      assert.deepEqual(extractTokenReportPeriods(weeklyOutput), [
+        "2026 Week 20 (05-11 ~ 05-17)",
+        "2026 Week 18 (04-27 ~ 05-03)",
+      ]);
 
       const monthly = await runTokens({ paths, since: "30d", period: "month", now: () => now });
       const monthlyOutput = monthly.lines.join("\n");
       assert.equal(monthly.ok, true);
       assert.match(monthlyOutput, /2026-04\s+\|\s+1\s+\|\s+1K\s+\|\s+500\s+\|\s+1\.5K/);
       assert.match(monthlyOutput, /2026-05\s+\|\s+2\s+\|\s+4\.5K\s+\|\s+1K\s+\|\s+5\.5K/);
+      assert.deepEqual(extractTokenReportPeriods(monthlyOutput), ["2026-05", "2026-04"]);
 
       const invalidPeriod = await runTokens({
         paths,
@@ -242,6 +253,13 @@ describe("report commands", () => {
     }
   });
 });
+
+function extractTokenReportPeriods(output: string): string[] {
+  return output
+    .split("\n")
+    .filter((line) => /^(?:\d{4}-\d{2}|\d{4} Week \d+)/.test(line))
+    .map((line) => line.split("|")[0]?.trim() ?? "");
+}
 
 async function createIngestedFixture(): Promise<{
   homeDir: string;

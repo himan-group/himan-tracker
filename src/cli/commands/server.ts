@@ -15,6 +15,7 @@ import {
   DEFAULT_SERVER_INTERVAL_SECONDS,
   DEFAULT_SERVER_PORT,
   DEFAULT_SERVER_SINCE,
+  type DashboardDisplayMode,
   isProcessRunning,
   readReportServerState,
   removeReportServerState,
@@ -34,6 +35,7 @@ export type ServerStartCommandOptions = ServerCommonOptions & {
   spawnServer?: SpawnReportServer;
   open?: boolean;
   openBrowser?: OpenBrowser;
+  display?: string;
 };
 
 export type ServerStopCommandOptions = ServerCommonOptions & {
@@ -47,6 +49,7 @@ export type ServerServeCommandOptions = ServerCommonOptions & {
   port?: string | number;
   interval?: string | number;
   since?: string;
+  display?: string;
   now?: () => Date;
 };
 
@@ -59,6 +62,7 @@ type ParsedServerOptions = {
   port: number;
   intervalSeconds: number;
   since: string;
+  display: DashboardDisplayMode;
 };
 
 type SpawnReportServerInput = ParsedServerOptions & {
@@ -96,6 +100,7 @@ export async function runServerStart(
           "",
           `Already running: ${existingState.url}`,
           `PID: ${existingState.pid}`,
+          `Display: ${existingState.display}`,
           `State: ${resolveReportServerStateLabel(paths)}`,
           ...browserLines,
         ],
@@ -120,6 +125,7 @@ export async function runServerStart(
         `PID: ${state.pid}`,
         `Ingest interval: ${state.interval_seconds}s`,
         `Report range: ${state.since}`,
+        `Display: ${state.display}`,
         `State: ${resolveReportServerStateLabel(paths)}`,
         `Log: ${resolveReportServerLogPath(paths)}`,
         ...browserLines,
@@ -224,6 +230,7 @@ export async function runServerStatus(
         `Started: ${state.started_at}`,
         `Ingest interval: ${state.interval_seconds}s`,
         `Report range: ${state.since}`,
+        `Display: ${state.display}`,
         `Last ingest: ${formatLastIngest(state)}`,
         `State: ${resolveReportServerStateLabel(paths)}`,
         `Log: ${resolveReportServerLogPath(paths)}`,
@@ -248,6 +255,7 @@ export async function runServerServe(
       port: parsed.port,
       intervalSeconds: parsed.intervalSeconds,
       since: parsed.since,
+      display: parsed.display,
       now: options.now,
     });
 
@@ -301,6 +309,8 @@ function spawnDetachedReportServer(input: SpawnReportServerInput): { pid: number
         String(input.intervalSeconds),
         "--since",
         input.since,
+        "--display",
+        input.display,
       ],
       {
         detached: true,
@@ -362,11 +372,13 @@ function parseServerOptions(options: {
   port?: string | number;
   interval?: string | number;
   since?: string;
+  display?: string;
 }): ParsedServerOptions {
   const host = options.host?.trim() || DEFAULT_SERVER_HOST;
   const port = parsePort(options.port);
   const intervalSeconds = parseInterval(options.interval);
   const since = options.since ?? DEFAULT_SERVER_SINCE;
+  const display = parseDisplay(options.display);
 
   parseSinceRange(since, new Date());
 
@@ -375,6 +387,7 @@ function parseServerOptions(options: {
     port,
     intervalSeconds,
     since,
+    display,
   };
 }
 
@@ -397,6 +410,18 @@ function parseInterval(value: string | number | undefined): number {
   }
 
   return interval;
+}
+
+function parseDisplay(value: string | undefined): DashboardDisplayMode {
+  if (value === undefined || value === "table") {
+    return "table";
+  }
+
+  if (value === "text") {
+    return "text";
+  }
+
+  throw new Error("Expected --display to be table or text");
 }
 
 async function waitForServerReady(

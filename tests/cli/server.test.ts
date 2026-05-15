@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -17,6 +18,7 @@ import {
 } from "../../src/config/paths.js";
 import {
   readReportServerState,
+  resolveReportServerStatePath,
   startReportHttpServer,
 } from "../../src/server/reportServer.js";
 import type { NormalizedEvent } from "../../src/types/events.js";
@@ -40,6 +42,7 @@ describe("server command", () => {
       port: 0,
       intervalSeconds: 60,
       since: "7d",
+      display: "table",
       now: () => now,
     });
 
@@ -50,13 +53,24 @@ describe("server command", () => {
       assert.match(html, /himan-tracker/);
       assert.match(html, /<link rel="icon" type="image\/svg\+xml" href="data:image\/svg\+xml,/);
       assert.match(html, /<table>/);
-      assert.equal(html.includes("<pre>"), false);
+      assert.match(html, /href="\/" aria-current="page">Overview<\/a>/);
+      assert.match(html, /href="\/metrics">Metrics<\/a>/);
       assert.match(html, /Summary/);
       const summaryHtml = html.slice(
         html.indexOf("<h2>Summary</h2>"),
         html.indexOf("<h2>Token usage</h2>"),
       );
-      assert.match(summaryHtml, /Showing 15 of 31 top non-system capabilities/);
+      assert.match(
+        summaryHtml,
+        /<p class="table-note">Summary \(2026-05-06 to 2026-05-12\)<\/p>/,
+      );
+      assert.match(summaryHtml, /Total tokens/);
+      assert.match(summaryHtml, /Success rate/);
+      assert.match(summaryHtml, /<p class="table-note">Top 5 agents<\/p>/);
+      assert.match(summaryHtml, /<p class="table-note">Top 15 capabilities<\/p>/);
+      assert.match(summaryHtml, /<table>/);
+      assert.match(summaryHtml, /<div class="table-scroll is-compact">/);
+      assert.equal(summaryHtml.includes('<pre class="cli-output">'), false);
       assert.match(summaryHtml, /server-capability-15/);
       assert.equal(summaryHtml.includes("server-capability-16"), false);
       assert.equal(summaryHtml.includes("apply_patch"), false);
@@ -89,16 +103,89 @@ describe("server command", () => {
       const dashboardJsonResponse = await fetch(`${instance.url}/dashboard.json`);
       const dashboard = (await dashboardJsonResponse.json()) as {
         summary: { turn_count: number };
-        summarySection: { table: { rows: string[][] } };
+        summarySection: {
+          cliLines: string[];
+          cliBlocks: Array<{ title: string; lines: string[] }>;
+          tableBlocks: Array<{ title: string; table: { rows: string[][]; width?: string } }>;
+          table: { rows: string[][] };
+        };
         capabilityCallTabs: Array<{ id: string; table: { rows: string[][] } }>;
       };
       assert.equal(dashboardJsonResponse.status, 200);
       assert.equal(dashboard.summary.turn_count, 1);
+      assert.equal(dashboard.summarySection.cliLines.includes("Top 5 agents"), true);
+      assert.equal(dashboard.summarySection.cliLines.includes("Top 15 capabilities"), true);
+      assert.deepEqual(
+        dashboard.summarySection.cliBlocks.map((block) => block.title),
+        ["Summary (2026-05-06 to 2026-05-12)", "Top 5 agents", "Top 15 capabilities"],
+      );
+      assert.deepEqual(
+        dashboard.summarySection.tableBlocks.map((block) => block.title),
+        ["Summary (2026-05-06 to 2026-05-12)", "Top 5 agents", "Top 15 capabilities"],
+      );
+      assert.deepEqual(
+        dashboard.summarySection.tableBlocks.map((block) => block.table.rows.length),
+        [5, 1, 15],
+      );
+      assert.deepEqual(
+        dashboard.summarySection.tableBlocks.map((block) => block.table.width ?? "full"),
+        ["compact", "compact", "full"],
+      );
       assert.equal(dashboard.summarySection.table.rows.length, 15);
       assert.equal(
         dashboard.capabilityCallTabs
           .find((tab) => tab.id === "mcp-tools")
           ?.table.rows.some((row) => row.includes("github.create_pull_request")),
+        true,
+      );
+
+      const metricsResponse = await fetch(`${instance.url}/metrics`);
+      const metricsHtml = await metricsResponse.text();
+      assert.equal(metricsResponse.status, 200);
+      assert.match(metricsHtml, /<h1>Metrics<\/h1>/);
+      assert.match(metricsHtml, /href="\/">Overview<\/a>/);
+      assert.match(metricsHtml, /href="\/metrics" aria-current="page">Metrics<\/a>/);
+      assert.match(metricsHtml, /Overall metrics/);
+      assert.match(metricsHtml, /Project metrics/);
+      assert.match(metricsHtml, /Capability metrics/);
+      assert.match(metricsHtml, /Alerts/);
+      assert.match(metricsHtml, /role="tab"[^>]*>Daily<\/button>/);
+      assert.match(metricsHtml, /role="tab"[^>]*>Weekly<\/button>/);
+      assert.match(metricsHtml, /role="tab"[^>]*>Monthly<\/button>/);
+      assert.match(metricsHtml, /<th scope="col">Period<\/th>/);
+      assert.match(metricsHtml, /<th scope="col">Total duration<\/th>/);
+      assert.match(metricsHtml, /<th scope="col">Duration growth<\/th>/);
+      assert.match(metricsHtml, /<th scope="col">Duration basis<\/th>/);
+      assert.match(metricsHtml, /<th scope="col">Total runtime tokens<\/th>/);
+      assert.match(metricsHtml, /<th scope="col">Runtime token growth<\/th>/);
+      assert.match(metricsHtml, /<th scope="col">Skill runtime token share<\/th>/);
+      assert.match(metricsHtml, /Runtime tokens exclude himan\.yaml static token estimates/);
+      assert.match(metricsHtml, /2026 Week 20 \(05-11 ~ 05-17\)/);
+      assert.match(metricsHtml, /repo_hash_server_001/);
+      assert.match(metricsHtml, /server-capability-01/);
+
+      const metricsJsonResponse = await fetch(`${instance.url}/metrics.json`);
+      const metrics = (await metricsJsonResponse.json()) as {
+        periods: Array<{
+          period: string;
+          overall: { turnCount: number; totalTokens: number | null };
+          projects: Array<{ repoHash: string; skillInvocationCount: number; mcpInvocationCount: number }>;
+          capabilities: Array<{ capabilityName: string; invocationCount: number }>;
+        }>;
+      };
+      assert.equal(metricsJsonResponse.status, 200);
+      assert.deepEqual(
+        metrics.periods.map((period) => period.period),
+        ["day", "week", "month"],
+      );
+      const dayMetrics = metrics.periods.find((period) => period.period === "day");
+      assert.equal(dayMetrics?.overall.turnCount, 1);
+      assert.equal(dayMetrics?.overall.totalTokens, 1_234);
+      assert.equal(dayMetrics?.projects[0]?.repoHash, "repo_hash_server_001");
+      assert.equal(dayMetrics?.projects[0]?.skillInvocationCount, 30);
+      assert.equal(dayMetrics?.projects[0]?.mcpInvocationCount, 1);
+      assert.equal(
+        dayMetrics?.capabilities.some((capability) => capability.capabilityName === "server-capability-01"),
         true,
       );
 
@@ -139,6 +226,241 @@ describe("server command", () => {
     }
   });
 
+  it("renders metrics empty states when no usage data exists", async () => {
+    const homeDir = await mkdtemp(path.join(tmpdir(), "himan-server-test-"));
+    const paths = resolveTrackerPaths({ HIMAN_TRACKER_HOME: homeDir });
+
+    await ensureTrackerDirectories(paths);
+
+    const instance = await startReportHttpServer({
+      paths,
+      host: "127.0.0.1",
+      port: 0,
+      intervalSeconds: 60,
+      since: "7d",
+      display: "table",
+      now: () => now,
+    });
+
+    try {
+      const response = await fetch(`${instance.url}/metrics`);
+      const html = await response.text();
+      assert.equal(response.status, 200);
+      assert.match(html, /No project metrics found/);
+      assert.match(html, /No capability metrics found/);
+      assert.match(html, /No metrics alerts found/);
+
+      const metricsJsonResponse = await fetch(`${instance.url}/metrics.json`);
+      const metrics = (await metricsJsonResponse.json()) as {
+        periods: Array<{ period: string; overall: { turnCount: number } }>;
+      };
+      assert.equal(metricsJsonResponse.status, 200);
+      assert.equal(metrics.periods.find((period) => period.period === "day")?.overall.turnCount, 0);
+    } finally {
+      await instance.close();
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders colored metric and alert hints for growth and severity", async () => {
+    const homeDir = await mkdtemp(path.join(tmpdir(), "himan-server-test-"));
+    const paths = resolveTrackerPaths({ HIMAN_TRACKER_HOME: homeDir });
+    const events = [
+      createTokenTurnEvent({
+        eventId: "evt_server_visual_previous",
+        occurredAt: "2026-05-11T12:00:00.000Z",
+        totalTokens: 1_000,
+        durationMs: 4_000,
+      }),
+      createTokenTurnEvent({
+        eventId: "evt_server_visual_current",
+        occurredAt: "2026-05-12T12:00:00.000Z",
+        totalTokens: 3_000,
+        durationMs: 1_000,
+      }),
+      createCapabilityEvent({
+        eventId: "evt_server_visual_skill_previous",
+        occurredAt: "2026-05-11T12:00:01.000Z",
+        type: "skill",
+        name: "visual-alert-skill",
+        totalTokens: 1_000,
+        durationMs: 4_000,
+      }),
+      createCapabilityEvent({
+        eventId: "evt_server_visual_skill_current",
+        occurredAt: "2026-05-12T12:00:01.000Z",
+        type: "skill",
+        name: "visual-alert-skill",
+        totalTokens: 3_000,
+        durationMs: 1_000,
+      }),
+    ];
+
+    await ensureTrackerDirectories(paths);
+    for (const event of events) {
+      await appendJsonlRecord(resolveDailyEventsPath(paths, event.occurred_at), event);
+    }
+
+    const instance = await startReportHttpServer({
+      paths,
+      host: "127.0.0.1",
+      port: 0,
+      intervalSeconds: 60,
+      since: "7d",
+      display: "table",
+      now: () => now,
+    });
+
+    try {
+      const response = await fetch(`${instance.url}/metrics`);
+      const html = await response.text();
+
+      assert.equal(response.status, 200);
+      assert.match(html, /class="metric is-positive"/);
+      assert.match(html, /class="metric is-negative"/);
+      assert.match(html, /class="severity-badge is-critical"/);
+      assert.match(html, /class="cell-trend is-positive"/);
+      assert.match(html, /class="cell-trend is-negative"/);
+      assert.match(html, /aria-hidden="true" focusable="false"/);
+      assert.equal(html.includes('class="severity-badge is-critical"><span class="cell-icon"'), false);
+      assert.match(html, /visual-alert-skill/);
+
+      const firstSeverity = html.match(/<span class="severity-badge is-(warning|major|critical)">([^<]+)<\/span>/);
+      assert.equal(firstSeverity?.[2], "critical");
+    } finally {
+      await instance.close();
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders the dashboard as CLI-style text when requested", async () => {
+    const homeDir = await mkdtemp(path.join(tmpdir(), "himan-server-test-"));
+    const paths = resolveTrackerPaths({ HIMAN_TRACKER_HOME: homeDir });
+    const events = [createTurnEvent(), ...createServerCapabilityEvents()];
+
+    await ensureTrackerDirectories(paths);
+    for (const event of events) {
+      await appendJsonlRecord(resolveDailyEventsPath(paths, event.occurred_at), event);
+    }
+
+    const instance = await startReportHttpServer({
+      paths,
+      host: "127.0.0.1",
+      port: 0,
+      intervalSeconds: 60,
+      since: "7d",
+      display: "text",
+      now: () => now,
+    });
+
+    try {
+      const response = await fetch(instance.url);
+      const html = await response.text();
+      assert.equal(response.status, 200);
+      assert.match(html, /<pre class="cli-output">/);
+      assert.match(html, /Metric\s+\| Value/);
+      assert.match(html, /Total tokens\s+\| 1\.23K/);
+      assert.match(html, /Capability\s+\| Invocations/);
+      assert.equal(html.includes("<table>"), false);
+    } finally {
+      await instance.close();
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("orders token usage from newest period to oldest period", async () => {
+    const homeDir = await mkdtemp(path.join(tmpdir(), "himan-server-test-"));
+    const paths = resolveTrackerPaths({ HIMAN_TRACKER_HOME: homeDir });
+    const events = [
+      createTokenTurnEvent({
+        eventId: "evt_server_token_old",
+        occurredAt: "2026-05-10T12:00:00.000Z",
+        totalTokens: 100,
+      }),
+      createTokenTurnEvent({
+        eventId: "evt_server_token_new",
+        occurredAt: "2026-05-12T12:00:00.000Z",
+        totalTokens: 200,
+      }),
+    ];
+
+    await ensureTrackerDirectories(paths);
+    for (const event of events) {
+      await appendJsonlRecord(resolveDailyEventsPath(paths, event.occurred_at), event);
+    }
+
+    const instance = await startReportHttpServer({
+      paths,
+      host: "127.0.0.1",
+      port: 0,
+      intervalSeconds: 60,
+      since: "7d",
+      display: "table",
+      now: () => now,
+    });
+
+    try {
+      const response = await fetch(`${instance.url}/dashboard.json`);
+      const dashboard = (await response.json()) as {
+        tokenTabs: Array<{ id: string; table: { rows: string[][] } }>;
+      };
+      const dailyRows = dashboard.tokenTabs.find((tab) => tab.id === "day")?.table.rows;
+      const weeklyRows = dashboard.tokenTabs.find((tab) => tab.id === "week")?.table.rows;
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(
+        dailyRows?.map((row) => row[0]),
+        ["2026-05-12", "2026-05-10"],
+      );
+      assert.deepEqual(
+        weeklyRows?.map((row) => row[0]),
+        ["2026 Week 20 (05-11 ~ 05-17)", "2026 Week 19 (05-04 ~ 05-10)"],
+      );
+    } finally {
+      await instance.close();
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("passes display mode from server start to the background server", async () => {
+    const homeDir = await mkdtemp(path.join(tmpdir(), "himan-server-test-"));
+    const paths = resolveTrackerPaths({ HIMAN_TRACKER_HOME: homeDir });
+
+    try {
+      const result = await runServerStart({
+        paths,
+        display: "text",
+        waitMs: 500,
+        spawnServer: (input) => {
+          writeFileSync(
+            resolveReportServerStatePath(paths),
+            `${JSON.stringify(
+              {
+                pid: process.pid,
+                host: input.host,
+                port: 5127,
+                url: "http://127.0.0.1:5127",
+                started_at: now.toISOString(),
+                interval_seconds: input.intervalSeconds,
+                since: input.since,
+                display: input.display,
+                last_ingest: null,
+              },
+              null,
+              2,
+            )}\n`,
+          );
+          return { pid: process.pid };
+        },
+      });
+
+      assert.equal(result.ok, true);
+      assert.match(result.lines.join("\n"), /Display: text/);
+    } finally {
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
   it("reports no-op status and stop when the server is not running", async () => {
     const homeDir = await mkdtemp(path.join(tmpdir(), "himan-server-test-"));
     const paths = resolveTrackerPaths({ HIMAN_TRACKER_HOME: homeDir });
@@ -155,6 +477,10 @@ describe("server command", () => {
       const invalidStart = await runServerStart({ paths, interval: "0" });
       assert.equal(invalidStart.ok, false);
       assert.match(invalidStart.lines.join("\n"), /Expected --interval/);
+
+      const invalidDisplay = await runServerStart({ paths, display: "grid" });
+      assert.equal(invalidDisplay.ok, false);
+      assert.match(invalidDisplay.lines.join("\n"), /Expected --display/);
     } finally {
       await rm(homeDir, { recursive: true, force: true });
     }
@@ -178,6 +504,31 @@ function createTurnEvent(): NormalizedEvent {
     input_tokens: 1_000,
     output_tokens: 234,
     total_tokens: 1_234,
+  };
+}
+
+function createTokenTurnEvent(options: {
+  eventId: string;
+  occurredAt: string;
+  totalTokens: number;
+  durationMs?: number;
+}): NormalizedEvent {
+  return {
+    schema_version: "1.0",
+    event_id: options.eventId,
+    event_type: "turn_summary",
+    occurred_at: options.occurredAt,
+    agent: "codex",
+    source: "fixture",
+    session_id: "s_server_tokens",
+    turn_id: options.eventId.replace("evt_", "turn_"),
+    repo_hash: "repo_hash_server_tokens",
+    status: "success",
+    model: "gpt-5.1-codex",
+    duration_ms: options.durationMs ?? 1_000,
+    input_tokens: null,
+    output_tokens: null,
+    total_tokens: options.totalTokens,
   };
 }
 
@@ -224,6 +575,7 @@ function createCapabilityEvent(options: {
   type: "skill" | "mcp_tool" | "builtin_tool" | "unknown";
   name: string;
   totalTokens: number;
+  durationMs?: number;
 }): NormalizedEvent {
   return {
     schema_version: "1.0",
@@ -238,7 +590,7 @@ function createCapabilityEvent(options: {
     status: "success",
     capability_type: options.type,
     capability_name: options.name,
-    duration_ms: 500,
+    duration_ms: options.durationMs ?? 500,
     input_tokens: null,
     output_tokens: null,
     total_tokens: options.totalTokens,

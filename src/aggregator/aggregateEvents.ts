@@ -1,6 +1,11 @@
 import { readdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 
+import {
+  discoverSkillMetadata,
+  type SkillDefinitionMetadata,
+  type SkillMetadataIssue,
+} from "../adapters/himan/metadata.js";
 import { validateNormalizedEvent } from "../normalizer/eventSchema.js";
 import { initializeTrackerDatabase, type SqliteDatabase } from "../storage/sqlite.js";
 import type {
@@ -15,6 +20,7 @@ export type IngestEventsOptions = {
   sqlitePath: string;
   eventsPath?: string;
   eventsDir?: string;
+  skillMetadataRoots?: string[];
   rebuild?: boolean;
   now?: () => Date;
 };
@@ -28,6 +34,8 @@ export type IngestEventsResult = {
   events_skipped: number;
   affected_dates: string[];
   applied_migrations: string[];
+  skill_metadata_definitions: number;
+  skill_metadata_issues: number;
 };
 
 export async function ingestEvents(options: IngestEventsOptions): Promise<IngestEventsResult> {
@@ -37,10 +45,15 @@ export async function ingestEvents(options: IngestEventsOptions): Promise<Ingest
 
   const eventFiles = await resolveEventFiles(options);
   const events = await readJsonlEvents(eventFiles);
+  const now = options.now ?? (() => new Date());
+  const skillMetadata =
+    options.skillMetadataRoots && options.skillMetadataRoots.length > 0
+      ? await discoverSkillMetadata({ roots: options.skillMetadataRoots, now })
+      : { definitions: [], issues: [] };
   const { db, appliedMigrations } = initializeTrackerDatabase(options.sqlitePath);
 
   try {
-    const result = insertEvents(db, events, options.now ?? (() => new Date()));
+    const result = insertEvents(db, events, now, skillMetadata.definitions, skillMetadata.issues);
 
     return {
       sqlite_path: options.sqlitePath,
@@ -51,6 +64,8 @@ export async function ingestEvents(options: IngestEventsOptions): Promise<Ingest
       events_skipped: result.skipped,
       affected_dates: result.affectedDates,
       applied_migrations: appliedMigrations,
+      skill_metadata_definitions: skillMetadata.definitions.length,
+      skill_metadata_issues: skillMetadata.issues.length,
     };
   } finally {
     db.close();
@@ -118,6 +133,8 @@ function insertEvents(
   db: SqliteDatabase,
   events: NormalizedEvent[],
   now: () => Date,
+  skillDefinitions: SkillDefinitionMetadata[],
+  skillIssues: SkillMetadataIssue[],
 ): { inserted: number; skipped: number; affectedDates: string[] } {
   const hasIngestedEvent = db.prepare("select event_id from ingested_events where event_id = ?");
   const insertIngestedEvent = db.prepare(
@@ -130,15 +147,19 @@ function insertEvents(
 
   let inserted = 0;
   let skipped = 0;
+  const skillMetadataIndex = createSkillMetadataIndex(skillDefinitions);
 
   const insertTransaction = db.transaction(() => {
+    upsertSkillDefinitions(db, skillDefinitions);
+    upsertSkillMetadataIssues(db, skillIssues);
+
     for (const event of events) {
       if (hasIngestedEvent.get(event.event_id)) {
         skipped += 1;
         continue;
       }
 
-      insertBaseEvent(db, event);
+      insertBaseEvent(db, event, skillMetadataIndex);
       insertIngestedEvent.run(
         event.event_id,
         event.event_type,
@@ -161,7 +182,11 @@ function insertEvents(
   };
 }
 
-function insertBaseEvent(db: SqliteDatabase, event: NormalizedEvent): void {
+function insertBaseEvent(
+  db: SqliteDatabase,
+  event: NormalizedEvent,
+  skillMetadataIndex: SkillMetadataIndex,
+): void {
   switch (event.event_type) {
     case "turn_summary":
       upsertSessionFromEvent(db, event);
@@ -169,7 +194,7 @@ function insertBaseEvent(db: SqliteDatabase, event: NormalizedEvent): void {
       break;
     case "capability_usage":
       upsertSessionFromEvent(db, event);
-      insertCapabilityUsage(db, event);
+      insertCapabilityUsage(db, event, skillMetadataIndex);
       break;
     case "session_summary":
       upsertSessionSummary(db, event);
@@ -272,7 +297,13 @@ function upsertTurn(db: SqliteDatabase, event: TurnSummaryEvent): void {
   );
 }
 
-function insertCapabilityUsage(db: SqliteDatabase, event: CapabilityUsageEvent): void {
+function insertCapabilityUsage(
+  db: SqliteDatabase,
+  event: CapabilityUsageEvent,
+  skillMetadataIndex: SkillMetadataIndex,
+): void {
+  const skillMetadata = resolveSkillMetadataSnapshot(event, skillMetadataIndex);
+
   db.prepare(
     `
     insert into capability_usages (
@@ -292,9 +323,14 @@ function insertCapabilityUsage(db: SqliteDatabase, event: CapabilityUsageEvent):
       adopted,
       attribution_confidence,
       invocation_origin,
+      capability_version,
+      capability_content_hash,
+      static_entry_tokens,
+      static_package_tokens,
+      static_metadata_confidence,
       repo_hash
     )
-    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
   ).run(
     event.event_id,
@@ -313,8 +349,250 @@ function insertCapabilityUsage(db: SqliteDatabase, event: CapabilityUsageEvent):
     event.adopted,
     event.attribution_confidence,
     event.invocation_origin,
+    skillMetadata.version,
+    skillMetadata.contentHash,
+    skillMetadata.staticEntryTokens,
+    skillMetadata.staticPackageTokens,
+    skillMetadata.confidence,
     event.repo_hash ?? null,
   );
+}
+
+type SkillMetadataIndex = Map<string, { definition: SkillDefinitionMetadata; ambiguous: boolean }>;
+
+type SkillMetadataSnapshot = {
+  version: string | null;
+  contentHash: string | null;
+  staticEntryTokens: number | null;
+  staticPackageTokens: number | null;
+  confidence: "exact" | "estimated" | "unknown";
+};
+
+function upsertSkillDefinitions(
+  db: SqliteDatabase,
+  definitions: SkillDefinitionMetadata[],
+): void {
+  if (definitions.length === 0) {
+    return;
+  }
+
+  const upsertDefinition = db.prepare(
+    `
+    insert into capability_definitions (
+      id,
+      capability_type,
+      capability_name,
+      version,
+      content_hash,
+      entry,
+      description,
+      agents_json,
+      static_entry_tokens,
+      static_package_tokens,
+      tokenizer,
+      token_estimator,
+      measured_at,
+      measured_by,
+      generated_at,
+      generated_by,
+      source_path_hash,
+      discovered_at
+    )
+    values (?, 'skill', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    on conflict(id) do update set
+      capability_name = excluded.capability_name,
+      version = excluded.version,
+      content_hash = excluded.content_hash,
+      entry = excluded.entry,
+      description = excluded.description,
+      agents_json = excluded.agents_json,
+      static_entry_tokens = excluded.static_entry_tokens,
+      static_package_tokens = excluded.static_package_tokens,
+      tokenizer = excluded.tokenizer,
+      token_estimator = excluded.token_estimator,
+      measured_at = excluded.measured_at,
+      measured_by = excluded.measured_by,
+      generated_at = excluded.generated_at,
+      generated_by = excluded.generated_by,
+      source_path_hash = excluded.source_path_hash,
+      discovered_at = excluded.discovered_at
+    `,
+  );
+  const deleteDependencies = db.prepare(
+    "delete from capability_definition_dependencies where definition_id = ?",
+  );
+  const insertDependency = db.prepare(
+    `
+    insert or ignore into capability_definition_dependencies (
+      definition_id,
+      dependency_type,
+      dependency_name,
+      dependency_path
+    )
+    values (?, ?, ?, ?)
+    `,
+  );
+
+  for (const definition of definitions) {
+    upsertDefinition.run(
+      definition.id,
+      definition.name,
+      definition.version,
+      definition.contentHash,
+      definition.entry,
+      definition.description,
+      JSON.stringify(definition.agents),
+      definition.staticEntryTokens,
+      definition.staticPackageTokens,
+      definition.tokenizer,
+      definition.tokenEstimator,
+      definition.measuredAt,
+      definition.measuredBy,
+      definition.generatedAt,
+      definition.generatedBy,
+      definition.sourcePathHash,
+      definition.discoveredAt,
+    );
+    deleteDependencies.run(definition.id);
+    for (const dependency of definition.dependencies) {
+      insertDependency.run(definition.id, dependency.type, dependency.name, dependency.path);
+    }
+  }
+}
+
+function upsertSkillMetadataIssues(
+  db: SqliteDatabase,
+  issues: SkillMetadataIssue[],
+): void {
+  if (issues.length === 0) {
+    return;
+  }
+
+  const upsertIssue = db.prepare(
+    `
+    insert into capability_metadata_issues (
+      id,
+      capability_type,
+      capability_name,
+      version,
+      content_hash,
+      issue_type,
+      severity,
+      message,
+      detected_at
+    )
+    values (?, 'skill', ?, ?, ?, ?, ?, ?, ?)
+    on conflict(id) do update set
+      capability_name = excluded.capability_name,
+      version = excluded.version,
+      content_hash = excluded.content_hash,
+      issue_type = excluded.issue_type,
+      severity = excluded.severity,
+      message = excluded.message,
+      detected_at = excluded.detected_at
+    `,
+  );
+
+  for (const issue of issues) {
+    upsertIssue.run(
+      issue.id,
+      issue.capabilityName,
+      issue.version,
+      issue.contentHash,
+      issue.issueType,
+      issue.severity,
+      issue.message,
+      issue.detectedAt,
+    );
+  }
+}
+
+function createSkillMetadataIndex(definitions: SkillDefinitionMetadata[]): SkillMetadataIndex {
+  const definitionsByName = new Map<string, SkillDefinitionMetadata[]>();
+  for (const definition of definitions) {
+    const candidates = definitionsByName.get(definition.name) ?? [];
+    candidates.push(definition);
+    definitionsByName.set(definition.name, candidates);
+  }
+
+  const index: SkillMetadataIndex = new Map();
+  for (const [name, candidates] of definitionsByName) {
+    const sortedCandidates = [...candidates].sort(compareSkillDefinitions);
+    const definition = sortedCandidates[0];
+    if (definition) {
+      index.set(name, { definition, ambiguous: sortedCandidates.length > 1 });
+    }
+  }
+
+  return index;
+}
+
+function compareSkillDefinitions(
+  left: SkillDefinitionMetadata,
+  right: SkillDefinitionMetadata,
+): number {
+  const versionCompare = compareVersions(right.version, left.version);
+  if (versionCompare !== 0) {
+    return versionCompare;
+  }
+
+  return right.discoveredAt.localeCompare(left.discoveredAt);
+}
+
+function compareVersions(left: string | null, right: string | null): number {
+  const leftParts = parseVersionParts(left);
+  const rightParts = parseVersionParts(right);
+
+  for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index += 1) {
+    const delta = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+    if (delta !== 0) {
+      return delta;
+    }
+  }
+
+  return 0;
+}
+
+function parseVersionParts(version: string | null): number[] {
+  return version
+    ? version
+        .replace(/^v/, "")
+        .split(".")
+        .map((part) => Number(part))
+        .filter((part) => Number.isFinite(part))
+    : [];
+}
+
+function resolveSkillMetadataSnapshot(
+  event: CapabilityUsageEvent,
+  skillMetadataIndex: SkillMetadataIndex,
+): SkillMetadataSnapshot {
+  if (event.capability_type !== "skill") {
+    return createUnknownSkillMetadataSnapshot();
+  }
+
+  const candidate = skillMetadataIndex.get(event.capability_name);
+  if (!candidate) {
+    return createUnknownSkillMetadataSnapshot();
+  }
+
+  return {
+    version: candidate.definition.version,
+    contentHash: candidate.definition.contentHash,
+    staticEntryTokens: candidate.definition.staticEntryTokens,
+    staticPackageTokens: candidate.definition.staticPackageTokens,
+    confidence: candidate.ambiguous ? "estimated" : "exact",
+  };
+}
+
+function createUnknownSkillMetadataSnapshot(): SkillMetadataSnapshot {
+  return {
+    version: null,
+    contentHash: null,
+    staticEntryTokens: null,
+    staticPackageTokens: null,
+    confidence: "unknown",
+  };
 }
 
 function getErrorMessage(error: unknown): string {

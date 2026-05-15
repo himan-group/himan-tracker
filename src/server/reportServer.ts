@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo, Socket } from "node:net";
 import path from "node:path";
 import { readFile, rm, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 
 import { ingestEvents } from "../aggregator/aggregateEvents.js";
 import { ensureTrackerDirectories, type TrackerPaths } from "../config/paths.js";
@@ -11,8 +12,28 @@ import {
   formatDurationMs,
   formatNullableText,
   formatSuccessRate,
+  formatTable,
   formatTokenCount,
 } from "../reports/formatTable.js";
+import {
+  readMetricsInsightData,
+  type CapabilityMetricsRow,
+  type DateRange,
+  type MetricsInsightAlert,
+  type MetricsInsightData,
+  type MetricsPeriod,
+  type MetricsPeriodInsight,
+  type ProjectMetricsRow,
+} from "../reports/metricsInsights.js";
+import {
+  addDays,
+  formatLocalDate,
+  formatNaturalWeekRangeLabel,
+  formatShortDateRange,
+  parseLocalDate,
+  startOfLocalWeek,
+} from "../reports/periodFormatter.js";
+import { renderSummaryReport } from "../reports/summaryReport.js";
 import { createExcludeSystemCapabilityCondition } from "../reports/systemCapabilityFilter.js";
 import { initializeTrackerDatabase } from "../storage/sqlite.js";
 
@@ -45,6 +66,7 @@ export type ReportServerState = {
   started_at: string;
   interval_seconds: number;
   since: string;
+  display: DashboardDisplayMode;
   last_ingest: ReportServerIngestSnapshot | null;
 };
 
@@ -54,6 +76,7 @@ export type StartReportHttpServerOptions = {
   port?: number;
   intervalSeconds?: number;
   since?: string;
+  display?: DashboardDisplayMode;
   now?: () => Date;
 };
 
@@ -74,6 +97,9 @@ type DashboardTab = {
 type DashboardSection = {
   title: string;
   table: DashboardTable;
+  cliLines?: string[];
+  cliBlocks?: DashboardCliBlock[];
+  tableBlocks?: DashboardTableBlock[];
 };
 
 type DashboardTable = {
@@ -81,6 +107,17 @@ type DashboardTable = {
   rows: string[][];
   emptyText: string;
   note?: string;
+  width?: "full" | "compact";
+};
+
+type DashboardCliBlock = {
+  title: string;
+  lines: string[];
+};
+
+type DashboardTableBlock = {
+  title: string;
+  table: DashboardTable;
 };
 
 type DashboardData = {
@@ -94,6 +131,23 @@ type DashboardData = {
   recentTurnsSection: DashboardSection;
 };
 
+type MetricsDashboardData = MetricsInsightData & {
+  lastIngest: ReportServerIngestSnapshot | null;
+  summary: MetricsDashboardSummary;
+  overallTabs: DashboardTab[];
+  projectTabs: DashboardTab[];
+  capabilityTabs: DashboardTab[];
+  alertsSection: DashboardSection;
+};
+
+type MetricsDashboardSummary = {
+  totalTokens: number | null;
+  durationMs: number | null;
+  tokenGrowthRate: number | null;
+  durationGrowthRate: number | null;
+  alertCount: number;
+};
+
 type DashboardCapabilityCallType = "skill" | "mcp_tool";
 
 type DashboardSummary = {
@@ -101,6 +155,8 @@ type DashboardSummary = {
   turn_count: number;
   total_tokens: number | null;
   duration_ms: number | null;
+  success_count: number;
+  failure_count: number;
 };
 
 type DashboardCapabilityCallRow = {
@@ -126,6 +182,13 @@ type DashboardAgentRow = {
   failure_count: number;
 };
 
+type DashboardSummaryAgentRow = {
+  agent: string;
+  model: string;
+  turn_count: number;
+  total_tokens: number | null;
+};
+
 type DashboardCapabilityRow = {
   agent: string;
   capability_type: string;
@@ -142,6 +205,15 @@ type DashboardCapabilityRow = {
   inferred_invocation_count: number;
   observed_invocation_count: number;
   unknown_origin_count: number;
+};
+
+type DashboardSummaryCapabilityRow = {
+  agent: string;
+  capability_type: string;
+  capability_name: string;
+  invocation_count: number;
+  total_tokens: number | null;
+  duration_ms: number | null;
 };
 
 type DashboardTokenDayRow = {
@@ -165,6 +237,7 @@ type DashboardTokenBucket = {
 };
 
 type DashboardTokenPeriod = "day" | "week" | "month";
+export type DashboardDisplayMode = "table" | "text";
 
 type DashboardTurnRow = {
   occurred_at: string;
@@ -176,6 +249,10 @@ type DashboardTurnRow = {
   status: string;
 };
 
+type AlertSeverityName = "warning" | "major" | "critical";
+type IconName = "alert" | "arrow-down" | "arrow-up" | "check" | "minus" | "warning";
+type VisualTone = "positive" | "negative" | "neutral" | "warning";
+
 export async function startReportHttpServer(
   options: StartReportHttpServerOptions,
 ): Promise<ReportHttpServerInstance> {
@@ -184,6 +261,7 @@ export async function startReportHttpServer(
   const port = options.port ?? DEFAULT_SERVER_PORT;
   const intervalSeconds = options.intervalSeconds ?? DEFAULT_SERVER_INTERVAL_SECONDS;
   const since = options.since ?? DEFAULT_SERVER_SINCE;
+  const display = options.display ?? "table";
   const now = options.now ?? (() => new Date());
   let lastIngest: ReportServerIngestSnapshot | null = null;
   let currentState: ReportServerState | null = null;
@@ -226,6 +304,7 @@ export async function startReportHttpServer(
       response,
       paths,
       since,
+      display,
       now,
       getLastIngest: () => lastIngest,
       runIngestNow,
@@ -257,6 +336,7 @@ export async function startReportHttpServer(
     started_at: now().toISOString(),
     interval_seconds: intervalSeconds,
     since,
+    display,
     last_ingest: lastIngest,
   };
   await writeReportServerState(paths, currentState);
@@ -339,6 +419,7 @@ async function runIngest(
   const result = await ingestEvents({
     sqlitePath: paths.sqlitePath,
     eventsDir: paths.eventsDir,
+    skillMetadataRoots: [process.cwd(), homedir()],
     now,
   });
 
@@ -357,6 +438,7 @@ async function handleRequest(options: {
   response: ServerResponse;
   paths: TrackerPaths;
   since: string;
+  display: DashboardDisplayMode;
   now: () => Date;
   getLastIngest: () => ReportServerIngestSnapshot | null;
   runIngestNow: () => Promise<void>;
@@ -399,6 +481,34 @@ async function handleRequest(options: {
     return;
   }
 
+  if (url.pathname === "/metrics.json") {
+    await options.runIngestNow();
+    const data = readMetricsDashboardData({
+      paths: options.paths,
+      now: options.now,
+      lastIngest: options.getLastIngest(),
+    });
+    writeResponse(
+      options.response,
+      200,
+      "application/json; charset=utf-8",
+      `${JSON.stringify(data, null, 2)}\n`,
+    );
+    return;
+  }
+
+  if (url.pathname === "/metrics") {
+    await options.runIngestNow();
+    const html = renderMetricsPage({
+      paths: options.paths,
+      display: options.display,
+      now: options.now,
+      lastIngest: options.getLastIngest(),
+    });
+    writeResponse(options.response, 200, "text/html; charset=utf-8", html);
+    return;
+  }
+
   if (url.pathname !== "/") {
     writeResponse(options.response, 404, "text/plain; charset=utf-8", "Not found");
     return;
@@ -408,6 +518,7 @@ async function handleRequest(options: {
   const html = renderDashboardPage({
     paths: options.paths,
     since: options.since,
+    display: options.display,
     now: options.now,
     lastIngest: options.getLastIngest(),
   });
@@ -417,10 +528,20 @@ async function handleRequest(options: {
 function renderDashboardPage(options: {
   paths: TrackerPaths;
   since: string;
+  display: DashboardDisplayMode;
   now: () => Date;
   lastIngest: ReportServerIngestSnapshot | null;
 }): string {
-  return renderDashboardHtml(readDashboardData(options));
+  return renderDashboardHtml(readDashboardData(options), options.display);
+}
+
+function renderMetricsPage(options: {
+  paths: TrackerPaths;
+  display: DashboardDisplayMode;
+  now: () => Date;
+  lastIngest: ReportServerIngestSnapshot | null;
+}): string {
+  return renderMetricsHtml(readMetricsDashboardData(options), options.display);
 }
 
 function readDashboardData(options: {
@@ -436,6 +557,10 @@ function readDashboardData(options: {
 
   try {
     const summary = readDashboardSummary(db, range);
+    const summaryLines = renderSummaryReport(db, range, {
+      capabilityLimit: 15,
+      excludeSystem: true,
+    });
 
     return {
       generatedAt: generatedAt.toISOString(),
@@ -443,6 +568,9 @@ function readDashboardData(options: {
       summary,
       summarySection: {
         title: "Summary",
+        cliLines: summaryLines,
+        cliBlocks: splitCliOutputBlocks(summaryLines),
+        tableBlocks: readDashboardSummaryBlocks(db, range, summary),
         table: readDashboardCapabilities(db, range, {
           excludeSystem: true,
           limit: 15,
@@ -504,7 +632,54 @@ function readDashboardData(options: {
   }
 }
 
-function renderDashboardHtml(data: DashboardData): string {
+function readMetricsDashboardData(options: {
+  paths: TrackerPaths;
+  now: () => Date;
+  lastIngest: ReportServerIngestSnapshot | null;
+}): MetricsDashboardData {
+  const generatedAt = options.now();
+  const { db } = initializeTrackerDatabase(options.paths.sqlitePath);
+
+  try {
+    const insights = readMetricsInsightData(db, { now: generatedAt });
+    const day = findMetricsPeriod(insights.periods, "day");
+
+    return {
+      ...insights,
+      lastIngest: options.lastIngest,
+      summary: {
+        totalTokens: day.overall.totalTokens,
+        durationMs: day.overall.durationMs,
+        tokenGrowthRate: day.overall.tokenGrowthRate,
+        durationGrowthRate: day.overall.durationGrowthRate,
+        alertCount: insights.alerts.length,
+      },
+      overallTabs: insights.periods.map((period) => ({
+        id: period.period,
+        label: formatMetricsPeriodTabLabel(period),
+        table: createMetricsOverallTable(period),
+      })),
+      projectTabs: insights.periods.map((period) => ({
+        id: period.period,
+        label: formatMetricsPeriodTabLabel(period),
+        table: createMetricsProjectTable(period),
+      })),
+      capabilityTabs: insights.periods.map((period) => ({
+        id: period.period,
+        label: formatMetricsPeriodTabLabel(period),
+        table: createMetricsCapabilityTable(period),
+      })),
+      alertsSection: {
+        title: "Alerts",
+        table: createMetricsAlertsTable(insights.alerts),
+      },
+    };
+  } finally {
+    db.close();
+  }
+}
+
+function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode): string {
   const generatedAt = new Date(data.generatedAt);
 
   return `<!doctype html>
@@ -566,6 +741,30 @@ function renderDashboardHtml(data: DashboardData): string {
       font-size: 14px;
     }
 
+    .nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .nav a {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 650;
+      line-height: 1.2;
+      padding: 7px 10px;
+      text-decoration: none;
+    }
+
+    .nav a[aria-current="page"] {
+      background: #eef8f5;
+      border-color: rgba(17, 122, 101, 0.35);
+      color: var(--accent);
+    }
+
     .status strong {
       color: ${data.lastIngest?.ok === false ? "var(--danger)" : "var(--accent)"};
     }
@@ -606,6 +805,37 @@ function renderDashboardHtml(data: DashboardData): string {
       line-height: 1.1;
       font-weight: 720;
       overflow-wrap: anywhere;
+    }
+
+    .metric.is-positive .metric-value,
+    .cell-trend.is-positive {
+      color: #0f766e;
+    }
+
+    .metric.is-negative .metric-value,
+    .cell-trend.is-negative,
+    .severity-badge.is-critical {
+      color: #b42318;
+    }
+
+    .metric.is-warning .metric-value,
+    .severity-badge.is-warning {
+      color: #a15c07;
+    }
+
+    .severity-badge.is-major {
+      color: #c2410c;
+    }
+
+    .severity-badge,
+    .cell-trend {
+      font-weight: 700;
+    }
+
+    .severity-badge {
+      border: 1px solid currentColor;
+      border-radius: 999px;
+      padding: 2px 8px;
     }
 
     section {
@@ -694,10 +924,21 @@ function renderDashboardHtml(data: DashboardData): string {
       overflow: auto;
     }
 
+    .table-scroll.is-compact {
+      display: inline-block;
+      max-width: 100%;
+      min-width: 0;
+      vertical-align: top;
+    }
+
     table {
       width: 100%;
       border-collapse: collapse;
       font-size: 13px;
+    }
+
+    .table-scroll.is-compact table {
+      width: auto;
     }
 
     th,
@@ -724,6 +965,18 @@ function renderDashboardHtml(data: DashboardData): string {
 
     tbody tr:last-child td {
       border-bottom: 0;
+    }
+
+    .cli-output {
+      margin: 0;
+      padding: 14px;
+      overflow: auto;
+      color: #24313d;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+      line-height: 1.45;
+      font-variant-numeric: tabular-nums;
+      white-space: pre;
     }
 
     @media (max-width: 820px) {
@@ -756,6 +1009,10 @@ function renderDashboardHtml(data: DashboardData): string {
       <div class="status">${renderIngestStatus(data.lastIngest)} · Generated ${escapeHtml(
         formatLocalDateTime(generatedAt),
       )}</div>
+      <nav class="nav" aria-label="Dashboard navigation">
+        <a href="/" aria-current="page">Overview</a>
+        <a href="/metrics">Metrics</a>
+      </nav>
     </div>
   </header>
   <main>
@@ -765,11 +1022,11 @@ function renderDashboardHtml(data: DashboardData): string {
       ${renderMetric("Tokens", formatTokenCount(data.summary.total_tokens))}
       ${renderMetric("Avg latency", formatAverageDurationMs(data.summary.duration_ms, data.summary.turn_count))}
     </div>
-    ${renderSection(data.summarySection)}
-    ${renderTabbedSection("Token usage", "token", data.tokenTabs)}
-    ${data.sections.map(renderSection).join("\n")}
-    ${renderTabbedSection("Capability calls", "capability-calls", data.capabilityCallTabs)}
-    ${renderSection(data.recentTurnsSection)}
+    ${renderSection(data.summarySection, display)}
+    ${renderTabbedSection("Token usage", "token", data.tokenTabs, display)}
+    ${data.sections.map((section) => renderSection(section, display)).join("\n")}
+    ${renderTabbedSection("Capability calls", "capability-calls", data.capabilityCallTabs, display)}
+    ${renderSection(data.recentTurnsSection, display)}
   </main>
   <script>
     document.querySelectorAll("[data-tabs]").forEach((root) => {
@@ -796,6 +1053,700 @@ function renderDashboardHtml(data: DashboardData): string {
   </script>
 </body>
 </html>`;
+}
+
+function renderMetricsHtml(data: MetricsDashboardData, display: DashboardDisplayMode): string {
+  const generatedAt = new Date(data.generatedAt);
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>himan-tracker Metrics</title>
+  <link rel="icon" type="image/svg+xml" href="${escapeHtml(DASHBOARD_ICON_DATA_URL)}">
+  <meta name="theme-color" content="#117a65">
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fa;
+      --panel: #ffffff;
+      --text: #17202a;
+      --muted: #607080;
+      --line: #d9e1e8;
+      --accent: #117a65;
+      --danger: #b42318;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    header {
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    main,
+    .header-inner {
+      width: min(1180px, calc(100vw - 32px));
+      margin: 0 auto;
+    }
+
+    .header-inner {
+      padding: 22px 0 18px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 28px;
+      line-height: 1.15;
+      font-weight: 720;
+    }
+
+    .status {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .status strong {
+      color: ${data.lastIngest?.ok === false ? "var(--danger)" : "var(--accent)"};
+    }
+
+    .nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .nav a {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 650;
+      line-height: 1.2;
+      padding: 7px 10px;
+      text-decoration: none;
+    }
+
+    .nav a[aria-current="page"] {
+      background: #eef8f5;
+      border-color: rgba(17, 122, 101, 0.35);
+      color: var(--accent);
+    }
+
+    main {
+      padding: 22px 0 40px;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .metric,
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .metric {
+      padding: 14px;
+      min-width: 0;
+    }
+
+    .metric-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+      text-transform: uppercase;
+    }
+
+    .metric-value {
+      margin-top: 8px;
+      font-size: 24px;
+      line-height: 1.1;
+      font-weight: 720;
+      overflow-wrap: anywhere;
+    }
+
+    .metric.is-positive .metric-value,
+    .cell-trend.is-positive {
+      color: #0f766e;
+    }
+
+    .metric.is-negative .metric-value,
+    .cell-trend.is-negative,
+    .severity-badge.is-critical {
+      color: #b42318;
+    }
+
+    .metric.is-warning .metric-value,
+    .severity-badge.is-warning {
+      color: #a15c07;
+    }
+
+    .severity-badge.is-major {
+      color: #c2410c;
+    }
+
+    .severity-badge,
+    .cell-trend {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 700;
+    }
+
+    .severity-badge {
+      border: 1px solid currentColor;
+      border-radius: 999px;
+      padding: 2px 8px;
+    }
+
+    section {
+      margin-top: 14px;
+      overflow: hidden;
+    }
+
+    section > h2 {
+      margin: 0;
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--line);
+      font-size: 16px;
+      line-height: 1.25;
+    }
+
+    .section-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .section-heading h2 {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.25;
+    }
+
+    .tabs {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      padding: 3px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f4f6f8;
+    }
+
+    .tab {
+      appearance: none;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 650;
+      line-height: 1.2;
+      padding: 7px 10px;
+    }
+
+    .tab:hover,
+    .tab:focus-visible {
+      color: var(--text);
+      outline: 2px solid rgba(17, 122, 101, 0.22);
+      outline-offset: 1px;
+    }
+
+    .tab.is-active {
+      background: var(--panel);
+      color: var(--text);
+      box-shadow: 0 1px 2px rgba(23, 32, 42, 0.08);
+    }
+
+    [hidden] {
+      display: none;
+    }
+
+    .table-note,
+    .empty-state {
+      margin: 0;
+      padding: 12px 14px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .table-note {
+      border-bottom: 1px solid var(--line);
+    }
+
+    .table-scroll {
+      overflow: auto;
+    }
+
+    .table-scroll.is-compact {
+      display: inline-block;
+      max-width: 100%;
+      min-width: 0;
+      vertical-align: top;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    .table-scroll.is-compact table {
+      width: auto;
+    }
+
+    th,
+    td {
+      padding: 9px 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      white-space: nowrap;
+    }
+
+    th {
+      background: #f8fafb;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    td {
+      color: #24313d;
+      font-variant-numeric: tabular-nums;
+    }
+
+    tbody tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .cli-output {
+      margin: 0;
+      padding: 14px;
+      overflow: auto;
+      color: #24313d;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+      line-height: 1.45;
+      font-variant-numeric: tabular-nums;
+      white-space: pre;
+    }
+
+    @media (max-width: 980px) {
+      .metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .section-heading {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+    }
+
+    @media (max-width: 520px) {
+      main,
+      .header-inner {
+        width: min(100vw - 20px, 1180px);
+      }
+
+      .metrics {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <h1>Metrics</h1>
+      <div class="status">${renderIngestStatus(data.lastIngest)} · Generated ${escapeHtml(
+        formatLocalDateTime(generatedAt),
+      )}</div>
+      <nav class="nav" aria-label="Dashboard navigation">
+        <a href="/">Overview</a>
+        <a href="/metrics" aria-current="page">Metrics</a>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <div class="metrics">
+      ${renderMetric("Day runtime tokens", formatTokenCount(data.summary.totalTokens))}
+      ${renderMetric("Runtime token growth", formatSignedPercent(data.summary.tokenGrowthRate), {
+        tone: getTrendTone(data.summary.tokenGrowthRate),
+      })}
+      ${renderMetric("Day duration", formatDurationMs(data.summary.durationMs))}
+      ${renderMetric("Duration growth", formatSignedPercent(data.summary.durationGrowthRate), {
+        tone: getTrendTone(data.summary.durationGrowthRate),
+      })}
+      ${renderMetric("Alerts", String(data.summary.alertCount), {
+        tone: data.summary.alertCount > 0 ? "warning" : "positive",
+      })}
+    </div>
+    ${renderTabbedSection("Overall metrics", "metrics-overall", data.overallTabs, display)}
+    ${renderTabbedSection("Project metrics", "metrics-project", data.projectTabs, display)}
+    ${renderTabbedSection("Capability metrics", "metrics-capability", data.capabilityTabs, display)}
+    ${renderSection(data.alertsSection, display)}
+  </main>
+  <script>
+    document.querySelectorAll("[data-tabs]").forEach((root) => {
+      const tabs = [...root.querySelectorAll("[role='tab']")];
+      const panels = [...root.querySelectorAll("[role='tabpanel']")];
+
+      tabs.forEach((tab) => {
+        tab.addEventListener("click", () => {
+          const selectedPanel = tab.getAttribute("aria-controls");
+
+          tabs.forEach((candidate) => {
+            const active = candidate === tab;
+            candidate.classList.toggle("is-active", active);
+            candidate.setAttribute("aria-selected", String(active));
+            candidate.setAttribute("tabindex", active ? "0" : "-1");
+          });
+
+          panels.forEach((panel) => {
+            panel.hidden = panel.id !== selectedPanel;
+          });
+        });
+      });
+    });
+  </script>
+</body>
+</html>`;
+}
+
+function findMetricsPeriod(
+  periods: MetricsPeriodInsight[],
+  period: MetricsPeriod,
+): MetricsPeriodInsight {
+  const found = periods.find((candidate) => candidate.period === period);
+  if (!found) {
+    throw new Error(`Missing metrics period: ${period}`);
+  }
+
+  return found;
+}
+
+function createMetricsOverallTable(period: MetricsPeriodInsight): DashboardTable {
+  return {
+    columns: [
+      "Period",
+      "Range",
+      "Sessions",
+      "Turns",
+      "Runtime tokens",
+      "Runtime token growth",
+      "Duration",
+      "Duration growth",
+      "Avg duration / turn",
+      "Avg runtime tokens / turn",
+    ],
+    rows: period.overallRows.map((row) => [
+      row.label,
+      formatMetricsRangeForPeriod(period.period, row.range),
+      String(row.sessionCount),
+      String(row.turnCount),
+      formatTokenCount(row.totalTokens),
+      formatSignedPercent(row.tokenGrowthRate),
+      formatDurationMs(row.durationMs),
+      formatSignedPercent(row.durationGrowthRate),
+      formatDurationMs(row.avgTurnDurationMs),
+      formatTokenCount(roundNullable(row.avgTokensPerTurn)),
+    ]),
+    emptyText: "No overall metrics found for this period.",
+    note: `Overall metrics by ${period.period} through ${formatMetricsPeriodCaption(period)}.`,
+  };
+}
+
+function createMetricsProjectTable(period: MetricsPeriodInsight): DashboardTable {
+  return {
+    columns: [
+      "Project",
+      "Turns",
+      "Runtime tokens",
+      "Runtime token share",
+      "Runtime token growth",
+      "Duration",
+      "Duration share",
+      "Duration growth",
+      "Skill calls",
+      "Skill runtime token share",
+      "MCP calls",
+      "MCP runtime token share",
+    ],
+    rows: period.projects.map((project) => createMetricsProjectRow(project)),
+    emptyText: `No project metrics found for ${formatMetricsPeriodCaption(period)}.`,
+    note: `Project metrics by repo hash for ${formatMetricsPeriodCaption(period)}. Token columns use runtime observed tokens only.`,
+  };
+}
+
+function createMetricsProjectRow(project: ProjectMetricsRow): string[] {
+  return [
+    project.repoHash,
+    String(project.turnCount),
+    formatTokenCount(project.totalTokens),
+    formatPercentRatio(project.tokenShare),
+    formatSignedPercent(project.tokenGrowthRate),
+    formatDurationMs(project.durationMs),
+    formatPercentRatio(project.durationShare),
+    formatSignedPercent(project.durationGrowthRate),
+    String(project.skillInvocationCount),
+    formatPercentRatio(project.skillTokenShare),
+    String(project.mcpInvocationCount),
+    formatPercentRatio(project.mcpTokenShare),
+  ];
+}
+
+function createMetricsCapabilityTable(period: MetricsPeriodInsight): DashboardTable {
+  return {
+    columns: [
+      "Agent",
+      "Type",
+      "Capability",
+      "Invocations",
+      "Invocation growth",
+      "Success rate",
+      "Success delta",
+      "Total duration",
+      "Duration growth",
+      "Duration basis",
+      "Avg duration",
+      "Min duration",
+      "Max duration",
+      "Duration stddev",
+      "Total runtime tokens",
+      "Runtime token growth",
+      "Avg runtime tokens",
+      "Min runtime tokens",
+      "Max runtime tokens",
+      "Runtime token stddev",
+    ],
+    rows: period.capabilities.map((capability) => createMetricsCapabilityRow(capability)),
+    emptyText: `No capability metrics found for ${formatMetricsPeriodCaption(period)}.`,
+    note: `Capability metrics for ${formatMetricsPeriodCaption(period)}. Runtime tokens exclude himan.yaml static token estimates; turn estimate duration is inferred from the parent turn.`,
+  };
+}
+
+function createMetricsCapabilityRow(capability: CapabilityMetricsRow): string[] {
+  return [
+    capability.agent,
+    capability.capabilityType,
+    capability.capabilityName,
+    String(capability.invocationCount),
+    formatSignedPercent(capability.invocationGrowthRate),
+    formatPercentRatio(capability.successRate),
+    formatSignedPercent(capability.successRateDelta),
+    formatDurationMs(capability.duration.total),
+    formatSignedPercent(capability.duration.growthRate),
+    formatDurationBasis(capability.durationBasis),
+    formatDurationMs(capability.duration.avg),
+    formatDurationMs(capability.duration.min),
+    formatDurationMs(capability.duration.max),
+    formatDurationMs(capability.duration.stddev),
+    formatTokenCount(capability.tokens.total),
+    formatSignedPercent(capability.tokens.growthRate),
+    formatTokenCount(roundNullable(capability.tokens.avg)),
+    formatTokenCount(capability.tokens.min),
+    formatTokenCount(capability.tokens.max),
+    formatTokenCount(roundNullable(capability.tokens.stddev)),
+  ];
+}
+
+function createMetricsAlertsTable(alerts: MetricsInsightAlert[]): DashboardTable {
+  const sortedAlerts = [...alerts].sort(compareMetricsAlerts);
+
+  return {
+    columns: ["Severity", "Period", "Scope", "Metric", "Subject", "Current", "Previous", "Change", "Message"],
+    rows: sortedAlerts.map((alert) => [
+      alert.severity,
+      alert.period,
+      alert.scope,
+      alert.metric,
+      alert.subject,
+      formatAlertValue(alert.metric, alert.current),
+      formatAlertValue(alert.metric, alert.previous),
+      formatSignedPercent(alert.change),
+      alert.message,
+    ]),
+    emptyText: "No metrics alerts found.",
+    note: `Alerts use 20% / 40% / 60% change thresholds, runtime token changes, and capability CV thresholds.`,
+  };
+}
+
+function formatDurationBasis(value: CapabilityMetricsRow["durationBasis"]): string {
+  if (value === "turn_estimate") {
+    return "turn estimate";
+  }
+  return value;
+}
+
+function compareMetricsAlerts(left: MetricsInsightAlert, right: MetricsInsightAlert): number {
+  const severityDelta = getSeverityRank(right.severity) - getSeverityRank(left.severity);
+  if (severityDelta !== 0) {
+    return severityDelta;
+  }
+
+  const leftMagnitude = Math.abs(left.change ?? left.current ?? 0);
+  const rightMagnitude = Math.abs(right.change ?? right.current ?? 0);
+  if (leftMagnitude !== rightMagnitude) {
+    return rightMagnitude - leftMagnitude;
+  }
+
+  return `${left.period}\u001f${left.scope}\u001f${left.metric}\u001f${left.subject}`.localeCompare(
+    `${right.period}\u001f${right.scope}\u001f${right.metric}\u001f${right.subject}`,
+  );
+}
+
+function getSeverityRank(severity: AlertSeverityName): number {
+  if (severity === "critical") {
+    return 3;
+  }
+  if (severity === "major") {
+    return 2;
+  }
+
+  return 1;
+}
+
+function formatMetricsPeriodTabLabel(period: MetricsPeriodInsight): string {
+  if (period.period === "day") {
+    return "Daily";
+  }
+  if (period.period === "week") {
+    return "Weekly";
+  }
+
+  return "Monthly";
+}
+
+function formatMetricsPeriodCaption(period: MetricsPeriodInsight): string {
+  return `${period.currentLabel} (${formatMetricsPeriodRange(period)})`;
+}
+
+function formatMetricsPeriodRange(period: MetricsPeriodInsight): string {
+  return formatMetricsRangeForPeriod(period.period, period.currentRange);
+}
+
+function formatMetricsRangeForPeriod(period: MetricsPeriod, range: DateRange): string {
+  if (period === "week") {
+    return formatShortDateRange(range);
+  }
+
+  return formatDateRange(range);
+}
+
+function formatSignedPercent(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) {
+    return "n/a";
+  }
+
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${formatPercentRatio(value)}`;
+}
+
+function formatPercentRatio(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) {
+    return "n/a";
+  }
+
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function formatAlertValue(metric: MetricsInsightAlert["metric"], value: number | null): string {
+  if (metric === "success_rate") {
+    return formatPercentRatio(value);
+  }
+
+  if (metric === "duration_cv" || metric === "tokens_cv") {
+    return value === null || !Number.isFinite(value) ? "n/a" : value.toFixed(2);
+  }
+
+  if (metric === "duration") {
+    return formatDurationMs(value);
+  }
+
+  if (metric === "tokens") {
+    return value === null ? "n/a" : formatTokenCount(roundNullable(value));
+  }
+
+  return value === null || !Number.isFinite(value) ? "n/a" : String(Math.round(value));
+}
+
+function roundNullable(value: number | null): number | null {
+  return value === null || !Number.isFinite(value) ? null : Math.round(value);
+}
+
+function getTrendTone(value: number | null): VisualTone {
+  if (value === null || !Number.isFinite(value) || value === 0) {
+    return "neutral";
+  }
+
+  return value > 0 ? "positive" : "negative";
+}
+
+function getTrendIcon(value: number | null): IconName {
+  if (value === null || !Number.isFinite(value) || value === 0) {
+    return "minus";
+  }
+
+  return value > 0 ? "arrow-up" : "arrow-down";
+}
+
+function parseTrendTone(value: string): VisualTone {
+  if (value.startsWith("+")) {
+    return "positive";
+  }
+
+  if (value.startsWith("-")) {
+    return "negative";
+  }
+
+  return "neutral";
+}
+
+function getTrendIconFromText(value: string): IconName {
+  if (value.startsWith("+")) {
+    return "arrow-up";
+  }
+
+  if (value.startsWith("-")) {
+    return "arrow-down";
+  }
+
+  return "minus";
+}
+
+function parseSeverity(value: string): AlertSeverityName | null {
+  if (value === "warning" || value === "major" || value === "critical") {
+    return value;
+  }
+
+  return null;
 }
 
 function readDashboardCapabilityCalls(
@@ -895,6 +1846,132 @@ function readDashboardAgents(
     ]),
     emptyText: "No agent usage found for this date.",
     note: `Agents (${date}).`,
+  };
+}
+
+function readDashboardSummaryBlocks(
+  db: ReturnType<typeof initializeTrackerDatabase>["db"],
+  range: { startDate: string; endDate: string },
+  summary: DashboardSummary,
+): DashboardTableBlock[] {
+  return [
+    {
+      title: `Summary (${formatDateRange(range)})`,
+      table: createDashboardSummaryMetricTable(summary),
+    },
+    {
+      title: "Top 5 agents",
+      table: readDashboardSummaryAgents(db, range, 5),
+    },
+    {
+      title: "Top 15 capabilities",
+      table: readDashboardSummaryCapabilities(db, range, {
+        excludeSystem: true,
+        limit: 15,
+      }),
+    },
+  ];
+}
+
+function createDashboardSummaryMetricTable(summary: DashboardSummary): DashboardTable {
+  return {
+    columns: ["Metric", "Value"],
+    width: "compact",
+    rows: [
+      ["Sessions", String(summary.session_count)],
+      ["Turns", String(summary.turn_count)],
+      ["Total tokens", formatTokenCount(summary.total_tokens)],
+      ["Average latency", formatAverageDurationMs(summary.duration_ms, summary.turn_count)],
+      ["Success rate", formatSuccessRate(summary.success_count, summary.failure_count)],
+    ],
+    emptyText: "No usage data found for this range.",
+  };
+}
+
+function readDashboardSummaryAgents(
+  db: ReturnType<typeof initializeTrackerDatabase>["db"],
+  range: { startDate: string; endDate: string },
+  limit: number,
+): DashboardTable {
+  const rows = db
+    .prepare(
+      `
+      select
+        agent,
+        model,
+        sum(turn_count) as turn_count,
+        case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens
+      from daily_agent_stats
+      where date between ? and ?
+      group by agent, model
+      order by coalesce(total_tokens, -1) desc, turn_count desc
+      limit ?
+      `,
+    )
+    .all(range.startDate, range.endDate, limit) as DashboardSummaryAgentRow[];
+
+  return {
+    columns: ["Agent", "Model", "Turns", "Tokens"],
+    width: "compact",
+    rows: rows.map((row) => [
+      row.agent,
+      formatNullableText(row.model),
+      String(row.turn_count),
+      formatTokenCount(row.total_tokens),
+    ]),
+    emptyText: "No agent usage found.",
+  };
+}
+
+function readDashboardSummaryCapabilities(
+  db: ReturnType<typeof initializeTrackerDatabase>["db"],
+  range: { startDate: string; endDate: string },
+  filters: {
+    excludeSystem: boolean;
+    limit: number;
+  },
+): DashboardTable {
+  const clauses = ["date between ? and ?"];
+  const params: Array<string | number> = [range.startDate, range.endDate];
+
+  if (filters.excludeSystem) {
+    const condition = createExcludeSystemCapabilityCondition();
+    clauses.push(condition.sql);
+    params.push(...condition.params);
+  }
+
+  params.push(filters.limit);
+
+  const rows = db
+    .prepare(
+      `
+      select
+        agent,
+        capability_type,
+        capability_name,
+        sum(invocation_count) as invocation_count,
+        case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens,
+        case when count(duration_ms) = 0 then null else sum(duration_ms) end as duration_ms
+      from daily_capability_stats
+      where ${clauses.join(" and ")}
+      group by agent, capability_type, capability_name
+      order by coalesce(total_tokens, -1) desc, invocation_count desc
+      limit ?
+      `,
+    )
+    .all(...params) as DashboardSummaryCapabilityRow[];
+
+  return {
+    columns: ["Agent", "Type", "Capability", "Invocations", "Tokens", "Duration"],
+    rows: rows.map((row) => [
+      row.agent,
+      row.capability_type,
+      row.capability_name,
+      String(row.invocation_count),
+      formatTokenCount(row.total_tokens),
+      formatAverageDurationMs(row.duration_ms, row.invocation_count),
+    ]),
+    emptyText: "No capability usage found.",
   };
 }
 
@@ -1106,7 +2183,9 @@ function readDashboardSummary(
         coalesce(sum(session_count), 0) as session_count,
         coalesce(sum(turn_count), 0) as turn_count,
         case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens,
-        case when count(duration_ms) = 0 then null else sum(duration_ms) end as duration_ms
+        case when count(duration_ms) = 0 then null else sum(duration_ms) end as duration_ms,
+        coalesce(sum(success_count), 0) as success_count,
+        coalesce(sum(failure_count), 0) as failure_count
       from daily_agent_stats
       where date between ? and ?
       `,
@@ -1116,6 +2195,8 @@ function readDashboardSummary(
     turn_count: number;
     total_tokens: number | null;
     duration_ms: number | null;
+    success_count: number;
+    failure_count: number;
   };
 
   return {
@@ -1123,6 +2204,8 @@ function readDashboardSummary(
     turn_count: row.turn_count,
     total_tokens: row.total_tokens,
     duration_ms: row.duration_ms,
+    success_count: row.success_count,
+    failure_count: row.failure_count,
   };
 }
 
@@ -1163,7 +2246,7 @@ function aggregateDashboardTokenRows(
     buckets.set(descriptor.key, bucket);
   }
 
-  return [...buckets.values()].sort((left, right) => left.key.localeCompare(right.key));
+  return [...buckets.values()].sort((left, right) => right.key.localeCompare(left.key));
 }
 
 function describeDashboardTokenPeriod(
@@ -1184,38 +2267,11 @@ function describeDashboardTokenPeriod(
 
   return {
     key: formatLocalDate(weekStart),
-    label: `${formatLocalDate(weekStart)} to ${formatLocalDate(weekEnd)}`,
+    label: formatNaturalWeekRangeLabel({
+      startDate: formatLocalDate(weekStart),
+      endDate: formatLocalDate(weekEnd),
+    }),
   };
-}
-
-function parseLocalDate(dateText: string): Date {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateText);
-  if (!match) {
-    throw new Error(`Invalid local date: ${dateText}`);
-  }
-
-  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-}
-
-function startOfLocalWeek(date: Date): Date {
-  const start = new Date(date);
-  const daysSinceMonday = (start.getDay() + 6) % 7;
-  start.setDate(start.getDate() - daysSinceMonday);
-  return start;
-}
-
-function addDays(date: Date, days: number): Date {
-  const result = new Date(date);
-  result.setDate(result.getDate() + days);
-  return result;
-}
-
-function formatLocalDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
 }
 
 function formatNullableTokenCount(value: number, count: number): string {
@@ -1234,19 +2290,46 @@ function shortenId(id: string): string {
   return id.length > 12 ? id.slice(0, 12) : id;
 }
 
-function renderMetric(label: string, value: string): string {
-  return `<div class="metric"><div class="metric-label">${escapeHtml(
+function renderMetric(
+  label: string,
+  value: string,
+  options: {
+    tone?: VisualTone;
+  } = {},
+): string {
+  const toneClass = options.tone ? ` is-${options.tone}` : "";
+
+  return `<div class="metric${toneClass}"><div class="metric-label">${escapeHtml(
     label,
   )}</div><div class="metric-value">${escapeHtml(value)}</div></div>`;
 }
 
-function renderSection(section: DashboardSection): string {
-  return `<section><h2>${escapeHtml(section.title)}</h2>${renderDashboardTable(
+function renderSection(section: DashboardSection, display: DashboardDisplayMode): string {
+  if (display === "text" && section.cliBlocks) {
+    return `<section><h2>${escapeHtml(section.title)}</h2>${renderCliBlocks(
+      section.cliBlocks,
+    )}</section>`;
+  }
+
+  if (section.tableBlocks) {
+    return `<section><h2>${escapeHtml(section.title)}</h2>${renderTableBlocks(
+      section.tableBlocks,
+      display,
+    )}</section>`;
+  }
+
+  return `<section><h2>${escapeHtml(section.title)}</h2>${renderDashboardContent(
     section.table,
+    display,
   )}</section>`;
 }
 
-function renderTabbedSection(title: string, idPrefix: string, tabs: DashboardTab[]): string {
+function renderTabbedSection(
+  title: string,
+  idPrefix: string,
+  tabs: DashboardTab[],
+  display: DashboardDisplayMode,
+): string {
   const tabButtons = tabs
     .map((tab, index) => {
       const active = index === 0;
@@ -1268,7 +2351,7 @@ function renderTabbedSection(title: string, idPrefix: string, tabs: DashboardTab
         tab.id,
       )}" role="tabpanel" aria-labelledby="${escapeHtml(idPrefix)}-tab-${escapeHtml(
         tab.id,
-      )}"${hidden}>${renderDashboardTable(tab.table)}</div>`;
+      )}"${hidden}>${renderDashboardContent(tab.table, display)}</div>`;
     })
     .join("");
 
@@ -1279,12 +2362,18 @@ function renderTabbedSection(title: string, idPrefix: string, tabs: DashboardTab
   )}">${tabButtons}</div></div>${panels}</section>`;
 }
 
-function renderDashboardTable(table: DashboardTable): string {
+function renderDashboardContent(table: DashboardTable, display: DashboardDisplayMode): string {
   const note = table.note
     ? `<p class="table-note">${escapeHtml(table.note)}</p>`
     : "";
   if (table.rows.length === 0) {
     return `${note}<p class="empty-state">${escapeHtml(table.emptyText)}</p>`;
+  }
+
+  if (display === "text") {
+    return `${note}<pre class="cli-output">${escapeHtml(
+      formatTable(table.columns, table.rows).join("\n"),
+    )}</pre>`;
   }
 
   const header = table.columns
@@ -1294,12 +2383,151 @@ function renderDashboardTable(table: DashboardTable): string {
     .map(
       (row) =>
         `<tr>${row
-          .map((cell) => `<td>${escapeHtml(cell)}</td>`)
+          .map((cell, index) => renderDashboardCell(table.columns[index] ?? "", cell))
           .join("")}</tr>`,
     )
     .join("");
 
-  return `${note}<div class="table-scroll"><table><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  const scrollClass = table.width === "compact" ? "table-scroll is-compact" : "table-scroll";
+
+  return `${note}<div class="${scrollClass}"><table><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function renderDashboardCell(column: string, value: string): string {
+  const className = getDashboardCellClass(column, value);
+  const content = renderDashboardCellContent(column, value);
+
+  return `<td${className ? ` class="${className}"` : ""}>${content}</td>`;
+}
+
+function getDashboardCellClass(column: string, value: string): string {
+  const columnName = column.toLowerCase();
+  const classes: string[] = [];
+
+  if (columnName === "severity") {
+    classes.push("cell-severity");
+  }
+
+  if (isTrendColumn(columnName) && value !== "n/a") {
+    classes.push("cell-trend-cell");
+  }
+
+  return classes.join(" ");
+}
+
+function renderDashboardCellContent(column: string, value: string): string {
+  const columnName = column.toLowerCase();
+
+  if (columnName === "severity") {
+    const severity = parseSeverity(value);
+    if (severity) {
+      return `<span class="severity-badge is-${severity}">${escapeHtml(value)}</span>`;
+    }
+  }
+
+  if (isTrendColumn(columnName) && value !== "n/a") {
+    const tone = parseTrendTone(value);
+    return `<span class="cell-trend is-${tone}"><span class="cell-icon">${renderIcon(
+      getTrendIconFromText(value),
+      13,
+    )}</span>${escapeHtml(value)}</span>`;
+  }
+
+  return escapeHtml(value);
+}
+
+function isTrendColumn(columnName: string): boolean {
+  return (
+    columnName === "change" ||
+    columnName.includes("growth") ||
+    columnName.includes("delta")
+  );
+}
+
+function renderCliOutput(lines: string[]): string {
+  return `<pre class="cli-output">${escapeHtml(lines.join("\n"))}</pre>`;
+}
+
+function renderCliBlocks(blocks: DashboardCliBlock[]): string {
+  return blocks
+    .map((block) => {
+      const body = block.lines.length > 0 ? renderCliOutput(block.lines) : "";
+      return `<p class="table-note">${escapeHtml(block.title)}</p>${body}`;
+    })
+    .join("");
+}
+
+function renderTableBlocks(blocks: DashboardTableBlock[], display: DashboardDisplayMode): string {
+  return blocks
+    .map(
+      (block) =>
+        `<p class="table-note">${escapeHtml(block.title)}</p>${renderDashboardContent(
+          block.table,
+          display,
+        )}`,
+    )
+    .join("");
+}
+
+function renderIcon(name: IconName, size: number): string {
+  const common = `width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"`;
+
+  if (name === "alert") {
+    return `<svg ${common}><path d="M10.3 3.5 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.5a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`;
+  }
+
+  if (name === "warning") {
+    return `<svg ${common}><circle cx="12" cy="12" r="10"/><path d="M12 7v6"/><path d="M12 17h.01"/></svg>`;
+  }
+
+  if (name === "arrow-up") {
+    return `<svg ${common}><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>`;
+  }
+
+  if (name === "arrow-down") {
+    return `<svg ${common}><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>`;
+  }
+
+  if (name === "check") {
+    return `<svg ${common}><path d="M20 6 9 17l-5-5"/></svg>`;
+  }
+
+  return `<svg ${common}><path d="M5 12h14"/></svg>`;
+}
+
+function splitCliOutputBlocks(lines: string[]): DashboardCliBlock[] {
+  const blocks: DashboardCliBlock[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    while (lines[index] === "") {
+      index += 1;
+    }
+
+    const title = lines[index];
+    if (title === undefined) {
+      break;
+    }
+    index += 1;
+
+    if (lines[index] === "") {
+      index += 1;
+    }
+
+    const blockLines: string[] = [];
+    while (index < lines.length) {
+      if (lines[index] === "" && lines[index + 1] !== undefined) {
+        break;
+      }
+
+      blockLines.push(lines[index] ?? "");
+      index += 1;
+    }
+
+    blocks.push({ title, lines: blockLines });
+  }
+
+  return blocks;
 }
 
 function renderIngestStatus(snapshot: ReportServerIngestSnapshot | null): string {
@@ -1387,10 +2615,18 @@ function parseReportServerState(value: unknown, statePath: string): ReportServer
     typeof (value as ReportServerState).interval_seconds === "number" &&
     typeof (value as ReportServerState).since === "string"
   ) {
-    return value as ReportServerState;
+    const state = value as ReportServerState;
+    return {
+      ...state,
+      display: isDashboardDisplayMode(state.display) ? state.display : "table",
+    };
   }
 
   throw new Error(`Invalid server state file: ${statePath}`);
+}
+
+function isDashboardDisplayMode(value: unknown): value is DashboardDisplayMode {
+  return value === "table" || value === "text";
 }
 
 function formatLocalDateTime(value: string | Date): string {

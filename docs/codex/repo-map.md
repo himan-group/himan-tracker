@@ -6,8 +6,8 @@
 
 Current implementation status:
 
-- CLI skeleton, `doctor`, `setup`, `collect`, `ingest`, report commands, and the local report server are implemented.
-- Config/path resolution, user config defaults, normalized event contracts, schema validation, repo path hashing, token normalization, capability classification, async collect queue, Codex hook setup, JSONL collection, SQLite migrations, JSONL ingest, daily stats aggregation, CLI reports, local report Web server, fixture-first agent adapters, and MVP documentation are implemented.
+- CLI skeleton, `doctor`, `setup`, `collect`, `backfill`, `ingest`, `archive`, report commands, and the local report server are implemented.
+- Config/path resolution, user config defaults, normalized event contracts, schema validation, repo path hashing, token normalization, capability classification, async collect queue, Codex hook setup, JSONL collection, Codex transcript backfill, SQLite migrations, JSONL ingest, daily stats aggregation, monthly archive aggregation, CLI reports, local report Web server, fixture-first agent adapters, and MVP documentation are implemented.
 - Richer real-world adapter fixtures remain future work.
 
 ## Commands
@@ -23,13 +23,16 @@ himan-tracker --help
 himan-tracker doctor
 himan-tracker setup --dry-run
 himan-tracker collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
+himan-tracker backfill codex --date YYYY-MM-DD
 himan-tracker ingest
+himan-tracker archive monthly --dry-run
 himan-tracker summary --since 7d
 himan-tracker tokens --period week --since 12w
 himan-tracker agents --date YYYY-MM-DD
 himan-tracker capabilities --since 30d
 himan-tracker unused --since 30d
 himan-tracker server start
+himan-tracker server start --display text
 himan-tracker server status
 himan-tracker server stop
 ```
@@ -50,6 +53,8 @@ src/
     commands/agents.ts
     commands/capabilities.ts
     commands/collect.ts
+    commands/archive.ts
+    commands/backfill.ts
     commands/doctor.ts
     commands/ingest.ts
     commands/reportContext.ts
@@ -61,6 +66,7 @@ src/
   aggregator/
     aggregateEvents.ts
     dailyStats.ts
+    monthlyArchive.ts
   collector/
     eventQueue.ts
     hookCollector.ts
@@ -82,6 +88,7 @@ src/
       fixtures/
     codex/
       index.ts
+      transcriptBackfill.ts
       fixtures/
   reports/
     agentReport.ts
@@ -128,7 +135,9 @@ Empty or not-yet-implemented domains currently remain as `.gitkeep` directories.
   - `doctor` -> `src/cli/commands/doctor.ts`
   - `setup --agent codex` -> `src/cli/commands/setup.ts`
   - `collect --agent codex` -> `src/cli/commands/collect.ts`
+  - `backfill codex` -> `src/cli/commands/backfill.ts`
   - `ingest` -> `src/cli/commands/ingest.ts`
+  - `archive monthly` -> `src/cli/commands/archive.ts`
   - `server start/status/stop` -> `src/cli/commands/server.ts`
   - `summary`
   - `tokens`
@@ -136,7 +145,7 @@ Empty or not-yet-implemented domains currently remain as `.gitkeep` directories.
   - `capabilities`
   - `unused`
 
-`src/cli/index.ts` currently routes all MVP commands. `setup --agent codex` is the Codex hook installer, and `collect --agent codex` is the current data-source entry point; `--agent claude-code` remains future work.
+`src/cli/index.ts` currently routes all MVP commands. `setup --agent codex` is the Codex hook installer, `collect --agent codex` is the hook data-source entry point, and `backfill codex` reconstructs missing normalized events from local Codex transcript JSONL, including explicit `$skill-name` and inferred `SKILL.md` skill usage; `--agent claude-code` remains future work.
 
 ## Data And Contracts
 
@@ -170,11 +179,12 @@ SQLite and ingest rules:
 - `src/storage/sqlite.ts` initializes `schema_migrations`, applies `001_initial`, and opens `better-sqlite3` with WAL and foreign keys enabled.
 - `src/aggregator/aggregateEvents.ts` imports normalized JSONL, skips duplicate `event_id` values through `ingested_events`, supports rebuild by removing projection database files, and recomputes affected daily stats.
 - `src/aggregator/dailyStats.ts` recomputes `daily_agent_stats` and `daily_capability_stats` by local date.
+- `src/aggregator/monthlyArchive.ts` rolls up complete months before the recent six-calendar-month retention window into `monthly_agent_stats` and `monthly_capability_stats`, then removes corresponding daily stats and raw daily JSONL shards. Weekly stats are not persisted; weekly reports are derived from daily stats.
 
 Report rules:
 
 - Report commands read SQLite through `src/cli/commands/reportContext.ts`; they initialize migrations if needed and render empty states when no data exists.
-- `server start` launches a detached local HTTP server, records PID/state under the tracker home, runs immediate and interval-based incremental ingest, and serves a local dashboard page from SQLite reports.
+- `server start` launches a detached local HTTP server, records PID/state under the tracker home, runs immediate and interval-based incremental ingest, and serves a local dashboard page from SQLite reports. It supports `--display table|text` to choose HTML tables or CLI-style text blocks for dashboard report sections.
 - `server status` reads the state file and checks whether the recorded PID is still running; `server stop` sends `SIGTERM` and removes stale state when needed.
 - `summary` supports `--since`, shows overall usage, top agents, and top capabilities.
 - `tokens` supports `--since` and `--period day|week|month` to show input, output, total, and average token consumption by period.

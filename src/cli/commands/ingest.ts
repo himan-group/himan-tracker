@@ -1,4 +1,5 @@
 import path from "node:path";
+import { homedir } from "node:os";
 
 import { ingestEvents, type IngestEventsResult } from "../../aggregator/aggregateEvents.js";
 import { ensureTrackerDirectories, resolveTrackerPaths } from "../../config/paths.js";
@@ -24,6 +25,7 @@ export async function runIngest(options: IngestCommandOptions = {}): Promise<Ing
     const result = await ingestEvents({
       sqlitePath: paths.sqlitePath,
       ...ingestSource,
+      skillMetadataRoots: [process.cwd(), homedir()],
       rebuild: options.rebuild ?? false,
     });
 

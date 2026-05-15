@@ -23,6 +23,8 @@ describe("initializeTrackerDatabase", () => {
         assert.deepEqual(appliedMigrations, [
           "001_initial",
           "002_capability_invocation_origin",
+          "003_monthly_archive",
+          "004_skill_metadata",
         ]);
 
         const tables = db
@@ -31,10 +33,15 @@ describe("initializeTrackerDatabase", () => {
           .map((row) => (row as { name: string }).name);
 
         assert.deepEqual(tables, [
+          "capability_definition_dependencies",
+          "capability_definitions",
+          "capability_metadata_issues",
           "capability_usages",
           "daily_agent_stats",
           "daily_capability_stats",
           "ingested_events",
+          "monthly_agent_stats",
+          "monthly_capability_stats",
           "schema_migrations",
           "sessions",
           "turns",
@@ -138,7 +145,11 @@ describe("initializeTrackerDatabase", () => {
           1,
         );
 
-        assert.deepEqual(runMigrations(db), ["002_capability_invocation_origin"]);
+        assert.deepEqual(runMigrations(db), [
+          "002_capability_invocation_origin",
+          "003_monthly_archive",
+          "004_skill_metadata",
+        ]);
 
         const capability = db
           .prepare("select source, invocation_origin from capability_usages")

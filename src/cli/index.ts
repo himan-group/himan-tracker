@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { runAgents } from "./commands/agents.js";
+import { runArchiveMonthly } from "./commands/archive.js";
+import { runBackfill } from "./commands/backfill.js";
 import { runCleanup } from "./commands/cleanup.js";
 import { runCapabilityEvents } from "./commands/capabilityEvents.js";
 import { runCapabilities } from "./commands/capabilities.js";
@@ -115,6 +117,44 @@ type IngestCommandOptions = {
   rebuild?: boolean;
 };
 
+const backfillCommand = program
+  .command("backfill")
+  .description("Backfill tracker events from local agent transcripts");
+
+backfillCommand
+  .command("codex")
+  .description("Backfill Codex events from local Codex transcript JSONL files")
+  .option("--date <date>", "Transcript date to backfill in YYYY-MM-DD; defaults to today")
+  .option("--from <dir>", "Read transcript JSONL files from a specific directory")
+  .action(async (options: BackfillCodexCommandOptions) => {
+    const result = await runBackfill({ ...options, agent: "codex" });
+    console.log(result.lines.join("\n"));
+    process.exitCode = result.ok ? 0 : 1;
+  });
+
+type BackfillCodexCommandOptions = {
+  date?: string;
+  from?: string;
+};
+
+const archiveCommand = program
+  .command("archive")
+  .description("Archive old local statistics into compact summary tables");
+
+archiveCommand
+  .command("monthly")
+  .description("Archive complete months older than the recent six-month retention window")
+  .option("--dry-run", "Preview archive work without writing or deleting data")
+  .action(async (options: ArchiveMonthlyCommandOptions) => {
+    const result = await runArchiveMonthly(options);
+    console.log(result.lines.join("\n"));
+    process.exitCode = result.ok ? 0 : 1;
+  });
+
+type ArchiveMonthlyCommandOptions = {
+  dryRun?: boolean;
+};
+
 const serverCommand = program
   .command("server")
   .description("Start and stop the local report web server");
@@ -126,6 +166,11 @@ serverCommand
   .option("--port <port>", "Port to bind; use 0 for a random free port", "5127")
   .option("--interval <seconds>", "Seconds between background ingest runs", "300")
   .option("--since <period>", "Report date range such as 7d, 4w, or 1m", "7d")
+  .addOption(
+    new Option("--display <mode>", "Dashboard report display mode")
+      .choices(["table", "text"])
+      .default("table"),
+  )
   .option("--open", "Open the dashboard in the default browser after start")
   .action(async (options: ServerStartCommandOptions) => {
     const result = await runServerStart(options);
@@ -158,6 +203,11 @@ serverCommand
   .option("--port <port>", "Port to bind", "5127")
   .option("--interval <seconds>", "Seconds between background ingest runs", "300")
   .option("--since <period>", "Report date range such as 7d, 4w, or 1m", "7d")
+  .addOption(
+    new Option("--display <mode>", "Dashboard report display mode")
+      .choices(["table", "text"])
+      .default("table"),
+  )
   .action(async (options: ServerServeCommandOptions) => {
     const result = await runServerServe(options);
     if (!result.ok) {
@@ -171,6 +221,7 @@ type ServerStartCommandOptions = {
   port?: string;
   interval?: string;
   since?: string;
+  display?: string;
   open?: boolean;
 };
 
