@@ -149,9 +149,15 @@ describe("server command", () => {
       assert.match(metricsHtml, /Project metrics/);
       assert.match(metricsHtml, /Capability metrics/);
       assert.match(metricsHtml, /Alerts/);
-      assert.match(metricsHtml, /role="tab"[^>]*>Day<\/button>/);
-      assert.match(metricsHtml, /role="tab"[^>]*>Week<\/button>/);
-      assert.match(metricsHtml, /role="tab"[^>]*>Month<\/button>/);
+      assert.match(metricsHtml, /role="tab"[^>]*>Daily<\/button>/);
+      assert.match(metricsHtml, /role="tab"[^>]*>Weekly<\/button>/);
+      assert.match(metricsHtml, /role="tab"[^>]*>Monthly<\/button>/);
+      assert.match(metricsHtml, /<th scope="col">Period<\/th>/);
+      assert.match(metricsHtml, /<th scope="col">Total duration<\/th>/);
+      assert.match(metricsHtml, /<th scope="col">Duration growth<\/th>/);
+      assert.match(metricsHtml, /<th scope="col">Total tokens<\/th>/);
+      assert.match(metricsHtml, /<th scope="col">Token growth<\/th>/);
+      assert.match(metricsHtml, /2026 Week 20 \(05-11 ~ 05-17\)/);
       assert.match(metricsHtml, /repo_hash_server_001/);
       assert.match(metricsHtml, /server-capability-01/);
 
@@ -253,6 +259,74 @@ describe("server command", () => {
     }
   });
 
+  it("renders colored metric and alert hints for growth and severity", async () => {
+    const homeDir = await mkdtemp(path.join(tmpdir(), "himan-server-test-"));
+    const paths = resolveTrackerPaths({ HIMAN_TRACKER_HOME: homeDir });
+    const events = [
+      createTokenTurnEvent({
+        eventId: "evt_server_visual_previous",
+        occurredAt: "2026-05-11T12:00:00.000Z",
+        totalTokens: 1_000,
+        durationMs: 4_000,
+      }),
+      createTokenTurnEvent({
+        eventId: "evt_server_visual_current",
+        occurredAt: "2026-05-12T12:00:00.000Z",
+        totalTokens: 3_000,
+        durationMs: 1_000,
+      }),
+      createCapabilityEvent({
+        eventId: "evt_server_visual_skill_previous",
+        occurredAt: "2026-05-11T12:00:01.000Z",
+        type: "skill",
+        name: "visual-alert-skill",
+        totalTokens: 1_000,
+        durationMs: 4_000,
+      }),
+      createCapabilityEvent({
+        eventId: "evt_server_visual_skill_current",
+        occurredAt: "2026-05-12T12:00:01.000Z",
+        type: "skill",
+        name: "visual-alert-skill",
+        totalTokens: 3_000,
+        durationMs: 1_000,
+      }),
+    ];
+
+    await ensureTrackerDirectories(paths);
+    for (const event of events) {
+      await appendJsonlRecord(resolveDailyEventsPath(paths, event.occurred_at), event);
+    }
+
+    const instance = await startReportHttpServer({
+      paths,
+      host: "127.0.0.1",
+      port: 0,
+      intervalSeconds: 60,
+      since: "7d",
+      display: "table",
+      now: () => now,
+    });
+
+    try {
+      const response = await fetch(`${instance.url}/metrics`);
+      const html = await response.text();
+
+      assert.equal(response.status, 200);
+      assert.match(html, /class="metric is-positive"/);
+      assert.match(html, /class="metric is-negative"/);
+      assert.match(html, /class="severity-badge is-critical"/);
+      assert.match(html, /class="cell-trend is-positive"/);
+      assert.match(html, /class="cell-trend is-negative"/);
+      assert.match(html, /aria-hidden="true" focusable="false"/);
+      assert.equal(html.includes('class="severity-badge is-critical"><span class="cell-icon"'), false);
+      assert.match(html, /visual-alert-skill/);
+    } finally {
+      await instance.close();
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
   it("renders the dashboard as CLI-style text when requested", async () => {
     const homeDir = await mkdtemp(path.join(tmpdir(), "himan-server-test-"));
     const paths = resolveTrackerPaths({ HIMAN_TRACKER_HOME: homeDir });
@@ -325,11 +399,16 @@ describe("server command", () => {
         tokenTabs: Array<{ id: string; table: { rows: string[][] } }>;
       };
       const dailyRows = dashboard.tokenTabs.find((tab) => tab.id === "day")?.table.rows;
+      const weeklyRows = dashboard.tokenTabs.find((tab) => tab.id === "week")?.table.rows;
 
       assert.equal(response.status, 200);
       assert.deepEqual(
         dailyRows?.map((row) => row[0]),
         ["2026-05-12", "2026-05-10"],
+      );
+      assert.deepEqual(
+        weeklyRows?.map((row) => row[0]),
+        ["2026 Week 20 (05-11 ~ 05-17)", "2026 Week 19 (05-04 ~ 05-10)"],
       );
     } finally {
       await instance.close();
@@ -426,6 +505,7 @@ function createTokenTurnEvent(options: {
   eventId: string;
   occurredAt: string;
   totalTokens: number;
+  durationMs?: number;
 }): NormalizedEvent {
   return {
     schema_version: "1.0",
@@ -439,7 +519,7 @@ function createTokenTurnEvent(options: {
     repo_hash: "repo_hash_server_tokens",
     status: "success",
     model: "gpt-5.1-codex",
-    duration_ms: 1_000,
+    duration_ms: options.durationMs ?? 1_000,
     input_tokens: null,
     output_tokens: null,
     total_tokens: options.totalTokens,
@@ -489,6 +569,7 @@ function createCapabilityEvent(options: {
   type: "skill" | "mcp_tool" | "builtin_tool" | "unknown";
   name: string;
   totalTokens: number;
+  durationMs?: number;
 }): NormalizedEvent {
   return {
     schema_version: "1.0",
@@ -503,7 +584,7 @@ function createCapabilityEvent(options: {
     status: "success",
     capability_type: options.type,
     capability_name: options.name,
-    duration_ms: 500,
+    duration_ms: options.durationMs ?? 500,
     input_tokens: null,
     output_tokens: null,
     total_tokens: options.totalTokens,

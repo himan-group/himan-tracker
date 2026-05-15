@@ -18,12 +18,21 @@ import {
 import {
   readMetricsInsightData,
   type CapabilityMetricsRow,
+  type DateRange,
   type MetricsInsightAlert,
   type MetricsInsightData,
   type MetricsPeriod,
   type MetricsPeriodInsight,
   type ProjectMetricsRow,
 } from "../reports/metricsInsights.js";
+import {
+  addDays,
+  formatLocalDate,
+  formatNaturalWeekRangeLabel,
+  formatShortDateRange,
+  parseLocalDate,
+  startOfLocalWeek,
+} from "../reports/periodFormatter.js";
 import { renderSummaryReport } from "../reports/summaryReport.js";
 import { createExcludeSystemCapabilityCondition } from "../reports/systemCapabilityFilter.js";
 import { initializeTrackerDatabase } from "../storage/sqlite.js";
@@ -239,6 +248,10 @@ type DashboardTurnRow = {
   total_tokens: number | null;
   status: string;
 };
+
+type AlertSeverityName = "warning" | "major" | "critical";
+type IconName = "alert" | "arrow-down" | "arrow-up" | "check" | "minus" | "warning";
+type VisualTone = "positive" | "negative" | "neutral" | "warning";
 
 export async function startReportHttpServer(
   options: StartReportHttpServerOptions,
@@ -643,17 +656,17 @@ function readMetricsDashboardData(options: {
       },
       overallTabs: insights.periods.map((period) => ({
         id: period.period,
-        label: formatMetricsPeriodLabel(period.period),
+        label: formatMetricsPeriodTabLabel(period),
         table: createMetricsOverallTable(period),
       })),
       projectTabs: insights.periods.map((period) => ({
         id: period.period,
-        label: formatMetricsPeriodLabel(period.period),
+        label: formatMetricsPeriodTabLabel(period),
         table: createMetricsProjectTable(period),
       })),
       capabilityTabs: insights.periods.map((period) => ({
         id: period.period,
-        label: formatMetricsPeriodLabel(period.period),
+        label: formatMetricsPeriodTabLabel(period),
         table: createMetricsCapabilityTable(period),
       })),
       alertsSection: {
@@ -792,6 +805,37 @@ function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode)
       line-height: 1.1;
       font-weight: 720;
       overflow-wrap: anywhere;
+    }
+
+    .metric.is-positive .metric-value,
+    .cell-trend.is-positive {
+      color: #0f766e;
+    }
+
+    .metric.is-negative .metric-value,
+    .cell-trend.is-negative,
+    .severity-badge.is-critical {
+      color: #b42318;
+    }
+
+    .metric.is-warning .metric-value,
+    .severity-badge.is-warning {
+      color: #a15c07;
+    }
+
+    .severity-badge.is-major {
+      color: #c2410c;
+    }
+
+    .severity-badge,
+    .cell-trend {
+      font-weight: 700;
+    }
+
+    .severity-badge {
+      border: 1px solid currentColor;
+      border-radius: 999px;
+      padding: 2px 8px;
     }
 
     section {
@@ -1139,6 +1183,40 @@ function renderMetricsHtml(data: MetricsDashboardData, display: DashboardDisplay
       overflow-wrap: anywhere;
     }
 
+    .metric.is-positive .metric-value,
+    .cell-trend.is-positive {
+      color: #0f766e;
+    }
+
+    .metric.is-negative .metric-value,
+    .cell-trend.is-negative,
+    .severity-badge.is-critical {
+      color: #b42318;
+    }
+
+    .metric.is-warning .metric-value,
+    .severity-badge.is-warning {
+      color: #a15c07;
+    }
+
+    .severity-badge.is-major {
+      color: #c2410c;
+    }
+
+    .severity-badge,
+    .cell-trend {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 700;
+    }
+
+    .severity-badge {
+      border: 1px solid currentColor;
+      border-radius: 999px;
+      padding: 2px 8px;
+    }
+
     section {
       margin-top: 14px;
       overflow: hidden;
@@ -1319,10 +1397,16 @@ function renderMetricsHtml(data: MetricsDashboardData, display: DashboardDisplay
   <main>
     <div class="metrics">
       ${renderMetric("Day tokens", formatTokenCount(data.summary.totalTokens))}
-      ${renderMetric("Token growth", formatSignedPercent(data.summary.tokenGrowthRate))}
+      ${renderMetric("Token growth", formatSignedPercent(data.summary.tokenGrowthRate), {
+        tone: getTrendTone(data.summary.tokenGrowthRate),
+      })}
       ${renderMetric("Day duration", formatDurationMs(data.summary.durationMs))}
-      ${renderMetric("Duration growth", formatSignedPercent(data.summary.durationGrowthRate))}
-      ${renderMetric("Alerts", String(data.summary.alertCount))}
+      ${renderMetric("Duration growth", formatSignedPercent(data.summary.durationGrowthRate), {
+        tone: getTrendTone(data.summary.durationGrowthRate),
+      })}
+      ${renderMetric("Alerts", String(data.summary.alertCount), {
+        tone: data.summary.alertCount > 0 ? "warning" : "positive",
+      })}
     </div>
     ${renderTabbedSection("Overall metrics", "metrics-overall", data.overallTabs, display)}
     ${renderTabbedSection("Project metrics", "metrics-project", data.projectTabs, display)}
@@ -1370,20 +1454,34 @@ function findMetricsPeriod(
 
 function createMetricsOverallTable(period: MetricsPeriodInsight): DashboardTable {
   return {
-    columns: ["Metric", "Value", "Change"],
-    width: "compact",
+    columns: [
+      "Period",
+      "Range",
+      "Sessions",
+      "Turns",
+      "Tokens",
+      "Token growth",
+      "Duration",
+      "Duration growth",
+      "Avg duration / turn",
+      "Avg tokens / turn",
+    ],
     rows: [
-      ["Current range", formatDateRange(period.currentRange), "n/a"],
-      ["Previous range", formatDateRange(period.previousRange), "n/a"],
-      ["Sessions", String(period.overall.sessionCount), "n/a"],
-      ["Turns", String(period.overall.turnCount), "n/a"],
-      ["Total tokens", formatTokenCount(period.overall.totalTokens), formatSignedPercent(period.overall.tokenGrowthRate)],
-      ["Total duration", formatDurationMs(period.overall.durationMs), formatSignedPercent(period.overall.durationGrowthRate)],
-      ["Avg duration / turn", formatDurationMs(period.overall.avgTurnDurationMs), "n/a"],
-      ["Avg tokens / turn", formatTokenCount(roundNullable(period.overall.avgTokensPerTurn)), "n/a"],
+      [
+        period.currentLabel,
+        formatMetricsPeriodRange(period),
+        String(period.overall.sessionCount),
+        String(period.overall.turnCount),
+        formatTokenCount(period.overall.totalTokens),
+        formatSignedPercent(period.overall.tokenGrowthRate),
+        formatDurationMs(period.overall.durationMs),
+        formatSignedPercent(period.overall.durationGrowthRate),
+        formatDurationMs(period.overall.avgTurnDurationMs),
+        formatTokenCount(roundNullable(period.overall.avgTokensPerTurn)),
+      ],
     ],
     emptyText: "No overall metrics found for this period.",
-    note: `Overall ${period.period} metrics (${formatDateRange(period.currentRange)}).`,
+    note: `Overall metrics by ${period.period} for ${formatMetricsPeriodCaption(period)}.`,
   };
 }
 
@@ -1404,8 +1502,8 @@ function createMetricsProjectTable(period: MetricsPeriodInsight): DashboardTable
       "MCP token share",
     ],
     rows: period.projects.map((project) => createMetricsProjectRow(project)),
-    emptyText: `No project metrics found for ${formatDateRange(period.currentRange)}.`,
-    note: `Project metrics by repo hash (${formatDateRange(period.currentRange)}).`,
+    emptyText: `No project metrics found for ${formatMetricsPeriodCaption(period)}.`,
+    note: `Project metrics by repo hash for ${formatMetricsPeriodCaption(period)}.`,
   };
 }
 
@@ -1436,18 +1534,22 @@ function createMetricsCapabilityTable(period: MetricsPeriodInsight): DashboardTa
       "Invocation growth",
       "Success rate",
       "Success delta",
+      "Total duration",
+      "Duration growth",
       "Avg duration",
       "Min duration",
       "Max duration",
       "Duration stddev",
+      "Total tokens",
+      "Token growth",
       "Avg tokens",
       "Min tokens",
       "Max tokens",
       "Token stddev",
     ],
     rows: period.capabilities.map((capability) => createMetricsCapabilityRow(capability)),
-    emptyText: `No capability metrics found for ${formatDateRange(period.currentRange)}.`,
-    note: `Capability metrics (${formatDateRange(period.currentRange)}).`,
+    emptyText: `No capability metrics found for ${formatMetricsPeriodCaption(period)}.`,
+    note: `Capability metrics for ${formatMetricsPeriodCaption(period)}.`,
   };
 }
 
@@ -1460,10 +1562,14 @@ function createMetricsCapabilityRow(capability: CapabilityMetricsRow): string[] 
     formatSignedPercent(capability.invocationGrowthRate),
     formatPercentRatio(capability.successRate),
     formatSignedPercent(capability.successRateDelta),
+    formatDurationMs(capability.duration.total),
+    formatSignedPercent(capability.duration.growthRate),
     formatDurationMs(capability.duration.avg),
     formatDurationMs(capability.duration.min),
     formatDurationMs(capability.duration.max),
     formatDurationMs(capability.duration.stddev),
+    formatTokenCount(capability.tokens.total),
+    formatSignedPercent(capability.tokens.growthRate),
     formatTokenCount(roundNullable(capability.tokens.avg)),
     formatTokenCount(capability.tokens.min),
     formatTokenCount(capability.tokens.max),
@@ -1472,9 +1578,11 @@ function createMetricsCapabilityRow(capability: CapabilityMetricsRow): string[] 
 }
 
 function createMetricsAlertsTable(alerts: MetricsInsightAlert[]): DashboardTable {
+  const sortedAlerts = [...alerts].sort(compareMetricsAlerts);
+
   return {
     columns: ["Severity", "Period", "Scope", "Metric", "Subject", "Current", "Previous", "Change", "Message"],
-    rows: alerts.map((alert) => [
+    rows: sortedAlerts.map((alert) => [
       alert.severity,
       alert.period,
       alert.scope,
@@ -1490,14 +1598,55 @@ function createMetricsAlertsTable(alerts: MetricsInsightAlert[]): DashboardTable
   };
 }
 
-function formatMetricsPeriodLabel(period: MetricsPeriod): string {
-  if (period === "day") {
-    return "Day";
+function compareMetricsAlerts(left: MetricsInsightAlert, right: MetricsInsightAlert): number {
+  const severityDelta = getSeverityRank(right.severity) - getSeverityRank(left.severity);
+  if (severityDelta !== 0) {
+    return severityDelta;
   }
-  if (period === "week") {
-    return "Week";
+
+  const leftMagnitude = Math.abs(left.change ?? left.current ?? 0);
+  const rightMagnitude = Math.abs(right.change ?? right.current ?? 0);
+  if (leftMagnitude !== rightMagnitude) {
+    return rightMagnitude - leftMagnitude;
   }
-  return "Month";
+
+  return `${left.period}\u001f${left.scope}\u001f${left.metric}\u001f${left.subject}`.localeCompare(
+    `${right.period}\u001f${right.scope}\u001f${right.metric}\u001f${right.subject}`,
+  );
+}
+
+function getSeverityRank(severity: AlertSeverityName): number {
+  if (severity === "critical") {
+    return 3;
+  }
+  if (severity === "major") {
+    return 2;
+  }
+
+  return 1;
+}
+
+function formatMetricsPeriodTabLabel(period: MetricsPeriodInsight): string {
+  if (period.period === "day") {
+    return "Daily";
+  }
+  if (period.period === "week") {
+    return "Weekly";
+  }
+
+  return "Monthly";
+}
+
+function formatMetricsPeriodCaption(period: MetricsPeriodInsight): string {
+  return `${period.currentLabel} (${formatMetricsPeriodRange(period)})`;
+}
+
+function formatMetricsPeriodRange(period: MetricsPeriodInsight): string {
+  if (period.period === "week") {
+    return formatShortDateRange(period.currentRange);
+  }
+
+  return formatDateRange(period.currentRange);
 }
 
 function formatSignedPercent(value: number | null): string {
@@ -1530,11 +1679,63 @@ function formatAlertValue(metric: MetricsInsightAlert["metric"], value: number |
     return formatDurationMs(value);
   }
 
-  return value === null ? "n/a" : formatTokenCount(roundNullable(value));
+  if (metric === "tokens") {
+    return value === null ? "n/a" : formatTokenCount(roundNullable(value));
+  }
+
+  return value === null || !Number.isFinite(value) ? "n/a" : String(Math.round(value));
 }
 
 function roundNullable(value: number | null): number | null {
   return value === null || !Number.isFinite(value) ? null : Math.round(value);
+}
+
+function getTrendTone(value: number | null): VisualTone {
+  if (value === null || !Number.isFinite(value) || value === 0) {
+    return "neutral";
+  }
+
+  return value > 0 ? "positive" : "negative";
+}
+
+function getTrendIcon(value: number | null): IconName {
+  if (value === null || !Number.isFinite(value) || value === 0) {
+    return "minus";
+  }
+
+  return value > 0 ? "arrow-up" : "arrow-down";
+}
+
+function parseTrendTone(value: string): VisualTone {
+  if (value.startsWith("+")) {
+    return "positive";
+  }
+
+  if (value.startsWith("-")) {
+    return "negative";
+  }
+
+  return "neutral";
+}
+
+function getTrendIconFromText(value: string): IconName {
+  if (value.startsWith("+")) {
+    return "arrow-up";
+  }
+
+  if (value.startsWith("-")) {
+    return "arrow-down";
+  }
+
+  return "minus";
+}
+
+function parseSeverity(value: string): AlertSeverityName | null {
+  if (value === "warning" || value === "major" || value === "critical") {
+    return value;
+  }
+
+  return null;
 }
 
 function readDashboardCapabilityCalls(
@@ -2055,38 +2256,11 @@ function describeDashboardTokenPeriod(
 
   return {
     key: formatLocalDate(weekStart),
-    label: `${formatLocalDate(weekStart)} to ${formatLocalDate(weekEnd)}`,
+    label: formatNaturalWeekRangeLabel({
+      startDate: formatLocalDate(weekStart),
+      endDate: formatLocalDate(weekEnd),
+    }),
   };
-}
-
-function parseLocalDate(dateText: string): Date {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateText);
-  if (!match) {
-    throw new Error(`Invalid local date: ${dateText}`);
-  }
-
-  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-}
-
-function startOfLocalWeek(date: Date): Date {
-  const start = new Date(date);
-  const daysSinceMonday = (start.getDay() + 6) % 7;
-  start.setDate(start.getDate() - daysSinceMonday);
-  return start;
-}
-
-function addDays(date: Date, days: number): Date {
-  const result = new Date(date);
-  result.setDate(result.getDate() + days);
-  return result;
-}
-
-function formatLocalDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
 }
 
 function formatNullableTokenCount(value: number, count: number): string {
@@ -2105,8 +2279,16 @@ function shortenId(id: string): string {
   return id.length > 12 ? id.slice(0, 12) : id;
 }
 
-function renderMetric(label: string, value: string): string {
-  return `<div class="metric"><div class="metric-label">${escapeHtml(
+function renderMetric(
+  label: string,
+  value: string,
+  options: {
+    tone?: VisualTone;
+  } = {},
+): string {
+  const toneClass = options.tone ? ` is-${options.tone}` : "";
+
+  return `<div class="metric${toneClass}"><div class="metric-label">${escapeHtml(
     label,
   )}</div><div class="metric-value">${escapeHtml(value)}</div></div>`;
 }
@@ -2190,7 +2372,7 @@ function renderDashboardContent(table: DashboardTable, display: DashboardDisplay
     .map(
       (row) =>
         `<tr>${row
-          .map((cell) => `<td>${escapeHtml(cell)}</td>`)
+          .map((cell, index) => renderDashboardCell(table.columns[index] ?? "", cell))
           .join("")}</tr>`,
     )
     .join("");
@@ -2198,6 +2380,57 @@ function renderDashboardContent(table: DashboardTable, display: DashboardDisplay
   const scrollClass = table.width === "compact" ? "table-scroll is-compact" : "table-scroll";
 
   return `${note}<div class="${scrollClass}"><table><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function renderDashboardCell(column: string, value: string): string {
+  const className = getDashboardCellClass(column, value);
+  const content = renderDashboardCellContent(column, value);
+
+  return `<td${className ? ` class="${className}"` : ""}>${content}</td>`;
+}
+
+function getDashboardCellClass(column: string, value: string): string {
+  const columnName = column.toLowerCase();
+  const classes: string[] = [];
+
+  if (columnName === "severity") {
+    classes.push("cell-severity");
+  }
+
+  if (isTrendColumn(columnName) && value !== "n/a") {
+    classes.push("cell-trend-cell");
+  }
+
+  return classes.join(" ");
+}
+
+function renderDashboardCellContent(column: string, value: string): string {
+  const columnName = column.toLowerCase();
+
+  if (columnName === "severity") {
+    const severity = parseSeverity(value);
+    if (severity) {
+      return `<span class="severity-badge is-${severity}">${escapeHtml(value)}</span>`;
+    }
+  }
+
+  if (isTrendColumn(columnName) && value !== "n/a") {
+    const tone = parseTrendTone(value);
+    return `<span class="cell-trend is-${tone}"><span class="cell-icon">${renderIcon(
+      getTrendIconFromText(value),
+      13,
+    )}</span>${escapeHtml(value)}</span>`;
+  }
+
+  return escapeHtml(value);
+}
+
+function isTrendColumn(columnName: string): boolean {
+  return (
+    columnName === "change" ||
+    columnName.includes("growth") ||
+    columnName.includes("delta")
+  );
 }
 
 function renderCliOutput(lines: string[]): string {
@@ -2223,6 +2456,32 @@ function renderTableBlocks(blocks: DashboardTableBlock[], display: DashboardDisp
         )}`,
     )
     .join("");
+}
+
+function renderIcon(name: IconName, size: number): string {
+  const common = `width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"`;
+
+  if (name === "alert") {
+    return `<svg ${common}><path d="M10.3 3.5 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.5a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`;
+  }
+
+  if (name === "warning") {
+    return `<svg ${common}><circle cx="12" cy="12" r="10"/><path d="M12 7v6"/><path d="M12 17h.01"/></svg>`;
+  }
+
+  if (name === "arrow-up") {
+    return `<svg ${common}><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>`;
+  }
+
+  if (name === "arrow-down") {
+    return `<svg ${common}><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>`;
+  }
+
+  if (name === "check") {
+    return `<svg ${common}><path d="M20 6 9 17l-5-5"/></svg>`;
+  }
+
+  return `<svg ${common}><path d="M5 12h14"/></svg>`;
 }
 
 function splitCliOutputBlocks(lines: string[]): DashboardCliBlock[] {

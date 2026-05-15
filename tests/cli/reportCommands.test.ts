@@ -226,11 +226,11 @@ describe("report commands", () => {
       const weekly = await runTokens({ paths, since: "30d", period: "week", now: () => now });
       const weeklyOutput = weekly.lines.join("\n");
       assert.equal(weekly.ok, true);
-      assert.match(weeklyOutput, /2026-04-27 to 2026-05-03\s+\|\s+2\s+\|\s+3K\s+\|\s+1K\s+\|\s+4K\s+\|\s+2K/);
-      assert.match(weeklyOutput, /2026-05-11 to 2026-05-17\s+\|\s+1\s+\|\s+2\.5K\s+\|\s+500\s+\|\s+3K\s+\|\s+3K/);
+      assert.match(weeklyOutput, /2026 Week 18 \(04-27 ~ 05-03\)\s+\|\s+2\s+\|\s+3K\s+\|\s+1K\s+\|\s+4K\s+\|\s+2K/);
+      assert.match(weeklyOutput, /2026 Week 20 \(05-11 ~ 05-17\)\s+\|\s+1\s+\|\s+2\.5K\s+\|\s+500\s+\|\s+3K\s+\|\s+3K/);
       assert.deepEqual(extractTokenReportPeriods(weeklyOutput), [
-        "2026-05-11 to 2026-05-17",
-        "2026-04-27 to 2026-05-03",
+        "2026 Week 20 (05-11 ~ 05-17)",
+        "2026 Week 18 (04-27 ~ 05-03)",
       ]);
 
       const monthly = await runTokens({ paths, since: "30d", period: "month", now: () => now });
@@ -257,7 +257,7 @@ describe("report commands", () => {
 function extractTokenReportPeriods(output: string): string[] {
   return output
     .split("\n")
-    .filter((line) => /^\d{4}-\d{2}/.test(line))
+    .filter((line) => /^(?:\d{4}-\d{2}|\d{4} Week \d+)/.test(line))
     .map((line) => line.split("|")[0]?.trim() ?? "");
 }
 

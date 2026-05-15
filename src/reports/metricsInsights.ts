@@ -1,4 +1,11 @@
 import type { SqliteDatabase } from "../storage/sqlite.js";
+import {
+  addDays,
+  formatLocalDate,
+  formatYearWeekLabel,
+  parseLocalDate,
+  startOfLocalWeek,
+} from "./periodFormatter.js";
 
 export type MetricsPeriod = "day" | "week" | "month";
 export type AlertSeverity = "warning" | "major" | "critical";
@@ -30,7 +37,9 @@ export type MetricsInsightData = {
 
 export type MetricsPeriodInsight = {
   period: MetricsPeriod;
+  currentLabel: string;
   currentRange: DateRange;
+  previousLabel: string;
   previousRange: DateRange;
   overall: OverallMetricsRow;
   projects: ProjectMetricsRow[];
@@ -94,7 +103,6 @@ export type DistributionMetrics = {
 
 type PeriodSpec = {
   period: MetricsPeriod;
-  days: number;
 };
 
 type OverallAggregateRow = {
@@ -139,9 +147,9 @@ type CapabilityAggregate = {
 };
 
 const PERIOD_SPECS: PeriodSpec[] = [
-  { period: "day", days: 1 },
-  { period: "week", days: 7 },
-  { period: "month", days: 30 },
+  { period: "day" },
+  { period: "week" },
+  { period: "month" },
 ];
 
 const CHANGE_THRESHOLDS: Array<{ severity: AlertSeverity; threshold: number }> = [
@@ -177,8 +185,8 @@ function readMetricsPeriodInsight(
   spec: PeriodSpec,
   now: Date,
 ): MetricsPeriodInsight {
-  const currentRange = createCurrentRange(spec.days, now);
-  const previousRange = createPreviousRange(currentRange, spec.days);
+  const currentRange = createCurrentRange(spec.period, now);
+  const previousRange = createPreviousRange(spec.period, currentRange);
   const currentOverall = readOverallMetrics(db, currentRange);
   const previousOverall = readOverallMetrics(db, previousRange);
   const projects = readProjectMetrics(db, currentRange, previousRange);
@@ -191,7 +199,9 @@ function readMetricsPeriodInsight(
 
   return {
     period: spec.period,
+    currentLabel: formatPeriodLabel(spec.period, currentRange),
     currentRange,
+    previousLabel: formatPeriodLabel(spec.period, previousRange),
     previousRange,
     overall: {
       ...currentOverall,
@@ -228,8 +238,8 @@ function readOverallMetrics(db: SqliteDatabase, range: DateRange): OverallMetric
   return {
     sessionCount: row.session_count,
     turnCount: row.turn_count,
-    totalTokens: row.total_tokens,
-    durationMs: row.duration_ms,
+    totalTokens: row.turn_count === 0 ? 0 : row.total_tokens,
+    durationMs: row.turn_count === 0 ? 0 : row.duration_ms,
     avgTurnDurationMs: divideNullable(row.duration_ms, row.turn_count),
     avgTokensPerTurn: divideNullable(row.total_tokens, row.turn_count),
     tokenGrowthRate: null,
@@ -246,31 +256,36 @@ function readProjectMetrics(
   const previousRows = new Map(
     readProjectAggregates(db, previousRange).map((row) => [normalizeRepoHash(row.repo_hash), row]),
   );
+  const currentRowsByRepo = new Map(
+    currentRows.map((row) => [normalizeRepoHash(row.repo_hash), row]),
+  );
   const capabilityRowsByProject = groupProjectCapabilities(readProjectCapabilityAggregates(db, currentRange));
   const totalTokens = sumNullableValues(currentRows.map((row) => row.total_tokens));
   const totalDurationMs = sumNullableValues(currentRows.map((row) => row.duration_ms));
 
-  return currentRows
-    .map((row) => {
-      const repoHash = normalizeRepoHash(row.repo_hash);
+  return [...new Set([...currentRowsByRepo.keys(), ...previousRows.keys()])]
+    .map((repoHash) => {
+      const row = currentRowsByRepo.get(repoHash);
       const previous = previousRows.get(repoHash);
       const capabilityRows = capabilityRowsByProject.get(repoHash) ?? [];
       const skill = capabilityRows.find((candidate) => candidate.capability_type === "skill");
       const mcp = capabilityRows.find((candidate) => candidate.capability_type === "mcp_tool");
+      const totalTokenValue = getCurrentMetricValue(row?.total_tokens ?? null, row !== undefined);
+      const durationValue = getCurrentMetricValue(row?.duration_ms ?? null, row !== undefined);
 
       return {
         repoHash,
-        turnCount: row.turn_count,
-        totalTokens: row.total_tokens,
-        tokenShare: divideNullable(row.total_tokens, totalTokens),
-        durationMs: row.duration_ms,
-        durationShare: divideNullable(row.duration_ms, totalDurationMs),
+        turnCount: row?.turn_count ?? 0,
+        totalTokens: totalTokenValue,
+        tokenShare: divideNullable(totalTokenValue, totalTokens),
+        durationMs: durationValue,
+        durationShare: divideNullable(durationValue, totalDurationMs),
         skillInvocationCount: skill?.invocation_count ?? 0,
         mcpInvocationCount: mcp?.invocation_count ?? 0,
-        skillTokenShare: divideNullable(skill?.total_tokens ?? null, row.total_tokens),
-        mcpTokenShare: divideNullable(mcp?.total_tokens ?? null, row.total_tokens),
-        tokenGrowthRate: calculateGrowthRate(row.total_tokens, previous?.total_tokens ?? null),
-        durationGrowthRate: calculateGrowthRate(row.duration_ms, previous?.duration_ms ?? null),
+        skillTokenShare: divideNullable(skill?.total_tokens ?? null, totalTokenValue),
+        mcpTokenShare: divideNullable(mcp?.total_tokens ?? null, totalTokenValue),
+        tokenGrowthRate: calculateGrowthRate(totalTokenValue, previous?.total_tokens ?? null),
+        durationGrowthRate: calculateGrowthRate(durationValue, previous?.duration_ms ?? null),
       };
     })
     .sort((left, right) => (right.totalTokens ?? -1) - (left.totalTokens ?? -1));
@@ -338,14 +353,22 @@ function readCapabilityMetrics(
   const current = readCapabilityAggregates(db, currentRange);
   const previous = readCapabilityAggregates(db, previousRange);
 
-  return [...current.values()]
-    .map((aggregate) => {
-      const previousAggregate = previous.get(createCapabilityKey(aggregate));
+  return [...new Set([...current.keys(), ...previous.keys()])]
+    .map((key) => {
+      const previousAggregate = previous.get(key);
+      const aggregate = current.get(key) ?? createEmptyCapabilityAggregate(previousAggregate);
       const duration = createDistributionMetrics(
         aggregate.durations,
         previousAggregate?.durations ?? [],
+        aggregate.invocationCount,
+        previousAggregate?.invocationCount ?? 0,
       );
-      const tokens = createDistributionMetrics(aggregate.tokens, previousAggregate?.tokens ?? []);
+      const tokens = createDistributionMetrics(
+        aggregate.tokens,
+        previousAggregate?.tokens ?? [],
+        aggregate.invocationCount,
+        previousAggregate?.invocationCount ?? 0,
+      );
       const successRate = calculateSuccessRate(aggregate.successCount, aggregate.failureCount);
       const previousSuccessRate = previousAggregate
         ? calculateSuccessRate(previousAggregate.successCount, previousAggregate.failureCount)
@@ -432,9 +455,21 @@ function readCapabilityAggregates(
 function createDistributionMetrics(
   currentValues: number[],
   previousValues: number[],
+  currentInvocationCount: number,
+  previousInvocationCount: number,
 ): DistributionMetrics {
-  const currentTotal = currentValues.length > 0 ? sumValues(currentValues) : null;
-  const previousTotal = previousValues.length > 0 ? sumValues(previousValues) : null;
+  const currentTotal =
+    currentValues.length > 0
+      ? sumValues(currentValues)
+      : currentInvocationCount === 0 && previousValues.length > 0
+        ? 0
+        : null;
+  const previousTotal =
+    previousValues.length > 0
+      ? sumValues(previousValues)
+      : previousInvocationCount === 0 && currentValues.length > 0
+        ? 0
+        : null;
   const avg = divideNullable(currentTotal, currentValues.length);
   const stddev = calculateStddev(currentValues);
 
@@ -626,23 +661,60 @@ function getThresholdSeverity(
   return thresholds.find((candidate) => value >= candidate.threshold)?.severity ?? null;
 }
 
-function createCurrentRange(days: number, now: Date): DateRange {
-  const end = startOfLocalDay(now);
-  const start = addDays(end, -days + 1);
+function createCurrentRange(period: MetricsPeriod, now: Date): DateRange {
+  const today = startOfLocalDay(now);
+
+  if (period === "day") {
+    return createDateRange(today, today);
+  }
+
+  if (period === "week") {
+    const start = startOfLocalWeek(today);
+    return createDateRange(start, addDays(start, 6));
+  }
+
+  const start = startOfLocalMonth(today);
+  return createDateRange(start, endOfLocalMonth(today));
+}
+
+function createPreviousRange(period: MetricsPeriod, currentRange: DateRange): DateRange {
+  const currentStart = parseLocalDate(currentRange.startDate);
+
+  if (period === "day") {
+    const previous = addDays(currentStart, -1);
+    return createDateRange(previous, previous);
+  }
+
+  if (period === "week") {
+    const previousStart = addDays(currentStart, -7);
+    return createDateRange(previousStart, addDays(previousStart, 6));
+  }
+
+  const previousMonth = new Date(currentStart.getFullYear(), currentStart.getMonth() - 1, 1);
+  return createDateRange(previousMonth, endOfLocalMonth(previousMonth));
+}
+
+function createDateRange(start: Date, end: Date): DateRange {
   return {
     startDate: formatLocalDate(start),
     endDate: formatLocalDate(end),
   };
 }
 
-function createPreviousRange(currentRange: DateRange, days: number): DateRange {
-  const currentStart = parseLocalDate(currentRange.startDate);
-  const previousEnd = addDays(currentStart, -1);
-  const previousStart = addDays(previousEnd, -days + 1);
-  return {
-    startDate: formatLocalDate(previousStart),
-    endDate: formatLocalDate(previousEnd),
-  };
+function formatPeriodLabel(period: MetricsPeriod, range: DateRange): string {
+  if (period === "day") {
+    return range.startDate;
+  }
+
+  if (period === "week") {
+    return formatNaturalWeekLabel(range);
+  }
+
+  return range.startDate.slice(0, 7);
+}
+
+function formatNaturalWeekLabel(range: DateRange): string {
+  return formatYearWeekLabel(parseLocalDate(range.startDate));
 }
 
 function calculateGrowthRate(current: number | null, previous: number | null): number | null {
@@ -699,8 +771,27 @@ function ratioToPrevious(current: number | null, growthRate: number | null): num
   return current / (1 + growthRate);
 }
 
-function createCapabilityKey(aggregate: CapabilityAggregate): string {
-  return `${aggregate.agent}\u001f${aggregate.capabilityType}\u001f${aggregate.capabilityName}`;
+function createEmptyCapabilityAggregate(
+  previousAggregate: CapabilityAggregate | undefined,
+): CapabilityAggregate {
+  if (!previousAggregate) {
+    throw new Error("Expected previous capability aggregate");
+  }
+
+  return {
+    agent: previousAggregate.agent,
+    capabilityType: previousAggregate.capabilityType,
+    capabilityName: previousAggregate.capabilityName,
+    invocationCount: 0,
+    successCount: 0,
+    failureCount: 0,
+    durations: [],
+    tokens: [],
+  };
+}
+
+function getCurrentMetricValue(value: number | null, hasCurrentRow: boolean): number | null {
+  return hasCurrentRow ? value : 0;
 }
 
 function normalizeRepoHash(repoHash: string | null): string {
@@ -711,22 +802,12 @@ function startOfLocalDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
-function parseLocalDate(value: string): Date {
-  const [year, month, day] = value.split("-").map((part) => Number(part));
-  return new Date(year, (month ?? 1) - 1, day ?? 1);
+function startOfLocalMonth(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
 }
 
-function addDays(date: Date, days: number): Date {
-  const nextDate = new Date(date);
-  nextDate.setDate(nextDate.getDate() + days);
-  return nextDate;
-}
-
-function formatLocalDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+function endOfLocalMonth(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
 }
 
 function formatPercent(value: number): string {

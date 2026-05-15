@@ -1,6 +1,13 @@
 import type { SqliteDatabase } from "../storage/sqlite.js";
 import { formatDateRange, type DateRange } from "./dateRange.js";
 import { formatTable, formatTokenCount } from "./formatTable.js";
+import {
+  addDays,
+  formatLocalDate,
+  formatNaturalWeekRangeLabel,
+  parseLocalDate,
+  startOfLocalWeek,
+} from "./periodFormatter.js";
 
 export type TokenPeriod = "day" | "week" | "month";
 
@@ -144,42 +151,15 @@ function describePeriod(dateText: string, period: TokenPeriod): { key: string; l
 
   const weekStart = startOfLocalWeek(parseLocalDate(dateText));
   const weekEnd = addDays(weekStart, 6);
-  const label = `${formatLocalDate(weekStart)} to ${formatLocalDate(weekEnd)}`;
+  const range = {
+    startDate: formatLocalDate(weekStart),
+    endDate: formatLocalDate(weekEnd),
+  };
 
   return {
-    key: formatLocalDate(weekStart),
-    label,
+    key: range.startDate,
+    label: formatNaturalWeekRangeLabel(range),
   };
-}
-
-function parseLocalDate(dateText: string): Date {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateText);
-  if (!match) {
-    throw new Error(`Invalid local date: ${dateText}`);
-  }
-
-  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-}
-
-function startOfLocalWeek(date: Date): Date {
-  const start = new Date(date);
-  const daysSinceMonday = (start.getDay() + 6) % 7;
-  start.setDate(start.getDate() - daysSinceMonday);
-  return start;
-}
-
-function addDays(date: Date, days: number): Date {
-  const result = new Date(date);
-  result.setDate(result.getDate() + days);
-  return result;
-}
-
-function formatLocalDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
 }
 
 function formatNullableTokenCount(value: number, count: number): string {

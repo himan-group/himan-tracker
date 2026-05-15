@@ -11,8 +11,18 @@ All notable changes to this project will be documented in this file.
 - Added Himan skill metadata ingestion from local `himan.yaml` files, including static skill token estimates, versions, content hashes, dependencies, and metadata issues in the SQLite projection.
 - Added a local server Metrics page and `/metrics.json` endpoint with daily, weekly, and monthly token, duration, project, capability, and alert insights.
 
+### Changed
+
+- Changed the local server Metrics page to highlight severity levels, growth, and decreases with color-coded badges and text.
+- Changed Metrics weekly and monthly insights to use natural weeks and natural months with fixed Daily/Weekly/Monthly tabs and labels such as `2026 Week 14 (03-30 ~ 04-05)` and `2026-04`.
+- Changed dashboard Token usage weekly rows to use year-based natural week labels such as `2026 Week 14 (03-30 ~ 04-05)`.
+- Changed CLI weekly token reports to use the same year-based natural week labels as the local server.
+- Changed Metrics capability tables to show total duration, duration growth, total tokens, and token growth alongside averages and standard deviations.
+
 ### Fixed
 
+- Fixed Metrics project and capability alerts so projects or capabilities that drop to zero in the current period can trigger decrease alerts.
+- Fixed Metrics alert value formatting so invocation counts render as counts instead of token units.
 - Fixed generated Codex hook helpers to fall back to the source checkout `dist/cli/index.js` when the Codex hook environment cannot resolve the published `himan-tracker` command.
 
 ## [0.1.2] - 2026-05-15
