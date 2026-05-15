@@ -24,6 +24,7 @@ describe("initializeTrackerDatabase", () => {
           "001_initial",
           "002_capability_invocation_origin",
           "003_monthly_archive",
+          "004_skill_metadata",
         ]);
 
         const tables = db
@@ -32,6 +33,9 @@ describe("initializeTrackerDatabase", () => {
           .map((row) => (row as { name: string }).name);
 
         assert.deepEqual(tables, [
+          "capability_definition_dependencies",
+          "capability_definitions",
+          "capability_metadata_issues",
           "capability_usages",
           "daily_agent_stats",
           "daily_capability_stats",
@@ -144,6 +148,7 @@ describe("initializeTrackerDatabase", () => {
         assert.deepEqual(runMigrations(db), [
           "002_capability_invocation_origin",
           "003_monthly_archive",
+          "004_skill_metadata",
         ]);
 
         const capability = db

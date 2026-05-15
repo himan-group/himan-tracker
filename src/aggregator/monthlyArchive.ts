@@ -188,6 +188,11 @@ function upsertMonthlyCapabilityStats(
       inferred_invocation_count,
       observed_invocation_count,
       unknown_origin_count,
+      estimated_static_entry_load,
+      estimated_static_package_load,
+      metadata_exact_count,
+      metadata_estimated_count,
+      metadata_unknown_count,
       source_start_date,
       source_end_date,
       archived_at
@@ -210,6 +215,17 @@ function upsertMonthlyCapabilityStats(
       sum(inferred_invocation_count) as inferred_invocation_count,
       sum(observed_invocation_count) as observed_invocation_count,
       sum(unknown_origin_count) as unknown_origin_count,
+      case
+        when count(estimated_static_entry_load) = 0 then null
+        else sum(estimated_static_entry_load)
+      end as estimated_static_entry_load,
+      case
+        when count(estimated_static_package_load) = 0 then null
+        else sum(estimated_static_package_load)
+      end as estimated_static_package_load,
+      sum(metadata_exact_count) as metadata_exact_count,
+      sum(metadata_estimated_count) as metadata_estimated_count,
+      sum(metadata_unknown_count) as metadata_unknown_count,
       min(date) as source_start_date,
       max(date) as source_end_date,
       ? as archived_at
@@ -230,6 +246,11 @@ function upsertMonthlyCapabilityStats(
       inferred_invocation_count = excluded.inferred_invocation_count,
       observed_invocation_count = excluded.observed_invocation_count,
       unknown_origin_count = excluded.unknown_origin_count,
+      estimated_static_entry_load = excluded.estimated_static_entry_load,
+      estimated_static_package_load = excluded.estimated_static_package_load,
+      metadata_exact_count = excluded.metadata_exact_count,
+      metadata_estimated_count = excluded.metadata_estimated_count,
+      metadata_unknown_count = excluded.metadata_unknown_count,
       source_start_date = excluded.source_start_date,
       source_end_date = excluded.source_end_date,
       archived_at = excluded.archived_at

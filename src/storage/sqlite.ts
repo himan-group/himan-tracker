@@ -217,6 +217,91 @@ create index if not exists idx_monthly_agent_stats_month on monthly_agent_stats(
 create index if not exists idx_monthly_capability_stats_month on monthly_capability_stats(month);
 `;
 
+export const SKILL_METADATA_MIGRATION_SQL = `
+alter table capability_usages add column capability_version text;
+alter table capability_usages add column capability_content_hash text;
+alter table capability_usages add column static_entry_tokens integer;
+alter table capability_usages add column static_package_tokens integer;
+alter table capability_usages add column static_metadata_confidence text not null default 'unknown';
+
+alter table daily_capability_stats add column static_entry_tokens integer;
+alter table daily_capability_stats add column static_package_tokens integer;
+alter table daily_capability_stats add column estimated_static_entry_load integer;
+alter table daily_capability_stats add column estimated_static_package_load integer;
+alter table daily_capability_stats add column metadata_exact_count integer not null default 0;
+alter table daily_capability_stats add column metadata_estimated_count integer not null default 0;
+alter table daily_capability_stats add column metadata_unknown_count integer not null default 0;
+
+alter table monthly_capability_stats add column estimated_static_entry_load integer;
+alter table monthly_capability_stats add column estimated_static_package_load integer;
+alter table monthly_capability_stats add column metadata_exact_count integer not null default 0;
+alter table monthly_capability_stats add column metadata_estimated_count integer not null default 0;
+alter table monthly_capability_stats add column metadata_unknown_count integer not null default 0;
+
+create table if not exists capability_definitions (
+  id text primary key,
+  capability_type text not null,
+  capability_name text not null,
+  version text,
+  content_hash text,
+  entry text not null,
+  description text,
+  agents_json text not null,
+  static_entry_tokens integer,
+  static_package_tokens integer,
+  tokenizer text,
+  token_estimator text,
+  measured_at text,
+  measured_by text,
+  generated_at text,
+  generated_by text,
+  source_path_hash text,
+  discovered_at text not null
+);
+
+create unique index if not exists idx_capability_definitions_identity
+  on capability_definitions(
+    capability_type,
+    capability_name,
+    coalesce(version, ''),
+    coalesce(content_hash, ''),
+    coalesce(source_path_hash, '')
+  );
+
+create table if not exists capability_definition_dependencies (
+  definition_id text not null,
+  dependency_type text not null,
+  dependency_name text,
+  dependency_path text
+);
+
+create unique index if not exists idx_capability_definition_dependencies_identity
+  on capability_definition_dependencies(
+    definition_id,
+    dependency_type,
+    coalesce(dependency_name, ''),
+    coalesce(dependency_path, '')
+  );
+
+create index if not exists idx_capability_definition_dependencies_lookup
+  on capability_definition_dependencies(dependency_type, dependency_name);
+
+create table if not exists capability_metadata_issues (
+  id text primary key,
+  capability_type text not null,
+  capability_name text not null,
+  version text,
+  content_hash text,
+  issue_type text not null,
+  severity text not null,
+  message text not null,
+  detected_at text not null
+);
+
+create index if not exists idx_capability_metadata_issues_lookup
+  on capability_metadata_issues(capability_type, capability_name, issue_type);
+`;
+
 const MIGRATIONS: Migration[] = [
   {
     version: "001_initial",
@@ -229,6 +314,10 @@ const MIGRATIONS: Migration[] = [
   {
     version: "003_monthly_archive",
     sql: MONTHLY_ARCHIVE_MIGRATION_SQL,
+  },
+  {
+    version: "004_skill_metadata",
+    sql: SKILL_METADATA_MIGRATION_SQL,
   },
 ];
 

@@ -77,7 +77,14 @@ function recomputeDailyCapabilityStats(db: SqliteDatabase, date: string): void {
       explicit_invocation_count,
       inferred_invocation_count,
       observed_invocation_count,
-      unknown_origin_count
+      unknown_origin_count,
+      static_entry_tokens,
+      static_package_tokens,
+      estimated_static_entry_load,
+      estimated_static_package_load,
+      metadata_exact_count,
+      metadata_estimated_count,
+      metadata_unknown_count
     )
     select
       ? as date,
@@ -100,7 +107,26 @@ function recomputeDailyCapabilityStats(db: SqliteDatabase, date: string): void {
       sum(case when c.invocation_origin = 'explicit' then 1 else 0 end) as explicit_invocation_count,
       sum(case when c.invocation_origin = 'inferred' then 1 else 0 end) as inferred_invocation_count,
       sum(case when c.invocation_origin = 'observed' then 1 else 0 end) as observed_invocation_count,
-      sum(case when c.invocation_origin = 'unknown' then 1 else 0 end) as unknown_origin_count
+      sum(case when c.invocation_origin = 'unknown' then 1 else 0 end) as unknown_origin_count,
+      case
+        when count(c.static_entry_tokens) = 0 then null
+        else sum(c.static_entry_tokens)
+      end as static_entry_tokens,
+      case
+        when count(c.static_package_tokens) = 0 then null
+        else sum(c.static_package_tokens)
+      end as static_package_tokens,
+      case
+        when count(c.static_entry_tokens) = 0 then null
+        else sum(c.static_entry_tokens)
+      end as estimated_static_entry_load,
+      case
+        when count(c.static_package_tokens) = 0 then null
+        else sum(c.static_package_tokens)
+      end as estimated_static_package_load,
+      sum(case when c.static_metadata_confidence = 'exact' then 1 else 0 end) as metadata_exact_count,
+      sum(case when c.static_metadata_confidence = 'estimated' then 1 else 0 end) as metadata_estimated_count,
+      sum(case when c.static_metadata_confidence = 'unknown' then 1 else 0 end) as metadata_unknown_count
     from capability_usages c
     left join turns t
       on c.turn_id = t.id

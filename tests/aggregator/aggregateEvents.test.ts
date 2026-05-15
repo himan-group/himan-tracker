@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
@@ -37,6 +37,7 @@ describe("ingestEvents", () => {
         "001_initial",
         "002_capability_invocation_origin",
         "003_monthly_archive",
+        "004_skill_metadata",
       ]);
       assert.deepEqual(first.affected_dates, [toLocalDate(events[0].occurred_at)]);
 
@@ -77,6 +78,7 @@ describe("ingestEvents", () => {
         "001_initial",
         "002_capability_invocation_origin",
         "003_monthly_archive",
+        "004_skill_metadata",
       ]);
 
       assertDatabaseStats(sqlitePath, toLocalDate(events[0].occurred_at));
@@ -118,6 +120,135 @@ describe("ingestEvents", () => {
       assert.equal(result.events_read, 4);
       assert.equal(result.events_inserted, 4);
       assert.deepEqual(result.affected_dates, ["2026-05-12", "2026-05-13"]);
+    } finally {
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("consumes himan.yaml metadata for skill capability usages", async () => {
+    const homeDir = await mkdtemp(path.join(tmpdir(), "himan-ingest-test-"));
+
+    try {
+      const eventsPath = path.join(homeDir, "events.jsonl");
+      const sqlitePath = path.join(homeDir, "himan.sqlite");
+      const metadataRoot = path.join(homeDir, "workspace");
+      const skillDir = path.join(metadataRoot, ".agents", "skills", "common-dev-pattern");
+      await mkdir(skillDir, { recursive: true });
+      await writeFile(
+        path.join(skillDir, "himan.yaml"),
+        `name: common-dev-pattern
+type: skill
+version: 0.0.6
+entry: SKILL.md
+description: Follow existing repository patterns.
+agents:
+  - codex
+analysis:
+  content:
+    tokenizer: approx-char-v1
+    tokenEstimator: ceil(chars/4)
+    entryTokens: 847
+    packageTokens: 901
+    contentHash: sha256:abc123
+    measuredAt: 2026-05-14T07:52:32.527Z
+    measuredBy: codex
+  dependencies:
+    skills:
+      - common-project-changelog
+    scripts: []
+    mcpTools:
+      - functions.exec_command
+  generation:
+    generatedBy: codex
+    generatedAt: 2026-05-14T07:52:32.527Z
+`,
+      );
+
+      const skillEvent: NormalizedEvent = {
+        schema_version: "1.0",
+        event_id: "evt_skill_001",
+        event_type: "capability_usage",
+        occurred_at: "2026-05-12T12:00:02.000Z",
+        agent: "codex",
+        source: "fixture",
+        session_id: "s_001",
+        turn_id: "t_001",
+        repo_hash: "repo_hash_001",
+        status: "success",
+        capability_type: "skill",
+        capability_name: "common-dev-pattern",
+        duration_ms: null,
+        input_tokens: null,
+        output_tokens: null,
+        total_tokens: null,
+        adopted: "unknown",
+        attribution_confidence: "estimated",
+        invocation_origin: "inferred",
+      };
+      await appendJsonlRecord(eventsPath, skillEvent);
+
+      const result = await ingestEvents({
+        sqlitePath,
+        eventsPath,
+        skillMetadataRoots: [metadataRoot],
+        now: () => new Date("2026-05-15T00:00:00.000Z"),
+      });
+
+      assert.equal(result.skill_metadata_definitions, 1);
+      assert.equal(result.skill_metadata_issues, 0);
+
+      const db = new Database(sqlitePath);
+      try {
+        const usage = db.prepare("select * from capability_usages").get() as {
+          capability_version: string;
+          capability_content_hash: string;
+          static_entry_tokens: number;
+          static_package_tokens: number;
+          static_metadata_confidence: string;
+          total_tokens: number | null;
+        };
+        assert.equal(usage.capability_version, "0.0.6");
+        assert.equal(usage.capability_content_hash, "sha256:abc123");
+        assert.equal(usage.static_entry_tokens, 847);
+        assert.equal(usage.static_package_tokens, 901);
+        assert.equal(usage.static_metadata_confidence, "exact");
+        assert.equal(usage.total_tokens, null);
+
+        const definition = db.prepare("select * from capability_definitions").get() as {
+          capability_name: string;
+          version: string;
+          static_entry_tokens: number;
+          static_package_tokens: number;
+        };
+        assert.equal(definition.capability_name, "common-dev-pattern");
+        assert.equal(definition.version, "0.0.6");
+        assert.equal(definition.static_entry_tokens, 847);
+        assert.equal(definition.static_package_tokens, 901);
+
+        const dependencyCount = db
+          .prepare("select count(*) as count from capability_definition_dependencies")
+          .get() as { count: number };
+        assert.equal(dependencyCount.count, 2);
+
+        const dailyStats = db.prepare("select * from daily_capability_stats").get() as {
+          total_tokens: number | null;
+          static_entry_tokens: number;
+          static_package_tokens: number;
+          estimated_static_entry_load: number;
+          estimated_static_package_load: number;
+          metadata_exact_count: number;
+          metadata_unknown_count: number;
+        };
+        assert.equal(dailyStats.total_tokens, null);
+        assert.equal(dailyStats.static_entry_tokens, 847);
+        assert.equal(dailyStats.static_package_tokens, 901);
+        assert.equal(dailyStats.estimated_static_entry_load, 847);
+        assert.equal(dailyStats.estimated_static_package_load, 901);
+        assert.equal(dailyStats.metadata_exact_count, 1);
+        assert.equal(dailyStats.metadata_unknown_count, 0);
+      } finally {
+        db.close();
+      }
     } finally {
       await rm(homeDir, { recursive: true, force: true });
     }
@@ -239,6 +370,13 @@ function assertDatabaseStats(sqlitePath: string, expectedDate: string): void {
       inferred_invocation_count: number;
       observed_invocation_count: number;
       unknown_origin_count: number;
+      static_entry_tokens: number | null;
+      static_package_tokens: number | null;
+      estimated_static_entry_load: number | null;
+      estimated_static_package_load: number | null;
+      metadata_exact_count: number;
+      metadata_estimated_count: number;
+      metadata_unknown_count: number;
     };
     assert.deepEqual(capabilityStats, {
       date: expectedDate,
@@ -258,6 +396,13 @@ function assertDatabaseStats(sqlitePath: string, expectedDate: string): void {
       inferred_invocation_count: 0,
       observed_invocation_count: 1,
       unknown_origin_count: 0,
+      static_entry_tokens: null,
+      static_package_tokens: null,
+      estimated_static_entry_load: null,
+      estimated_static_package_load: null,
+      metadata_exact_count: 0,
+      metadata_estimated_count: 0,
+      metadata_unknown_count: 1,
     });
   } finally {
     db.close();

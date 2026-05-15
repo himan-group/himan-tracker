@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 - Added `archive monthly` to roll up complete months older than the recent six-month retention window into monthly archive tables and remove corresponding daily raw shards and daily stats.
 - Added `backfill codex --date YYYY-MM-DD` to rebuild missing Codex normalized events from local transcript JSONL files, including explicit and inferred skill usage, with event ID and similar-event deduplication.
+- Added Himan skill metadata ingestion from local `himan.yaml` files, including static skill token estimates, versions, content hashes, dependencies, and metadata issues in the SQLite projection.
 
 ### Fixed
 

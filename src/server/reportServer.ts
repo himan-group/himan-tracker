@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo, Socket } from "node:net";
 import path from "node:path";
 import { readFile, rm, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 
 import { ingestEvents } from "../aggregator/aggregateEvents.js";
 import { ensureTrackerDirectories, type TrackerPaths } from "../config/paths.js";
@@ -379,6 +380,7 @@ async function runIngest(
   const result = await ingestEvents({
     sqlitePath: paths.sqlitePath,
     eventsDir: paths.eventsDir,
+    skillMetadataRoots: [process.cwd(), homedir()],
     now,
   });
 
