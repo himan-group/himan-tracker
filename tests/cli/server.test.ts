@@ -53,6 +53,8 @@ describe("server command", () => {
       assert.match(html, /himan-tracker/);
       assert.match(html, /<link rel="icon" type="image\/svg\+xml" href="data:image\/svg\+xml,/);
       assert.match(html, /<table>/);
+      assert.match(html, /href="\/" aria-current="page">Overview<\/a>/);
+      assert.match(html, /href="\/metrics">Metrics<\/a>/);
       assert.match(html, /Summary/);
       const summaryHtml = html.slice(
         html.indexOf("<h2>Summary</h2>"),
@@ -137,6 +139,47 @@ describe("server command", () => {
         true,
       );
 
+      const metricsResponse = await fetch(`${instance.url}/metrics`);
+      const metricsHtml = await metricsResponse.text();
+      assert.equal(metricsResponse.status, 200);
+      assert.match(metricsHtml, /<h1>Metrics<\/h1>/);
+      assert.match(metricsHtml, /href="\/">Overview<\/a>/);
+      assert.match(metricsHtml, /href="\/metrics" aria-current="page">Metrics<\/a>/);
+      assert.match(metricsHtml, /Overall metrics/);
+      assert.match(metricsHtml, /Project metrics/);
+      assert.match(metricsHtml, /Capability metrics/);
+      assert.match(metricsHtml, /Alerts/);
+      assert.match(metricsHtml, /role="tab"[^>]*>Day<\/button>/);
+      assert.match(metricsHtml, /role="tab"[^>]*>Week<\/button>/);
+      assert.match(metricsHtml, /role="tab"[^>]*>Month<\/button>/);
+      assert.match(metricsHtml, /repo_hash_server_001/);
+      assert.match(metricsHtml, /server-capability-01/);
+
+      const metricsJsonResponse = await fetch(`${instance.url}/metrics.json`);
+      const metrics = (await metricsJsonResponse.json()) as {
+        periods: Array<{
+          period: string;
+          overall: { turnCount: number; totalTokens: number | null };
+          projects: Array<{ repoHash: string; skillInvocationCount: number; mcpInvocationCount: number }>;
+          capabilities: Array<{ capabilityName: string; invocationCount: number }>;
+        }>;
+      };
+      assert.equal(metricsJsonResponse.status, 200);
+      assert.deepEqual(
+        metrics.periods.map((period) => period.period),
+        ["day", "week", "month"],
+      );
+      const dayMetrics = metrics.periods.find((period) => period.period === "day");
+      assert.equal(dayMetrics?.overall.turnCount, 1);
+      assert.equal(dayMetrics?.overall.totalTokens, 1_234);
+      assert.equal(dayMetrics?.projects[0]?.repoHash, "repo_hash_server_001");
+      assert.equal(dayMetrics?.projects[0]?.skillInvocationCount, 30);
+      assert.equal(dayMetrics?.projects[0]?.mcpInvocationCount, 1);
+      assert.equal(
+        dayMetrics?.capabilities.some((capability) => capability.capabilityName === "server-capability-01"),
+        true,
+      );
+
       const healthResponse = await fetch(`${instance.url}/healthz`);
       const health = (await healthResponse.json()) as {
         ok: boolean;
@@ -170,6 +213,42 @@ describe("server command", () => {
     } finally {
       await instance.close();
       assert.equal(await readReportServerState(paths), null);
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders metrics empty states when no usage data exists", async () => {
+    const homeDir = await mkdtemp(path.join(tmpdir(), "himan-server-test-"));
+    const paths = resolveTrackerPaths({ HIMAN_TRACKER_HOME: homeDir });
+
+    await ensureTrackerDirectories(paths);
+
+    const instance = await startReportHttpServer({
+      paths,
+      host: "127.0.0.1",
+      port: 0,
+      intervalSeconds: 60,
+      since: "7d",
+      display: "table",
+      now: () => now,
+    });
+
+    try {
+      const response = await fetch(`${instance.url}/metrics`);
+      const html = await response.text();
+      assert.equal(response.status, 200);
+      assert.match(html, /No project metrics found/);
+      assert.match(html, /No capability metrics found/);
+      assert.match(html, /No metrics alerts found/);
+
+      const metricsJsonResponse = await fetch(`${instance.url}/metrics.json`);
+      const metrics = (await metricsJsonResponse.json()) as {
+        periods: Array<{ period: string; overall: { turnCount: number } }>;
+      };
+      assert.equal(metricsJsonResponse.status, 200);
+      assert.equal(metrics.periods.find((period) => period.period === "day")?.overall.turnCount, 0);
+    } finally {
+      await instance.close();
       await rm(homeDir, { recursive: true, force: true });
     }
   });

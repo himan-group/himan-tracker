@@ -26,8 +26,8 @@
 | Step | 状态 | 说明 |
 | --- | --- | --- |
 | MAS-1：指标与预警计算内核 | completed | 新增整体、项目、Capability 的 period metrics、growth、stddev 和 alert 计算 |
-| MAS-2：Metrics 页面与 JSON API | in_progress | 新增 `/metrics` 和 `/metrics.json`，展示日/周/月指标与预警 |
-| MAS-3：文档、changelog、验证与提交 | pending | 更新 changelog，运行验证，完成提交 |
+| MAS-2：Metrics 页面与 JSON API | completed | 新增 `/metrics` 和 `/metrics.json`，展示日/周/月指标与预警 |
+| MAS-3：文档、changelog、验证与提交 | in_progress | 更新 changelog，运行验证，完成提交 |
 
 ## MAS-1：指标与预警计算内核
 
@@ -89,11 +89,11 @@ npx tsc -p tsconfig.json --noEmit
 
 验收标准：
 
-- [ ] `GET /metrics` 返回 HTML 页面。
-- [ ] `GET /metrics.json` 返回 metrics insight DTO。
-- [ ] 页面导航包含 Overview 与 Metrics。
-- [ ] 页面明确展示日/周/月 tabs 或分组。
-- [ ] 空数据时有明确 empty state。
+- [x] `GET /metrics` 返回 HTML 页面。
+- [x] `GET /metrics.json` 返回 metrics insight DTO。
+- [x] 页面导航包含 Overview 与 Metrics。
+- [x] 页面明确展示日/周/月 tabs 或分组。
+- [x] 空数据时有明确 empty state。
 
 ## MAS-3：文档、changelog、验证与提交
 
