@@ -27,7 +27,7 @@
 | --- | --- | --- |
 | MAS-1：指标与预警计算内核 | completed | 新增整体、项目、Capability 的 period metrics、growth、stddev 和 alert 计算 |
 | MAS-2：Metrics 页面与 JSON API | completed | 新增 `/metrics` 和 `/metrics.json`，展示日/周/月指标与预警 |
-| MAS-3：文档、changelog、验证与提交 | in_progress | 更新 changelog，运行验证，完成提交 |
+| MAS-3：文档、changelog、验证与提交 | completed | 更新 changelog，运行验证，完成提交 |
 
 ## MAS-1：指标与预警计算内核
 
@@ -122,7 +122,16 @@ git diff --check
 
 验收标准：
 
-- [ ] Changelog 位于 `[Unreleased]`。
-- [ ] Sprint 计划状态更新。
-- [ ] 完整测试和 sandbox build 通过。
-- [ ] 创建本地 commit，不 push。
+- [x] Changelog 位于 `[Unreleased]`。
+- [x] Sprint 计划状态更新。
+- [x] 完整测试和 sandbox build 通过。
+- [x] 创建本地 commit，不 push。
+
+验证记录：
+
+- `node --import tsx --test tests/reports/metricsInsights.test.ts`
+- `node --import tsx --test tests/cli/server.test.ts`
+- `pnpm run typecheck`
+- `pnpm test`
+- `npm run build:sandbox`
+- `git diff --check`
