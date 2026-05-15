@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-05-15
+
 ### Added
 
 - Added `server start --display table|text` to choose between HTML table dashboard sections and CLI-style text blocks.
