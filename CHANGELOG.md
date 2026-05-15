@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Added `archive monthly` to roll up complete months older than the recent six-month retention window into monthly archive tables and remove corresponding daily raw shards and daily stats.
+- Added `backfill codex --date YYYY-MM-DD` to rebuild missing Codex normalized events from local transcript JSONL files, including explicit and inferred skill usage, with event ID and similar-event deduplication.
+
+### Fixed
+
+- Fixed generated Codex hook helpers to fall back to the source checkout `dist/cli/index.js` when the Codex hook environment cannot resolve the published `himan-tracker` command.
+
 ## [0.1.2] - 2026-05-15
 
 ### Added

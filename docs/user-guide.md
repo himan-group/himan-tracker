@@ -158,6 +158,22 @@ hooks = true
 
 并写入 `UserPromptSubmit`、`PostToolUse` 和 `Stop` hooks。helper 脚本内部会调用 `himan-tracker collect --agent codex --quiet`，并且无论采集是否成功都会 `exit 0`，避免影响 Codex 正常流程。
 
+### `backfill codex`
+
+从 Codex 本地 transcript JSONL 补写缺失的 normalized events。适合 hook 暂时失效、但 Codex transcript 仍在的场景。
+
+```bash
+himan-tracker backfill codex --date 2026-05-15
+```
+
+默认读取 `~/.codex/sessions/YYYY/MM/DD/*.jsonl`。也可以指定 transcript 目录：
+
+```bash
+himan-tracker backfill codex --date 2026-05-15 --from ~/.codex/sessions/2026/05/15
+```
+
+backfill 会写入 `events/YYYY-MM-DD.jsonl`，并在写入前读取现有分片中的 `event_id` 和相似事件，跳过已经存在的事件；同一 session/turn/name 的 skill 也只补写一次。后续 `ingest` 也会通过 SQLite 的 `ingested_events` 表跳过已导入事件。因此重复运行 backfill 或 ingest 不会重复入库。backfill 会从 transcript 的 `event_msg.user_message` 识别显式 `$skill-name`，也会从实际 shell 工具调用中读取 `SKILL.md` 的路径推断 skill；它不会从系统提示或完整 prompt context 的技能列表里推断 skill。backfill 只持久化 normalized metadata，不保存 prompt、response、stdout/stderr、tool 参数或明文 repo path。
+
 ### `collect`
 
 采集 agent hook 或 wrapper JSON payload。当前 `--agent` 默认是 `codex`，也只支持 `codex`。
@@ -207,6 +223,24 @@ himan-tracker ingest --rebuild
 ```
 
 `--rebuild` 会删除并重新生成 `himan.sqlite`、`himan.sqlite-shm` 和 `himan.sqlite-wal`，再从 JSONL 重新导入。
+
+### `archive monthly`
+
+把最近 6 个自然月之前的完整月份归档为月度统计，并清理对应的日级原始分片和日统计。
+
+```bash
+himan-tracker archive monthly --dry-run
+himan-tracker archive monthly
+```
+
+归档窗口按自然月计算，包含当前月在内保留最近 6 个自然月。例如当前日期是 `2026-05-15` 时，保留 `2025-12` 到 `2026-05`，只归档 `2025-11` 及更早月份。命令会：
+
+- 从 `daily_agent_stats` 汇总到 `monthly_agent_stats`。
+- 从 `daily_capability_stats` 汇总到 `monthly_capability_stats`。
+- 删除已归档月份对应的 `events/YYYY-MM-DD.jsonl` 和 `errors/YYYY-MM-DD.jsonl`。
+- 删除已归档月份对应的 `daily_agent_stats` 和 `daily_capability_stats` 行。
+
+当前版本没有持久化周统计表，周报是从日统计临时聚合的；因此清理对应日统计后，也不会再保留这些月份的周级明细。`--dry-run` 只预览将归档的月份、月度行数和将删除的文件数量，不写入归档表、不删除日统计，也不删除文件。
 
 ### `server`
 

@@ -10,6 +10,7 @@
 - 每个模型消耗了多少 token，带来了多少延迟。
 - skill、MCP tool、plugin、内置工具、shell command 等 capability 的实际调用情况。
 - 哪些 capability 有调用、成本和耗时，哪些长期未使用。
+- Himan skill 的静态元数据、版本、依赖、静态 token 体量和 metadata 健康状态。
 
 MVP 不采集 prompt、response 和代码内容，只采集元数据，并以本地 JSONL 和 SQLite 作为事实源与查询源。
 
@@ -99,6 +100,17 @@ hook collector 必须 fail-open：
 ~/.himan-tracker/errors/YYYY-MM-DD.jsonl
 ```
 
+### 2.6 Skill 静态元数据与运行时指标分离
+
+Himan skill 可通过 `himan.yaml` 提供静态分析元数据，例如版本、入口文件、content hash、静态 token 估算、依赖 skill、脚本和 MCP tool。`himan-tracker` 应把这些数据作为 capability definition metadata 使用，用于解释 skill 的规模、依赖、版本和维护质量。
+
+`analysis.content.entryTokens` 和 `analysis.content.packageTokens` 是 skill 的静态值，不是某次 agent turn 的准确运行时 token。设计上必须保持两类口径分离：
+
+- Runtime tokens：来自 agent hook、transcript 或结构化 telemetry 的实际运行时观测值，继续写入 `input_tokens`、`output_tokens`、`total_tokens`。
+- Static tokens：来自 `himan.yaml` 的 `entryTokens`、`packageTokens`，只进入 `static_*` 或 `estimated_static_*` 字段，用于静态体量和潜在上下文压力分析。
+
+所有报表和 API 文案都应使用 `Static`、`Estimated static` 或 `Instruction token estimate` 命名，避免把静态估算误读为真实消耗。
+
 ## 3. 推荐工程结构
 
 当前仓库尚未建立代码目录。建议 MVP 采用 TypeScript + Node.js 实现 CLI 和 hook adapter，理由是 JSON 处理、CLI 分发、跨平台安装和本地 hook 脚本集成都较直接。
@@ -114,6 +126,11 @@ src/
     claude-code/
       index.ts
       fixtures/
+    himan/
+      lockfile.ts
+      metadata.ts
+      skillManifest.ts
+      dependencies.ts
   aggregator/
     aggregateEvents.ts
     dailyStats.ts
@@ -141,6 +158,9 @@ src/
   reports/
     formatTable.ts
     summaryReport.ts
+    skillInsightsReport.ts
+  server/
+    reportServer.ts
   storage/
     sqlite.ts
     migrations/
@@ -269,6 +289,132 @@ MVP 报表应同时展示 `invocation_origin` 和 `attribution_confidence`，避
 }
 ```
 
+### 4.5 Skill Definition Metadata
+
+Skill definition metadata 来自 `himan.yaml`，用于描述 skill 的静态属性。它不是 append-only runtime event，而是 ingest / metadata sync 阶段写入 SQLite projection 的静态维表数据。
+
+推荐支持的 `himan.yaml` 结构：
+
+```yaml
+name: common-dev-pattern
+type: skill
+version: 0.0.6
+entry: SKILL.md
+description: Follow existing repository patterns for code changes.
+agents:
+  - codex
+analysis:
+  content:
+    tokenizer: approx-char-v1
+    tokenEstimator: ceil(chars/4)
+    entryTokens: 847
+    packageTokens: 847
+    contentHash: sha256:...
+    measuredAt: 2026-05-14T07:52:32.527Z
+    measuredBy: codex
+  dependencies:
+    skills:
+      - common-project-changelog
+    scripts: []
+    mcpTools: []
+  generation:
+    generatedBy: codex
+    generatedAt: 2026-05-14T07:52:32.527Z
+    model: gpt-5
+    promptRef: himan-skill-metadata
+```
+
+内部 DTO 建议：
+
+```ts
+type SkillDefinitionMetadata = {
+  name: string;
+  type: "skill";
+  version: string | null;
+  entry: string;
+  description: string | null;
+  agents: string[];
+  static_entry_tokens: number | null;
+  static_package_tokens: number | null;
+  tokenizer: string | null;
+  token_estimator: string | null;
+  content_hash: string | null;
+  measured_at: string | null;
+  measured_by: string | null;
+  generated_at: string | null;
+  generated_by: string | null;
+  dependencies: {
+    skills: string[];
+    scripts: Array<{ path: string }>;
+    mcp_tools: string[];
+  };
+};
+```
+
+字段规则：
+
+- `name` 必须与 skill folder 和 `SKILL.md` front matter 一致；不一致时记录 metadata issue。
+- `type` 第一版只接受 `skill`。
+- `entry` 默认是 `SKILL.md`，但仍按 metadata 保存，便于未来支持其他入口。
+- `entryTokens`、`packageTokens` 只映射到 `static_entry_tokens`、`static_package_tokens`。
+- `contentHash` 作为版本外的内容身份，用于检测同版本内容漂移。
+- 依赖只记录名称和相对路径，不保存脚本内容或 skill 正文。
+
+### 4.6 Skill Insights Page DTO
+
+Skill 指标页面使用页面专用 DTO，不直接暴露 SQLite 表结构。
+
+```ts
+type SkillInsightsData = {
+  generatedAt: string;
+  range: {
+    startDate: string;
+    endDate: string;
+  };
+  summary: {
+    installedSkillCount: number;
+    activeSkillCount: number;
+    unusedSkillCount: number;
+    adoptionRate: number | null;
+    estimatedStaticEntryLoad: number | null;
+    estimatedStaticPackageLoad: number | null;
+    metadataIssueCount: number;
+  };
+  skills: SkillInsightRow[];
+  lowValueCandidates: SkillCandidateRow[];
+  dependencyRows: SkillDependencyRow[];
+  metadataIssues: SkillMetadataIssueRow[];
+};
+```
+
+核心 skill row：
+
+```ts
+type SkillInsightRow = {
+  name: string;
+  version: string | null;
+  contentHash: string | null;
+  invocationCount: number;
+  lastUsedAt: string | null;
+  runtimeTokens: number | null;
+  staticEntryTokens: number | null;
+  staticPackageTokens: number | null;
+  estimatedStaticEntryLoad: number | null;
+  estimatedStaticPackageLoad: number | null;
+  successRate: number | null;
+  explicitCount: number;
+  inferredCount: number;
+  metadataConfidence: "exact" | "estimated" | "unknown";
+};
+```
+
+命名规则：
+
+- `runtimeTokens` 对应真实运行时 token。
+- `staticEntryTokens` 和 `staticPackageTokens` 对应 `himan.yaml` 静态值。
+- `estimatedStaticEntryLoad = invocationCount * staticEntryTokens`。
+- `estimatedStaticPackageLoad = invocationCount * staticPackageTokens`。
+
 ## 5. Hook 与 Adapter 设计
 
 ### 5.1 Hook 映射
@@ -319,6 +465,34 @@ type AgentAdapter = {
 5. 其他归为 `unknown`。
 
 分类逻辑应集中在 `normalizer/capabilityClassifier.ts`，不要散落在各 adapter 中。
+
+### 5.5 Himan Metadata Resolver
+
+`himan.yaml` 读取应放在 Himan adapter / metadata resolver 中，不放进 normalizer。Normalizer 只处理事件字段和 schema 校验，不理解 skill package 布局。
+
+建议职责：
+
+- 从项目 `.agents/skills/*/himan.yaml`、全局 `~/.agents/skills/*/himan.yaml`、Himan store 路径读取 metadata。
+- 结合最近的 `himan.lock` 判断当前项目安装了哪些 skill。
+- 以 `name + agent + version + contentHash` 建立 skill definition。
+- 在 ingest 或 metadata sync 阶段写入静态 definition 和 dependency projection。
+- 对 skill usage 事件补充静态 metadata 快照，例如 version、content hash、static token estimates 和 metadata confidence。
+
+Skill metadata 匹配优先级：
+
+1. transcript 中明确 `SKILL.md` 路径旁边的 `himan.yaml`。
+2. 项目 `.agents/skills/<name>/himan.yaml`。
+3. 最近 `himan.lock` 指向的 installed skill。
+4. 全局 `~/.agents/skills/<name>/himan.yaml`。
+5. Himan store 中同名 skill 的最新版本。
+6. 未匹配时 `metadata_confidence = unknown`。
+
+读取规则：
+
+- 允许读取 `himan.yaml` 和 `himan.lock` 中的资源清单字段。
+- 不读取或保存 `SKILL.md` 正文。
+- 不保存 `himan.lock` 的 source repo URL。
+- 明文路径只用于本地解析，落库时使用本地 salt hash 或仅保存相对路径。
 
 ## 6. 存储设计
 
@@ -408,6 +582,11 @@ type AgentAdapter = {
 | `adopted` | text | `yes`、`no`、`unknown` |
 | `attribution_confidence` | text | `exact`、`estimated`、`unknown` |
 | `invocation_origin` | text | `explicit`、`inferred`、`observed`、`unknown` |
+| `capability_version` | text? | skill metadata 匹配到的版本快照 |
+| `capability_content_hash` | text? | skill metadata 匹配到的内容 hash 快照 |
+| `static_entry_tokens` | integer? | `himan.yaml` 静态 entry token 估算 |
+| `static_package_tokens` | integer? | `himan.yaml` 静态 package token 估算 |
+| `static_metadata_confidence` | text | `exact`、`estimated`、`unknown` |
 
 #### `daily_agent_stats`
 
@@ -448,8 +627,140 @@ type AgentAdapter = {
 | `inferred_invocation_count` | integer | `invocation_origin=inferred` 的事件数 |
 | `observed_invocation_count` | integer | `invocation_origin=observed` 的事件数 |
 | `unknown_origin_count` | integer | `invocation_origin=unknown` 的事件数 |
+| `static_entry_tokens` | integer? | 当日匹配到的静态 entry token 总和 |
+| `static_package_tokens` | integer? | 当日匹配到的静态 package token 总和 |
+| `estimated_static_entry_load` | integer? | `sum(static_entry_tokens)`，按调用次数累加 |
+| `estimated_static_package_load` | integer? | `sum(static_package_tokens)`，按调用次数累加 |
+| `metadata_exact_count` | integer | `static_metadata_confidence=exact` 的事件数 |
+| `metadata_estimated_count` | integer | `static_metadata_confidence=estimated` 的事件数 |
+| `metadata_unknown_count` | integer | `static_metadata_confidence=unknown` 的事件数 |
 
 主键建议为 `(date, agent, capability_type, capability_name)`。
+
+#### `capability_definitions`
+
+静态 capability 定义维表。第一版主要保存 `himan.yaml` 中的 skill metadata。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | text primary key | definition ID，建议由 type、name、version、content hash 生成 |
+| `capability_type` | text | 第一版为 `skill` |
+| `capability_name` | text | skill 名称 |
+| `version` | text? | skill 版本 |
+| `content_hash` | text? | package text content hash |
+| `entry` | text | 入口文件，例如 `SKILL.md` |
+| `description` | text? | skill 描述 |
+| `agents_json` | text | JSON array，例如 `["codex"]` |
+| `static_entry_tokens` | integer? | `analysis.content.entryTokens` |
+| `static_package_tokens` | integer? | `analysis.content.packageTokens` |
+| `tokenizer` | text? | tokenizer 或 estimator 名称 |
+| `token_estimator` | text? | 估算公式，例如 `ceil(chars/4)` |
+| `measured_at` | text? | metadata 测量时间 |
+| `measured_by` | text? | metadata 测量者 |
+| `generated_at` | text? | metadata 生成时间 |
+| `generated_by` | text? | metadata 生成者 |
+| `source_path_hash` | text? | metadata 来源路径 hash，不保存明文路径 |
+| `discovered_at` | text | tracker 发现该 definition 的时间 |
+
+推荐唯一约束：
+
+```text
+(capability_type, capability_name, version, content_hash, source_path_hash)
+```
+
+如果同名同版本但 `content_hash` 不同，应视为不同 definition，并在 metadata health 中报告 drift 或冲突。
+
+#### `capability_definition_dependencies`
+
+静态依赖边表。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `definition_id` | text | 所属 definition |
+| `dependency_type` | text | `skill`、`mcp_tool`、`script` |
+| `dependency_name` | text? | skill 或 MCP tool 名称 |
+| `dependency_path` | text? | script 相对路径 |
+
+主键建议为：
+
+```text
+(definition_id, dependency_type, dependency_name, dependency_path)
+```
+
+依赖边只表达静态声明，不代表运行时一定触发。
+
+#### `capability_metadata_issues`
+
+用于记录 metadata sync 或 ingest 时发现的静态元数据问题。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | text primary key | issue ID |
+| `capability_type` | text | capability 类型 |
+| `capability_name` | text | capability 名称 |
+| `version` | text? | 关联版本 |
+| `content_hash` | text? | 关联 hash |
+| `issue_type` | text | `missing_yaml`、`hash_drift`、`lock_version_mismatch`、`old_measurement`、`invalid_shape` 等 |
+| `severity` | text | `info`、`warning`、`error` |
+| `message` | text | 简短说明，不包含正文或明文路径 |
+| `detected_at` | text | 检测时间 |
+
+#### `monthly_agent_stats`
+
+月度归档表，用于保留最近 6 个自然月之前的汇总统计。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `month` | text | `YYYY-MM` |
+| `agent` | text | agent 名称 |
+| `model` | text | 模型名 |
+| `session_count` | integer | session 数，来自日统计求和 |
+| `turn_count` | integer | turn 数 |
+| `input_tokens` | integer? | 输入 token 总和 |
+| `output_tokens` | integer? | 输出 token 总和 |
+| `total_tokens` | integer? | 总 token |
+| `duration_ms` | integer? | 总耗时 |
+| `success_count` | integer | 成功 turn 数 |
+| `failure_count` | integer | 失败 turn 数 |
+| `source_start_date` | text | 归档来源最早日期 |
+| `source_end_date` | text | 归档来源最晚日期 |
+| `archived_at` | text | 归档执行时间 |
+
+主键为 `(month, agent, model)`。
+
+#### `monthly_capability_stats`
+
+月度 capability 归档表。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `month` | text | `YYYY-MM` |
+| `agent` | text | agent 名称 |
+| `capability_type` | text | capability 类型 |
+| `capability_name` | text | capability 名称 |
+| `invocation_count` | integer | 调用次数 |
+| `input_tokens` | integer? | 输入 token 总和 |
+| `output_tokens` | integer? | 输出 token 总和 |
+| `total_tokens` | integer? | 总 token |
+| `duration_ms` | integer? | 总耗时 |
+| `success_count` | integer | 成功次数 |
+| `failure_count` | integer | 失败次数 |
+| `estimated_token_count` | integer | 兼容旧 schema 的估算归因事件数 |
+| `estimated_attribution_count` | integer | `attribution_confidence=estimated` 的事件数 |
+| `explicit_invocation_count` | integer | `invocation_origin=explicit` 的事件数 |
+| `inferred_invocation_count` | integer | `invocation_origin=inferred` 的事件数 |
+| `observed_invocation_count` | integer | `invocation_origin=observed` 的事件数 |
+| `unknown_origin_count` | integer | `invocation_origin=unknown` 的事件数 |
+| `estimated_static_entry_load` | integer? | 静态 entry token 估算，按调用次数累加 |
+| `estimated_static_package_load` | integer? | 静态 package token 估算，按调用次数累加 |
+| `metadata_exact_count` | integer | exact metadata 匹配事件数 |
+| `metadata_estimated_count` | integer | estimated metadata 匹配事件数 |
+| `metadata_unknown_count` | integer | unknown metadata 匹配事件数 |
+| `source_start_date` | text | 归档来源最早日期 |
+| `source_end_date` | text | 归档来源最晚日期 |
+| `archived_at` | text | 归档执行时间 |
+
+主键为 `(month, agent, capability_type, capability_name)`。
 
 ## 7. 聚合逻辑
 
@@ -501,6 +812,7 @@ time_share = capability_duration_ms / all_capability_duration_ms
 
 - 从历史事件中出现过，但指定时间窗口内未出现。
 - 从本地配置 `known_capabilities` 中声明，但指定时间窗口内未出现。
+- 从 `himan.lock` 和 `himan.yaml` 发现的已安装 skill。
 
 配置示例：
 
@@ -514,6 +826,59 @@ time_share = capability_duration_ms / all_capability_duration_ms
   ]
 }
 ```
+
+### 7.5 Skill 静态指标
+
+`himan.yaml` 支撑的指标分为四类。
+
+安装与使用：
+
+```text
+installed_skill_count = count(capability_definitions where type = skill and agent matches)
+active_skill_count = count(distinct skill with invocation_count > 0 in range)
+unused_skill_count = installed_skill_count - active_skill_count
+skill_adoption_rate = active_skill_count / installed_skill_count
+```
+
+静态成本：
+
+```text
+estimated_static_entry_load = sum(static_entry_tokens per skill invocation)
+estimated_static_package_load = sum(static_package_tokens per skill invocation)
+static_cost_per_success = estimated_static_entry_load / success_count
+```
+
+依赖复杂度：
+
+```text
+direct_dependency_count = count(dependencies where definition_id = skill)
+reverse_dependency_count = count(dependencies where dependency_name = skill)
+transitive_static_tokens = skill.static_package_tokens + recursive dependency static_package_tokens
+```
+
+元数据健康：
+
+```text
+metadata_coverage = skills_with_himan_yaml / installed_skill_count
+metadata_issue_count = count(capability_metadata_issues)
+measured_age_days = today - measured_at
+```
+
+所有静态成本指标都必须在字段名和展示文案中保留 `static` 或 `estimated static`，不能计入 runtime `total_tokens`。
+
+### 7.6 Skill 版本与历史准确性
+
+Skill usage 入库时应尽量保存 metadata 快照：
+
+- `capability_version`
+- `capability_content_hash`
+- `static_entry_tokens`
+- `static_package_tokens`
+- `static_metadata_confidence`
+
+这样历史事件可以按当时匹配到的版本和 content hash 分析。如果只在报表时 join 当前 `himan.yaml`，同名 skill 升级后会污染历史分析。
+
+当同一天同一个 skill 出现多个版本或多个 content hash 时，底层聚合应保留 version/hash 维度，页面可默认按 skill name 合并，并在详情中展开版本分布。
 
 ## 8. CLI 设计
 
@@ -687,7 +1052,23 @@ himan-tracker cleanup --older-than 30d
 - 不删除 `himan.sqlite`，保留已经导入的统计结果。
 - 不删除 `queue/`，避免丢弃尚未落入 JSONL 和 SQLite 的待处理事件。
 
-### 8.10 `doctor`
+### 8.10 `archive monthly`
+
+```bash
+himan-tracker archive monthly --dry-run
+himan-tracker archive monthly
+```
+
+用途：
+
+- 只处理最近 6 个自然月之前的完整月份，当前月计入保留窗口。例如 `2026-05-15` 执行时保留 `2025-12` 到 `2026-05`，归档 `2025-11` 及更早月份。
+- 将 `daily_agent_stats` 汇总写入 `monthly_agent_stats`。
+- 将 `daily_capability_stats` 汇总写入 `monthly_capability_stats`。
+- 删除已归档月份的 `events/YYYY-MM-DD.jsonl`、`errors/YYYY-MM-DD.jsonl`、`daily_agent_stats` 和 `daily_capability_stats`。
+- 当前版本没有持久化周统计表，周统计由日报表临时聚合；删除对应日统计即可移除这些月份的周级明细来源。
+- 支持 `--dry-run` 预览归档月份、月度行数和删除文件数量，不写入归档表、不删除日统计，也不删除文件。
+
+### 8.11 `doctor`
 
 ```bash
 himan-tracker doctor
@@ -700,6 +1081,106 @@ himan-tracker doctor
 - SQLite 是否可打开。
 - hook 配置是否可用。
 - schema version 是否兼容。
+
+### 8.12 Server Dashboard 与 Skill Insights 页面
+
+`himan-tracker server` 提供本地 HTTP dashboard。现有 `/` 页面保留为 Overview，展示 agent、token、capability 和 recent turns 的运行时总览。Skill 静态治理指标应提供独立页面，避免和运行时 token 总览混淆。
+
+建议路由：
+
+```text
+GET /
+GET /dashboard.json
+GET /skills
+GET /skills.json
+GET /healthz
+```
+
+页面导航：
+
+```text
+Overview | Skill Insights
+```
+
+#### `/skills` 页面定位
+
+Skill Insights 页面用于回答：
+
+- 哪些 skill 已安装但没有被使用。
+- 哪些 skill 静态 token 体量过大。
+- 哪些 skill 高频但静态成本偏高。
+- 哪些 skill 版本、content hash 或 metadata 已过期。
+- 哪些 skill 是依赖核心，修改风险较高。
+
+#### `/skills` 页面结构
+
+顶部指标卡：
+
+```text
+Installed skills
+Active skills
+Unused skills
+Adoption rate
+Estimated static entry load
+Metadata issues
+```
+
+Skill 使用矩阵：
+
+```text
+Skill | Version | Invocations | Last used | Runtime tokens | Static entry tokens | Static package tokens | Estimated static load | Success rate | Origin mix | Metadata
+```
+
+高成本 / 低使用候选：
+
+```text
+Skill | Invocations | Static package tokens | Estimated static load | Days since last use | Reason
+```
+
+`Reason` 可取：
+
+```text
+unused | large package | stale metadata | low success rate | high static cost per success
+```
+
+依赖复杂度：
+
+```text
+Skill | Direct deps | Reverse deps | Declared MCP tools | Scripts | Transitive static tokens | Risk
+```
+
+Metadata 健康检查：
+
+```text
+Skill | Version | Hash | Measured at | Tokenizer | Issue
+```
+
+`Issue` 可取：
+
+```text
+missing_yaml | hash_drift | lock_version_mismatch | old_measurement | unsupported_tokenizer | invalid_shape
+```
+
+#### `/skills.json` API
+
+`/skills.json` 返回 `SkillInsightsData`，用于页面渲染和后续外部集成。该 JSON 应保持页面所需的聚合 DTO，不直接暴露 SQLite 表结构。
+
+页面展示口径：
+
+- `Runtime tokens`：真实运行时观测 token。
+- `Static entry tokens`：`himan.yaml.analysis.content.entryTokens`。
+- `Static package tokens`：`himan.yaml.analysis.content.packageTokens`。
+- `Estimated static load`：静态 token 与调用次数的乘积，不是真实消耗。
+
+#### 后续 CLI
+
+第一版优先做页面。CLI 可后续补充：
+
+```bash
+himan-tracker skills
+himan-tracker skills --issues
+himan-tracker skills --unused --since 30d
+```
 
 ## 9. 配置设计
 
@@ -727,6 +1208,11 @@ himan-tracker doctor
     }
   },
   "known_capabilities": [],
+  "skill_metadata": {
+    "enabled": true,
+    "scan_project_skills": true,
+    "scan_global_skills": true
+  },
   "cost": {
     "currency": "USD",
     "models": {}
@@ -735,6 +1221,8 @@ himan-tracker doctor
 ```
 
 MVP 只需要读取必要字段。未知字段应保留并忽略，方便未来版本兼容。
+
+`skill_metadata` 用于控制是否扫描 `himan.yaml`。默认只做本地扫描，不访问网络，不写入远程服务。
 
 ## 10. 隐私与安全
 
@@ -752,6 +1240,9 @@ MVP 只需要读取必要字段。未知字段应保留并忽略，方便未来�
 - `local_salt` 存在本地 config 中，不上传。
 - shell command 默认只记录命令名和退出状态，不记录完整参数；如需完整参数，必须显式开启。
 - 所有未来 content capture 功能都必须经过 redaction，并默认关闭。
+- `himan.yaml` 只保存 skill 名称、版本、content hash、静态 token 估算、依赖名称、脚本相对路径和 MCP tool 名称。
+- 不保存 `SKILL.md` 正文、脚本内容、`himan.lock` source repo URL 或明文 skill 文件路径。
+- skill metadata 来源路径如需落库，只保存 `source_path_hash`。
 
 ## 11. 测试策略
 
@@ -763,6 +1254,9 @@ MVP 至少需要以下测试：
 - Aggregator tests：重复导入同一事件不会重复计数。
 - CLI snapshot tests：固定 SQLite fixture 输出稳定表格。
 - Privacy tests：确保 prompt、response、code content 不会出现在事件 JSON 中。
+- Himan metadata tests：合法 `himan.yaml` 能解析为稳定 definition，缺失字段、版本不一致和 hash drift 能生成 metadata issue。
+- Skill Insights tests：`/skills.json` 对 installed、active、unused、static load、metadata issue 的计算稳定，且 `entryTokens`、`packageTokens` 不进入 runtime `total_tokens`。
+- Server rendering tests：`/skills` 页面能展示静态 token 口径说明，空数据时有明确 empty state。
 
 ## 12. MVP 开发顺序
 
@@ -837,6 +1331,20 @@ MVP 至少需要以下测试：
 - 缺少价格配置时显示 `n/a`。
 - 有价格配置时可估算 token cost。
 
+### Phase 7：Himan Skill Metadata 与 Skill Insights
+
+- 实现 `himan.yaml` metadata resolver。
+- 新增 capability definition、dependency 和 metadata issue projection。
+- 在 skill usage 入库时补充 version、content hash 和 static token 快照。
+- 增强 `unused` 候选来源，支持从 `himan.lock` 和 `himan.yaml` 发现已安装 skill。
+- 新增 server `/skills` 和 `/skills.json` 页面。
+
+验收标准：
+
+- `entryTokens`、`packageTokens` 只出现在 `static_*` 和 `estimated_static_*` 字段中。
+- Skill Insights 页面能展示 installed、active、unused、adoption rate、estimated static load 和 metadata issues。
+- 同名 skill 不同版本或不同 content hash 可以被区分。
+
 ## 13. 风险与处理
 
 | 风险 | 影响 | MVP 处理 |
@@ -846,6 +1354,9 @@ MVP 至少需要以下测试：
 | 多进程同时写 JSONL | 文件损坏或行交错 | 文件锁、单行 append、写入测试 |
 | 用户隐私顾虑 | 无法推广使用 | 默认只采元数据，content capture 关闭 |
 | 未使用 capability 缺少全集 | unused 结果不完整 | 支持 `known_capabilities` 配置 |
+| 静态 token 被误读为真实消耗 | ROI 分析误导 | 所有字段和页面文案使用 `static` / `estimated static`，不写入 `total_tokens` |
+| Skill 升级污染历史分析 | 历史趋势失真 | usage 入库保存 version、content hash 和 static token 快照 |
+| `himan.yaml` 与 `SKILL.md` 漂移 | metadata 不可信 | 用 content hash、measured_at 和 metadata issue 暴露健康状态 |
 | SQLite 聚合逻辑复杂 | 报表不可信 | 先按日期重算，减少增量错误 |
 
 ## 14. 后续可扩展点
@@ -853,6 +1364,7 @@ MVP 至少需要以下测试：
 - Codex OpenTelemetry 指标接入：官方指标包含 turn token、tool call、MCP call 和 hooks run。后续可评估提供本地 OTLP receiver 或配置生成器，作为比 transcript 解析更稳定的 token/tool 数据源。
 - Langfuse / Phoenix 集成。
 - Dashboard UI。
+- Skill Insights 页面：围绕 `himan.yaml` 展示 skill adoption、静态成本、依赖复杂度和 metadata health。
 - 团队级聚合。
 - capability recommendation engine。
 - low-value capability 自动检测。
@@ -866,5 +1378,7 @@ MVP 至少需要以下测试：
 - Adapter 不直接写数据库。
 - Aggregator 不依赖原始 agent hook 格式。
 - CLI 报表只读 SQLite，不直接扫描 hook payload。
+- Server 页面只读 SQLite projection，不在请求路径中重新扫描全部 skill 文件。
 - 所有隐私敏感字段默认不采集。
 - 估算值必须标记为估算，不能伪装成精确统计。
+- `entryTokens`、`packageTokens` 是静态 metadata，不能并入 runtime token 字段。

@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { runAgents } from "./commands/agents.js";
+import { runArchiveMonthly } from "./commands/archive.js";
+import { runBackfill } from "./commands/backfill.js";
 import { runCleanup } from "./commands/cleanup.js";
 import { runCapabilityEvents } from "./commands/capabilityEvents.js";
 import { runCapabilities } from "./commands/capabilities.js";
@@ -113,6 +115,44 @@ program
 type IngestCommandOptions = {
   from?: string;
   rebuild?: boolean;
+};
+
+const backfillCommand = program
+  .command("backfill")
+  .description("Backfill tracker events from local agent transcripts");
+
+backfillCommand
+  .command("codex")
+  .description("Backfill Codex events from local Codex transcript JSONL files")
+  .option("--date <date>", "Transcript date to backfill in YYYY-MM-DD; defaults to today")
+  .option("--from <dir>", "Read transcript JSONL files from a specific directory")
+  .action(async (options: BackfillCodexCommandOptions) => {
+    const result = await runBackfill({ ...options, agent: "codex" });
+    console.log(result.lines.join("\n"));
+    process.exitCode = result.ok ? 0 : 1;
+  });
+
+type BackfillCodexCommandOptions = {
+  date?: string;
+  from?: string;
+};
+
+const archiveCommand = program
+  .command("archive")
+  .description("Archive old local statistics into compact summary tables");
+
+archiveCommand
+  .command("monthly")
+  .description("Archive complete months older than the recent six-month retention window")
+  .option("--dry-run", "Preview archive work without writing or deleting data")
+  .action(async (options: ArchiveMonthlyCommandOptions) => {
+    const result = await runArchiveMonthly(options);
+    console.log(result.lines.join("\n"));
+    process.exitCode = result.ok ? 0 : 1;
+  });
+
+type ArchiveMonthlyCommandOptions = {
+  dryRun?: boolean;
 };
 
 const serverCommand = program

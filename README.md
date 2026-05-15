@@ -26,7 +26,9 @@ npm install -g @hi-man/himan-tracker
 ```bash
 himan-tracker doctor
 himan-tracker setup
+himan-tracker backfill codex --date YYYY-MM-DD
 himan-tracker ingest
+himan-tracker archive monthly --dry-run
 himan-tracker summary --since 7d
 himan-tracker tokens --period week --since 12w
 himan-tracker server start --open
@@ -34,7 +36,9 @@ himan-tracker server start --open
 
 - `doctor` 检查并初始化本地数据目录。
 - `setup` 为当前项目安装 Codex hooks。
+- `backfill codex` 从 Codex 本地 transcript 补写缺失的 normalized events，包含显式 `$skill-name` 和读取 `SKILL.md` 推断的 skill，并按重复事件规则跳过已存在数据。
 - `ingest` 将本地 JSONL 事件导入 SQLite。
+- `archive monthly` 把最近 6 个自然月之前的日统计汇总到月度归档表，并清理对应日分片。
 - `summary` 查看最近使用总览。
 - `tokens` 查看每日、每周或每月 token 消耗。
 - `server start` 启动本地报表页面，并定时增量导入事件；加 `--open` 会自动打开浏览器，`--display text` 可切换为命令行风格文本展示。
@@ -58,7 +62,9 @@ himan-tracker setup --dry-run
 | `himan-tracker doctor` | 检查本地配置、数据目录和 SQLite 状态 |
 | `himan-tracker setup` | 为当前项目安装 Codex hooks |
 | `himan-tracker setup -g` | 安装全局 Codex hooks |
+| `himan-tracker backfill codex --date YYYY-MM-DD` | 从 Codex 本地 transcript 补写指定日期事件 |
 | `himan-tracker ingest` | 将 `events/*.jsonl` 导入 SQLite |
+| `himan-tracker archive monthly --dry-run` | 预览半年前完整月份的月度归档和原始分片清理 |
 | `himan-tracker server start` | 启动本地报表 Web server |
 | `himan-tracker server start --open` | 启动并用默认浏览器打开报表页面 |
 | `himan-tracker server start --display text` | 用命令行风格文本展示报表页面 |

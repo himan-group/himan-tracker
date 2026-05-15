@@ -170,6 +170,53 @@ set
   );
 `;
 
+export const MONTHLY_ARCHIVE_MIGRATION_SQL = `
+create table if not exists monthly_agent_stats (
+  month text not null,
+  agent text not null,
+  model text not null,
+  session_count integer not null,
+  turn_count integer not null,
+  input_tokens integer,
+  output_tokens integer,
+  total_tokens integer,
+  duration_ms integer,
+  success_count integer not null,
+  failure_count integer not null,
+  source_start_date text not null,
+  source_end_date text not null,
+  archived_at text not null,
+  primary key (month, agent, model)
+);
+
+create table if not exists monthly_capability_stats (
+  month text not null,
+  agent text not null,
+  capability_type text not null,
+  capability_name text not null,
+  invocation_count integer not null,
+  input_tokens integer,
+  output_tokens integer,
+  total_tokens integer,
+  duration_ms integer,
+  success_count integer not null,
+  failure_count integer not null,
+  estimated_token_count integer not null,
+  estimated_attribution_count integer not null,
+  explicit_invocation_count integer not null,
+  inferred_invocation_count integer not null,
+  observed_invocation_count integer not null,
+  unknown_origin_count integer not null,
+  source_start_date text not null,
+  source_end_date text not null,
+  archived_at text not null,
+  primary key (month, agent, capability_type, capability_name)
+);
+
+create index if not exists idx_monthly_agent_stats_month on monthly_agent_stats(month);
+create index if not exists idx_monthly_capability_stats_month on monthly_capability_stats(month);
+`;
+
 const MIGRATIONS: Migration[] = [
   {
     version: "001_initial",
@@ -178,6 +225,10 @@ const MIGRATIONS: Migration[] = [
   {
     version: "002_capability_invocation_origin",
     sql: CAPABILITY_INVOCATION_ORIGIN_MIGRATION_SQL,
+  },
+  {
+    version: "003_monthly_archive",
+    sql: MONTHLY_ARCHIVE_MIGRATION_SQL,
   },
 ];
 

@@ -36,6 +36,7 @@ describe("ingestEvents", () => {
       assert.deepEqual(first.applied_migrations, [
         "001_initial",
         "002_capability_invocation_origin",
+        "003_monthly_archive",
       ]);
       assert.deepEqual(first.affected_dates, [toLocalDate(events[0].occurred_at)]);
 
@@ -75,6 +76,7 @@ describe("ingestEvents", () => {
       assert.deepEqual(rebuilt.applied_migrations, [
         "001_initial",
         "002_capability_invocation_origin",
+        "003_monthly_archive",
       ]);
 
       assertDatabaseStats(sqlitePath, toLocalDate(events[0].occurred_at));

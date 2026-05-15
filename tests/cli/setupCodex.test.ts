@@ -40,6 +40,11 @@ describe("setup command", () => {
         /himan-tracker-collect\.sh'$/,
       );
       assert.match(helperScript, /himan-tracker collect --agent codex --quiet/);
+      assert.match(helperScript, /TRACKER_DIST_CLI=/);
+      assert.match(
+        helperScript,
+        new RegExp(escapeRegExp(path.join(cwd, "dist", "cli", "index.js"))),
+      );
       assert.equal(helperScript.includes(["pnpm", "cli"].join(" ")), false);
       assert.notEqual(helperStat.mode & 0o111, 0);
     } finally {
@@ -128,16 +133,26 @@ describe("setup command", () => {
   });
 
   it("can install global hooks", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "himan-setup-codex-source-test-"));
     const homeDir = await mkdtemp(path.join(tmpdir(), "himan-setup-codex-global-test-"));
 
     try {
-      const result = await runSetup({ homeDir, global: true });
+      const result = await runSetup({ cwd, homeDir, global: true });
 
       assert.equal(result.ok, true);
       assert.match(result.lines.join("\n"), /Scope: global/);
       await readFile(path.join(homeDir, ".codex", "config.toml"), "utf8");
       await readFile(path.join(homeDir, ".codex", "hooks.json"), "utf8");
+      const helperScript = await readFile(
+        path.join(homeDir, ".codex", "hooks", "himan-tracker-collect.sh"),
+        "utf8",
+      );
+      assert.match(
+        helperScript,
+        new RegExp(escapeRegExp(path.join(cwd, "dist", "cli", "index.js"))),
+      );
     } finally {
+      await rm(cwd, { recursive: true, force: true });
       await rm(homeDir, { recursive: true, force: true });
     }
   });
@@ -191,3 +206,7 @@ type CodexHooksJson = {
     }>;
   };
 };
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
