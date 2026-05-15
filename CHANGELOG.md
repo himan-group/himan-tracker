@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-15
+
 ### Added
 
 - Added `archive monthly` to roll up complete months older than the recent six-month retention window into monthly archive tables and remove corresponding daily raw shards and daily stats.
