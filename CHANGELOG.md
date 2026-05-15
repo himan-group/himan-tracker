@@ -17,7 +17,11 @@ All notable changes to this project will be documented in this file.
 - Changed Metrics weekly and monthly insights to use natural weeks and natural months with fixed Daily/Weekly/Monthly tabs and labels such as `2026 Week 14 (03-30 ~ 04-05)` and `2026-04`.
 - Changed dashboard Token usage weekly rows to use year-based natural week labels such as `2026 Week 14 (03-30 ~ 04-05)`.
 - Changed CLI weekly token reports to use the same year-based natural week labels as the local server.
-- Changed Metrics capability tables to show total duration, duration growth, total tokens, and token growth alongside averages and standard deviations.
+- Changed Metrics capability tables to show total duration, duration growth, total runtime tokens, and runtime token growth alongside averages and standard deviations.
+- Changed Metrics token labels to call out runtime observed tokens separately from himan.yaml static token estimates.
+- Changed Metrics capability tables to show whether duration values come from capability events or turn-level estimates.
+- Changed Metrics alerts to sort by severity and magnitude so the highest-risk alerts appear first.
+- Changed Metrics overall tables to show recent period rows instead of only the current day, week, or month.
 
 ### Fixed
 

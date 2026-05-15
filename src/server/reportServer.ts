@@ -1396,8 +1396,8 @@ function renderMetricsHtml(data: MetricsDashboardData, display: DashboardDisplay
   </header>
   <main>
     <div class="metrics">
-      ${renderMetric("Day tokens", formatTokenCount(data.summary.totalTokens))}
-      ${renderMetric("Token growth", formatSignedPercent(data.summary.tokenGrowthRate), {
+      ${renderMetric("Day runtime tokens", formatTokenCount(data.summary.totalTokens))}
+      ${renderMetric("Runtime token growth", formatSignedPercent(data.summary.tokenGrowthRate), {
         tone: getTrendTone(data.summary.tokenGrowthRate),
       })}
       ${renderMetric("Day duration", formatDurationMs(data.summary.durationMs))}
@@ -1459,29 +1459,27 @@ function createMetricsOverallTable(period: MetricsPeriodInsight): DashboardTable
       "Range",
       "Sessions",
       "Turns",
-      "Tokens",
-      "Token growth",
+      "Runtime tokens",
+      "Runtime token growth",
       "Duration",
       "Duration growth",
       "Avg duration / turn",
-      "Avg tokens / turn",
+      "Avg runtime tokens / turn",
     ],
-    rows: [
-      [
-        period.currentLabel,
-        formatMetricsPeriodRange(period),
-        String(period.overall.sessionCount),
-        String(period.overall.turnCount),
-        formatTokenCount(period.overall.totalTokens),
-        formatSignedPercent(period.overall.tokenGrowthRate),
-        formatDurationMs(period.overall.durationMs),
-        formatSignedPercent(period.overall.durationGrowthRate),
-        formatDurationMs(period.overall.avgTurnDurationMs),
-        formatTokenCount(roundNullable(period.overall.avgTokensPerTurn)),
-      ],
-    ],
+    rows: period.overallRows.map((row) => [
+      row.label,
+      formatMetricsRangeForPeriod(period.period, row.range),
+      String(row.sessionCount),
+      String(row.turnCount),
+      formatTokenCount(row.totalTokens),
+      formatSignedPercent(row.tokenGrowthRate),
+      formatDurationMs(row.durationMs),
+      formatSignedPercent(row.durationGrowthRate),
+      formatDurationMs(row.avgTurnDurationMs),
+      formatTokenCount(roundNullable(row.avgTokensPerTurn)),
+    ]),
     emptyText: "No overall metrics found for this period.",
-    note: `Overall metrics by ${period.period} for ${formatMetricsPeriodCaption(period)}.`,
+    note: `Overall metrics by ${period.period} through ${formatMetricsPeriodCaption(period)}.`,
   };
 }
 
@@ -1490,20 +1488,20 @@ function createMetricsProjectTable(period: MetricsPeriodInsight): DashboardTable
     columns: [
       "Project",
       "Turns",
-      "Tokens",
-      "Token share",
-      "Token growth",
+      "Runtime tokens",
+      "Runtime token share",
+      "Runtime token growth",
       "Duration",
       "Duration share",
       "Duration growth",
       "Skill calls",
-      "Skill token share",
+      "Skill runtime token share",
       "MCP calls",
-      "MCP token share",
+      "MCP runtime token share",
     ],
     rows: period.projects.map((project) => createMetricsProjectRow(project)),
     emptyText: `No project metrics found for ${formatMetricsPeriodCaption(period)}.`,
-    note: `Project metrics by repo hash for ${formatMetricsPeriodCaption(period)}.`,
+    note: `Project metrics by repo hash for ${formatMetricsPeriodCaption(period)}. Token columns use runtime observed tokens only.`,
   };
 }
 
@@ -1536,20 +1534,21 @@ function createMetricsCapabilityTable(period: MetricsPeriodInsight): DashboardTa
       "Success delta",
       "Total duration",
       "Duration growth",
+      "Duration basis",
       "Avg duration",
       "Min duration",
       "Max duration",
       "Duration stddev",
-      "Total tokens",
-      "Token growth",
-      "Avg tokens",
-      "Min tokens",
-      "Max tokens",
-      "Token stddev",
+      "Total runtime tokens",
+      "Runtime token growth",
+      "Avg runtime tokens",
+      "Min runtime tokens",
+      "Max runtime tokens",
+      "Runtime token stddev",
     ],
     rows: period.capabilities.map((capability) => createMetricsCapabilityRow(capability)),
     emptyText: `No capability metrics found for ${formatMetricsPeriodCaption(period)}.`,
-    note: `Capability metrics for ${formatMetricsPeriodCaption(period)}.`,
+    note: `Capability metrics for ${formatMetricsPeriodCaption(period)}. Runtime tokens exclude himan.yaml static token estimates; turn estimate duration is inferred from the parent turn.`,
   };
 }
 
@@ -1564,6 +1563,7 @@ function createMetricsCapabilityRow(capability: CapabilityMetricsRow): string[] 
     formatSignedPercent(capability.successRateDelta),
     formatDurationMs(capability.duration.total),
     formatSignedPercent(capability.duration.growthRate),
+    formatDurationBasis(capability.durationBasis),
     formatDurationMs(capability.duration.avg),
     formatDurationMs(capability.duration.min),
     formatDurationMs(capability.duration.max),
@@ -1594,8 +1594,15 @@ function createMetricsAlertsTable(alerts: MetricsInsightAlert[]): DashboardTable
       alert.message,
     ]),
     emptyText: "No metrics alerts found.",
-    note: `Alerts use 20% / 40% / 60% change thresholds and capability CV thresholds.`,
+    note: `Alerts use 20% / 40% / 60% change thresholds, runtime token changes, and capability CV thresholds.`,
   };
+}
+
+function formatDurationBasis(value: CapabilityMetricsRow["durationBasis"]): string {
+  if (value === "turn_estimate") {
+    return "turn estimate";
+  }
+  return value;
 }
 
 function compareMetricsAlerts(left: MetricsInsightAlert, right: MetricsInsightAlert): number {
@@ -1642,11 +1649,15 @@ function formatMetricsPeriodCaption(period: MetricsPeriodInsight): string {
 }
 
 function formatMetricsPeriodRange(period: MetricsPeriodInsight): string {
-  if (period.period === "week") {
-    return formatShortDateRange(period.currentRange);
+  return formatMetricsRangeForPeriod(period.period, period.currentRange);
+}
+
+function formatMetricsRangeForPeriod(period: MetricsPeriod, range: DateRange): string {
+  if (period === "week") {
+    return formatShortDateRange(range);
   }
 
-  return formatDateRange(period.currentRange);
+  return formatDateRange(range);
 }
 
 function formatSignedPercent(value: number | null): string {

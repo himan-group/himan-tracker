@@ -155,8 +155,11 @@ describe("server command", () => {
       assert.match(metricsHtml, /<th scope="col">Period<\/th>/);
       assert.match(metricsHtml, /<th scope="col">Total duration<\/th>/);
       assert.match(metricsHtml, /<th scope="col">Duration growth<\/th>/);
-      assert.match(metricsHtml, /<th scope="col">Total tokens<\/th>/);
-      assert.match(metricsHtml, /<th scope="col">Token growth<\/th>/);
+      assert.match(metricsHtml, /<th scope="col">Duration basis<\/th>/);
+      assert.match(metricsHtml, /<th scope="col">Total runtime tokens<\/th>/);
+      assert.match(metricsHtml, /<th scope="col">Runtime token growth<\/th>/);
+      assert.match(metricsHtml, /<th scope="col">Skill runtime token share<\/th>/);
+      assert.match(metricsHtml, /Runtime tokens exclude himan\.yaml static token estimates/);
       assert.match(metricsHtml, /2026 Week 20 \(05-11 ~ 05-17\)/);
       assert.match(metricsHtml, /repo_hash_server_001/);
       assert.match(metricsHtml, /server-capability-01/);
@@ -321,6 +324,9 @@ describe("server command", () => {
       assert.match(html, /aria-hidden="true" focusable="false"/);
       assert.equal(html.includes('class="severity-badge is-critical"><span class="cell-icon"'), false);
       assert.match(html, /visual-alert-skill/);
+
+      const firstSeverity = html.match(/<span class="severity-badge is-(warning|major|critical)">([^<]+)<\/span>/);
+      assert.equal(firstSeverity?.[2], "critical");
     } finally {
       await instance.close();
       await rm(homeDir, { recursive: true, force: true });

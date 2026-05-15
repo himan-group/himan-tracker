@@ -42,6 +42,7 @@ export type MetricsPeriodInsight = {
   previousLabel: string;
   previousRange: DateRange;
   overall: OverallMetricsRow;
+  overallRows: OverallMetricsPeriodRow[];
   projects: ProjectMetricsRow[];
   capabilities: CapabilityMetricsRow[];
   alerts: MetricsInsightAlert[];
@@ -61,6 +62,13 @@ export type OverallMetricsRow = {
   avgTokensPerTurn: number | null;
   tokenGrowthRate: number | null;
   durationGrowthRate: number | null;
+};
+
+export type OverallMetricsPeriodRow = OverallMetricsRow & {
+  label: string;
+  range: DateRange;
+  previousLabel: string;
+  previousRange: DateRange;
 };
 
 export type ProjectMetricsRow = {
@@ -86,9 +94,12 @@ export type CapabilityMetricsRow = {
   invocationGrowthRate: number | null;
   successRate: number | null;
   successRateDelta: number | null;
+  durationBasis: DurationBasis;
   duration: DistributionMetrics;
   tokens: DistributionMetrics;
 };
+
+export type DurationBasis = "event" | "turn_estimate" | "mixed" | "none";
 
 export type DistributionMetrics = {
   count: number;
@@ -132,6 +143,7 @@ type CapabilityEventRow = {
   capability_name: string;
   total_tokens: number | null;
   duration_ms: number | null;
+  duration_basis: DurationBasis;
   status: string;
 };
 
@@ -142,6 +154,8 @@ type CapabilityAggregate = {
   invocationCount: number;
   successCount: number;
   failureCount: number;
+  eventDurationCount: number;
+  turnEstimateDurationCount: number;
   durations: number[];
   tokens: number[];
 };
@@ -163,6 +177,12 @@ const CV_THRESHOLDS: Array<{ severity: AlertSeverity; threshold: number }> = [
   { severity: "major", threshold: 1 },
   { severity: "warning", threshold: 0.5 },
 ];
+
+const OVERALL_HISTORY_LIMIT: Record<MetricsPeriod, number> = {
+  day: 7,
+  week: 8,
+  month: 6,
+};
 
 export function readMetricsInsightData(
   db: SqliteDatabase,
@@ -187,7 +207,8 @@ function readMetricsPeriodInsight(
 ): MetricsPeriodInsight {
   const currentRange = createCurrentRange(spec.period, now);
   const previousRange = createPreviousRange(spec.period, currentRange);
-  const currentOverall = readOverallMetrics(db, currentRange);
+  const overallRows = readOverallMetricsHistory(db, spec.period, currentRange);
+  const currentOverall = overallRows[0] ?? createOverallMetricsPeriodRow(db, spec.period, currentRange);
   const previousOverall = readOverallMetrics(db, previousRange);
   const projects = readProjectMetrics(db, currentRange, previousRange);
   const capabilities = readCapabilityMetrics(db, currentRange, previousRange);
@@ -203,20 +224,50 @@ function readMetricsPeriodInsight(
     currentRange,
     previousLabel: formatPeriodLabel(spec.period, previousRange),
     previousRange,
-    overall: {
-      ...currentOverall,
-      tokenGrowthRate: calculateGrowthRate(
-        currentOverall.totalTokens,
-        previousOverall.totalTokens,
-      ),
-      durationGrowthRate: calculateGrowthRate(
-        currentOverall.durationMs,
-        previousOverall.durationMs,
-      ),
-    },
+    overall: currentOverall,
+    overallRows,
     projects,
     capabilities,
     alerts,
+  };
+}
+
+function readOverallMetricsHistory(
+  db: SqliteDatabase,
+  period: MetricsPeriod,
+  currentRange: DateRange,
+): OverallMetricsPeriodRow[] {
+  const rows: OverallMetricsPeriodRow[] = [];
+  let range = currentRange;
+
+  for (let index = 0; index < OVERALL_HISTORY_LIMIT[period]; index += 1) {
+    const row = createOverallMetricsPeriodRow(db, period, range);
+    if (index === 0 || row.turnCount > 0) {
+      rows.push(row);
+    }
+    range = row.previousRange;
+  }
+
+  return rows;
+}
+
+function createOverallMetricsPeriodRow(
+  db: SqliteDatabase,
+  period: MetricsPeriod,
+  range: DateRange,
+): OverallMetricsPeriodRow {
+  const previousRange = createPreviousRange(period, range);
+  const current = readOverallMetrics(db, range);
+  const previous = readOverallMetrics(db, previousRange);
+
+  return {
+    ...current,
+    label: formatPeriodLabel(period, range),
+    range,
+    previousLabel: formatPeriodLabel(period, previousRange),
+    previousRange,
+    tokenGrowthRate: calculateGrowthRate(current.totalTokens, previous.totalTokens),
+    durationGrowthRate: calculateGrowthRate(current.durationMs, previous.durationMs),
   };
 }
 
@@ -388,6 +439,7 @@ function readCapabilityMetrics(
           successRate === null || previousSuccessRate === null
             ? null
             : successRate - previousSuccessRate,
+        durationBasis: resolveDurationBasis(aggregate),
         duration,
         tokens,
       };
@@ -409,6 +461,11 @@ function readCapabilityAggregates(
         c.total_tokens,
         coalesce(c.duration_ms, case when c.capability_type = 'skill' then t.duration_ms end)
           as duration_ms,
+        case
+          when c.duration_ms is not null then 'event'
+          when c.capability_type = 'skill' and t.duration_ms is not null then 'turn_estimate'
+          else 'none'
+        end as duration_basis,
         c.status
       from capability_usages c
       left join turns t
@@ -430,6 +487,8 @@ function readCapabilityAggregates(
       invocationCount: 0,
       successCount: 0,
       failureCount: 0,
+      eventDurationCount: 0,
+      turnEstimateDurationCount: 0,
       durations: [],
       tokens: [],
     };
@@ -442,6 +501,11 @@ function readCapabilityAggregates(
     }
     if (row.duration_ms !== null) {
       aggregate.durations.push(row.duration_ms);
+      if (row.duration_basis === "event") {
+        aggregate.eventDurationCount += 1;
+      } else if (row.duration_basis === "turn_estimate") {
+        aggregate.turnEstimateDurationCount += 1;
+      }
     }
     if (row.total_tokens !== null) {
       aggregate.tokens.push(row.total_tokens);
@@ -785,9 +849,25 @@ function createEmptyCapabilityAggregate(
     invocationCount: 0,
     successCount: 0,
     failureCount: 0,
+    eventDurationCount: 0,
+    turnEstimateDurationCount: 0,
     durations: [],
     tokens: [],
   };
+}
+
+function resolveDurationBasis(aggregate: CapabilityAggregate): DurationBasis {
+  if (aggregate.eventDurationCount > 0 && aggregate.turnEstimateDurationCount > 0) {
+    return "mixed";
+  }
+  if (aggregate.eventDurationCount > 0) {
+    return "event";
+  }
+  if (aggregate.turnEstimateDurationCount > 0) {
+    return "turn_estimate";
+  }
+
+  return "none";
 }
 
 function getCurrentMetricValue(value: number | null, hasCurrentRow: boolean): number | null {

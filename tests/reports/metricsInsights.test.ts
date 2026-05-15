@@ -117,6 +117,10 @@ describe("readMetricsInsightData", () => {
           startDate: "2026-05-14",
           endDate: "2026-05-14",
         });
+        assert.deepEqual(
+          day.overallRows.map((row) => row.label),
+          ["2026-05-15", "2026-05-14"],
+        );
 
         assert.equal(day.overall.totalTokens, 200);
         assert.equal(day.overall.durationMs, 3_000);
@@ -150,6 +154,13 @@ describe("readMetricsInsightData", () => {
         assert.ok(capability.duration.stddev && capability.duration.stddev > 169);
         assert.equal(capability.tokens.total, 100);
         assert.equal(capability.tokens.growthRate, 9);
+
+        const skillCapability = day.capabilities.find(
+          (candidate) => candidate.capabilityName === "common-dev-pattern",
+        );
+        assert.ok(skillCapability);
+        assert.equal(skillCapability.durationBasis, "turn_estimate");
+        assert.equal(skillCapability.duration.total, 2_000);
 
         assert.equal(
           day.alerts.some(
@@ -269,6 +280,7 @@ describe("readMetricsInsightData", () => {
         assert.ok(capability);
         assert.equal(capability.invocationCount, 0);
         assert.equal(capability.invocationGrowthRate, -1);
+        assert.equal(capability.durationBasis, "none");
         assert.equal(capability.tokens.total, 0);
         assert.equal(capability.tokens.growthRate, -1);
         assert.equal(capability.duration.total, 0);
