@@ -30,6 +30,7 @@ himan-tracker agents --date YYYY-MM-DD
 himan-tracker capabilities --since 30d
 himan-tracker unused --since 30d
 himan-tracker server start
+himan-tracker server start --display text
 himan-tracker server status
 himan-tracker server stop
 ```
@@ -174,7 +175,7 @@ SQLite and ingest rules:
 Report rules:
 
 - Report commands read SQLite through `src/cli/commands/reportContext.ts`; they initialize migrations if needed and render empty states when no data exists.
-- `server start` launches a detached local HTTP server, records PID/state under the tracker home, runs immediate and interval-based incremental ingest, and serves a local dashboard page from SQLite reports.
+- `server start` launches a detached local HTTP server, records PID/state under the tracker home, runs immediate and interval-based incremental ingest, and serves a local dashboard page from SQLite reports. It supports `--display table|text` to choose HTML tables or CLI-style text blocks for dashboard report sections.
 - `server status` reads the state file and checks whether the recorded PID is still running; `server stop` sends `SIGTERM` and removes stale state when needed.
 - `summary` supports `--since`, shows overall usage, top agents, and top capabilities.
 - `tokens` supports `--since` and `--period day|week|month` to show input, output, total, and average token consumption by period.

@@ -129,7 +129,7 @@ function aggregateTokenRows(rows: DailyTokenRow[], period: TokenPeriod): TokenBu
     buckets.set(descriptor.key, bucket);
   }
 
-  return [...buckets.values()].sort((left, right) => left.key.localeCompare(right.key));
+  return [...buckets.values()].sort((left, right) => right.key.localeCompare(left.key));
 }
 
 function describePeriod(dateText: string, period: TokenPeriod): { key: string; label: string } {

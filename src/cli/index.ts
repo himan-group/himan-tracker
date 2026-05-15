@@ -126,6 +126,11 @@ serverCommand
   .option("--port <port>", "Port to bind; use 0 for a random free port", "5127")
   .option("--interval <seconds>", "Seconds between background ingest runs", "300")
   .option("--since <period>", "Report date range such as 7d, 4w, or 1m", "7d")
+  .addOption(
+    new Option("--display <mode>", "Dashboard report display mode")
+      .choices(["table", "text"])
+      .default("table"),
+  )
   .option("--open", "Open the dashboard in the default browser after start")
   .action(async (options: ServerStartCommandOptions) => {
     const result = await runServerStart(options);
@@ -158,6 +163,11 @@ serverCommand
   .option("--port <port>", "Port to bind", "5127")
   .option("--interval <seconds>", "Seconds between background ingest runs", "300")
   .option("--since <period>", "Report date range such as 7d, 4w, or 1m", "7d")
+  .addOption(
+    new Option("--display <mode>", "Dashboard report display mode")
+      .choices(["table", "text"])
+      .default("table"),
+  )
   .action(async (options: ServerServeCommandOptions) => {
     const result = await runServerServe(options);
     if (!result.ok) {
@@ -171,6 +181,7 @@ type ServerStartCommandOptions = {
   port?: string;
   interval?: string;
   since?: string;
+  display?: string;
   open?: boolean;
 };
 

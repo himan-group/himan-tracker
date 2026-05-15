@@ -88,7 +88,7 @@ export function renderSummaryReport(
       ],
     ),
     "",
-    "Top agents",
+    `Top ${TOP_AGENT_LIMIT} agents`,
     "",
     ...renderTopAgents(db, range),
     "",

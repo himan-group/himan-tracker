@@ -210,7 +210,7 @@ himan-tracker ingest --rebuild
 
 ### `server`
 
-启动、停止和查看本地报表 Web server。server 默认只监听 `127.0.0.1`，启动后会立即执行一次增量 `ingest`，之后按固定间隔继续导入 `events/*.jsonl`。页面会以 HTML 表格展示总览、一个可切换日/周/月的 token 消耗卡片、agent、capability、一个可切换 skill/MCP tool 的调用列表卡片和近期 turn，并提供 `/dashboard.json` 结构化数据端点。
+启动、停止和查看本地报表 Web server。server 默认只监听 `127.0.0.1`，启动后会立即执行一次增量 `ingest`，之后按固定间隔继续导入 `events/*.jsonl`。页面默认会以 HTML 表格展示总览、一个可切换日/周/月的 token 消耗卡片、agent、capability、一个可切换 skill/MCP tool 的调用列表卡片和近期 turn；也可以通过 `--display text` 切换为命令行风格文本块，并提供 `/dashboard.json` 结构化数据端点。
 
 ```bash
 himan-tracker server start
@@ -228,10 +228,11 @@ http://127.0.0.1:5127
 himan-tracker server start --open
 ```
 
-可调整监听地址、端口、报表范围和导入间隔：
+可调整监听地址、端口、报表范围、导入间隔和页面展示模式：
 
 ```bash
-himan-tracker server start --host 127.0.0.1 --port 5127 --since 7d --interval 300
+himan-tracker server start --host 127.0.0.1 --port 5127 --since 7d --interval 300 --display table
+himan-tracker server start --display text
 ```
 
 查看状态和停止：

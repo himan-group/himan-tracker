@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Added `server start --display table|text` to choose between HTML table dashboard sections and CLI-style text blocks.
+
+### Changed
+
+- Changed the local report server Summary section to include aggregate usage metrics in table and text display modes.
+- Changed summary report Top agents headings to include the top-N count.
+- Changed local report server Summary subheadings to use the same note-row style as other dashboard text tables.
+- Changed table-mode Summary dashboard content to render as HTML tables instead of CLI-style text blocks.
+- Changed token usage report periods to sort newest first.
+- Changed compact Summary tables to size to their content instead of spanning the full dashboard width.
+
 ## [0.1.1] - 2026-05-14
 
 ### Added

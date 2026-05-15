@@ -11,8 +11,10 @@ import {
   formatDurationMs,
   formatNullableText,
   formatSuccessRate,
+  formatTable,
   formatTokenCount,
 } from "../reports/formatTable.js";
+import { renderSummaryReport } from "../reports/summaryReport.js";
 import { createExcludeSystemCapabilityCondition } from "../reports/systemCapabilityFilter.js";
 import { initializeTrackerDatabase } from "../storage/sqlite.js";
 
@@ -45,6 +47,7 @@ export type ReportServerState = {
   started_at: string;
   interval_seconds: number;
   since: string;
+  display: DashboardDisplayMode;
   last_ingest: ReportServerIngestSnapshot | null;
 };
 
@@ -54,6 +57,7 @@ export type StartReportHttpServerOptions = {
   port?: number;
   intervalSeconds?: number;
   since?: string;
+  display?: DashboardDisplayMode;
   now?: () => Date;
 };
 
@@ -74,6 +78,9 @@ type DashboardTab = {
 type DashboardSection = {
   title: string;
   table: DashboardTable;
+  cliLines?: string[];
+  cliBlocks?: DashboardCliBlock[];
+  tableBlocks?: DashboardTableBlock[];
 };
 
 type DashboardTable = {
@@ -81,6 +88,17 @@ type DashboardTable = {
   rows: string[][];
   emptyText: string;
   note?: string;
+  width?: "full" | "compact";
+};
+
+type DashboardCliBlock = {
+  title: string;
+  lines: string[];
+};
+
+type DashboardTableBlock = {
+  title: string;
+  table: DashboardTable;
 };
 
 type DashboardData = {
@@ -101,6 +119,8 @@ type DashboardSummary = {
   turn_count: number;
   total_tokens: number | null;
   duration_ms: number | null;
+  success_count: number;
+  failure_count: number;
 };
 
 type DashboardCapabilityCallRow = {
@@ -126,6 +146,13 @@ type DashboardAgentRow = {
   failure_count: number;
 };
 
+type DashboardSummaryAgentRow = {
+  agent: string;
+  model: string;
+  turn_count: number;
+  total_tokens: number | null;
+};
+
 type DashboardCapabilityRow = {
   agent: string;
   capability_type: string;
@@ -142,6 +169,15 @@ type DashboardCapabilityRow = {
   inferred_invocation_count: number;
   observed_invocation_count: number;
   unknown_origin_count: number;
+};
+
+type DashboardSummaryCapabilityRow = {
+  agent: string;
+  capability_type: string;
+  capability_name: string;
+  invocation_count: number;
+  total_tokens: number | null;
+  duration_ms: number | null;
 };
 
 type DashboardTokenDayRow = {
@@ -165,6 +201,7 @@ type DashboardTokenBucket = {
 };
 
 type DashboardTokenPeriod = "day" | "week" | "month";
+export type DashboardDisplayMode = "table" | "text";
 
 type DashboardTurnRow = {
   occurred_at: string;
@@ -184,6 +221,7 @@ export async function startReportHttpServer(
   const port = options.port ?? DEFAULT_SERVER_PORT;
   const intervalSeconds = options.intervalSeconds ?? DEFAULT_SERVER_INTERVAL_SECONDS;
   const since = options.since ?? DEFAULT_SERVER_SINCE;
+  const display = options.display ?? "table";
   const now = options.now ?? (() => new Date());
   let lastIngest: ReportServerIngestSnapshot | null = null;
   let currentState: ReportServerState | null = null;
@@ -226,6 +264,7 @@ export async function startReportHttpServer(
       response,
       paths,
       since,
+      display,
       now,
       getLastIngest: () => lastIngest,
       runIngestNow,
@@ -257,6 +296,7 @@ export async function startReportHttpServer(
     started_at: now().toISOString(),
     interval_seconds: intervalSeconds,
     since,
+    display,
     last_ingest: lastIngest,
   };
   await writeReportServerState(paths, currentState);
@@ -357,6 +397,7 @@ async function handleRequest(options: {
   response: ServerResponse;
   paths: TrackerPaths;
   since: string;
+  display: DashboardDisplayMode;
   now: () => Date;
   getLastIngest: () => ReportServerIngestSnapshot | null;
   runIngestNow: () => Promise<void>;
@@ -408,6 +449,7 @@ async function handleRequest(options: {
   const html = renderDashboardPage({
     paths: options.paths,
     since: options.since,
+    display: options.display,
     now: options.now,
     lastIngest: options.getLastIngest(),
   });
@@ -417,10 +459,11 @@ async function handleRequest(options: {
 function renderDashboardPage(options: {
   paths: TrackerPaths;
   since: string;
+  display: DashboardDisplayMode;
   now: () => Date;
   lastIngest: ReportServerIngestSnapshot | null;
 }): string {
-  return renderDashboardHtml(readDashboardData(options));
+  return renderDashboardHtml(readDashboardData(options), options.display);
 }
 
 function readDashboardData(options: {
@@ -436,6 +479,10 @@ function readDashboardData(options: {
 
   try {
     const summary = readDashboardSummary(db, range);
+    const summaryLines = renderSummaryReport(db, range, {
+      capabilityLimit: 15,
+      excludeSystem: true,
+    });
 
     return {
       generatedAt: generatedAt.toISOString(),
@@ -443,6 +490,9 @@ function readDashboardData(options: {
       summary,
       summarySection: {
         title: "Summary",
+        cliLines: summaryLines,
+        cliBlocks: splitCliOutputBlocks(summaryLines),
+        tableBlocks: readDashboardSummaryBlocks(db, range, summary),
         table: readDashboardCapabilities(db, range, {
           excludeSystem: true,
           limit: 15,
@@ -504,7 +554,7 @@ function readDashboardData(options: {
   }
 }
 
-function renderDashboardHtml(data: DashboardData): string {
+function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode): string {
   const generatedAt = new Date(data.generatedAt);
 
   return `<!doctype html>
@@ -694,10 +744,21 @@ function renderDashboardHtml(data: DashboardData): string {
       overflow: auto;
     }
 
+    .table-scroll.is-compact {
+      display: inline-block;
+      max-width: 100%;
+      min-width: 0;
+      vertical-align: top;
+    }
+
     table {
       width: 100%;
       border-collapse: collapse;
       font-size: 13px;
+    }
+
+    .table-scroll.is-compact table {
+      width: auto;
     }
 
     th,
@@ -724,6 +785,18 @@ function renderDashboardHtml(data: DashboardData): string {
 
     tbody tr:last-child td {
       border-bottom: 0;
+    }
+
+    .cli-output {
+      margin: 0;
+      padding: 14px;
+      overflow: auto;
+      color: #24313d;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+      line-height: 1.45;
+      font-variant-numeric: tabular-nums;
+      white-space: pre;
     }
 
     @media (max-width: 820px) {
@@ -765,11 +838,11 @@ function renderDashboardHtml(data: DashboardData): string {
       ${renderMetric("Tokens", formatTokenCount(data.summary.total_tokens))}
       ${renderMetric("Avg latency", formatAverageDurationMs(data.summary.duration_ms, data.summary.turn_count))}
     </div>
-    ${renderSection(data.summarySection)}
-    ${renderTabbedSection("Token usage", "token", data.tokenTabs)}
-    ${data.sections.map(renderSection).join("\n")}
-    ${renderTabbedSection("Capability calls", "capability-calls", data.capabilityCallTabs)}
-    ${renderSection(data.recentTurnsSection)}
+    ${renderSection(data.summarySection, display)}
+    ${renderTabbedSection("Token usage", "token", data.tokenTabs, display)}
+    ${data.sections.map((section) => renderSection(section, display)).join("\n")}
+    ${renderTabbedSection("Capability calls", "capability-calls", data.capabilityCallTabs, display)}
+    ${renderSection(data.recentTurnsSection, display)}
   </main>
   <script>
     document.querySelectorAll("[data-tabs]").forEach((root) => {
@@ -895,6 +968,132 @@ function readDashboardAgents(
     ]),
     emptyText: "No agent usage found for this date.",
     note: `Agents (${date}).`,
+  };
+}
+
+function readDashboardSummaryBlocks(
+  db: ReturnType<typeof initializeTrackerDatabase>["db"],
+  range: { startDate: string; endDate: string },
+  summary: DashboardSummary,
+): DashboardTableBlock[] {
+  return [
+    {
+      title: `Summary (${formatDateRange(range)})`,
+      table: createDashboardSummaryMetricTable(summary),
+    },
+    {
+      title: "Top 5 agents",
+      table: readDashboardSummaryAgents(db, range, 5),
+    },
+    {
+      title: "Top 15 capabilities",
+      table: readDashboardSummaryCapabilities(db, range, {
+        excludeSystem: true,
+        limit: 15,
+      }),
+    },
+  ];
+}
+
+function createDashboardSummaryMetricTable(summary: DashboardSummary): DashboardTable {
+  return {
+    columns: ["Metric", "Value"],
+    width: "compact",
+    rows: [
+      ["Sessions", String(summary.session_count)],
+      ["Turns", String(summary.turn_count)],
+      ["Total tokens", formatTokenCount(summary.total_tokens)],
+      ["Average latency", formatAverageDurationMs(summary.duration_ms, summary.turn_count)],
+      ["Success rate", formatSuccessRate(summary.success_count, summary.failure_count)],
+    ],
+    emptyText: "No usage data found for this range.",
+  };
+}
+
+function readDashboardSummaryAgents(
+  db: ReturnType<typeof initializeTrackerDatabase>["db"],
+  range: { startDate: string; endDate: string },
+  limit: number,
+): DashboardTable {
+  const rows = db
+    .prepare(
+      `
+      select
+        agent,
+        model,
+        sum(turn_count) as turn_count,
+        case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens
+      from daily_agent_stats
+      where date between ? and ?
+      group by agent, model
+      order by coalesce(total_tokens, -1) desc, turn_count desc
+      limit ?
+      `,
+    )
+    .all(range.startDate, range.endDate, limit) as DashboardSummaryAgentRow[];
+
+  return {
+    columns: ["Agent", "Model", "Turns", "Tokens"],
+    width: "compact",
+    rows: rows.map((row) => [
+      row.agent,
+      formatNullableText(row.model),
+      String(row.turn_count),
+      formatTokenCount(row.total_tokens),
+    ]),
+    emptyText: "No agent usage found.",
+  };
+}
+
+function readDashboardSummaryCapabilities(
+  db: ReturnType<typeof initializeTrackerDatabase>["db"],
+  range: { startDate: string; endDate: string },
+  filters: {
+    excludeSystem: boolean;
+    limit: number;
+  },
+): DashboardTable {
+  const clauses = ["date between ? and ?"];
+  const params: Array<string | number> = [range.startDate, range.endDate];
+
+  if (filters.excludeSystem) {
+    const condition = createExcludeSystemCapabilityCondition();
+    clauses.push(condition.sql);
+    params.push(...condition.params);
+  }
+
+  params.push(filters.limit);
+
+  const rows = db
+    .prepare(
+      `
+      select
+        agent,
+        capability_type,
+        capability_name,
+        sum(invocation_count) as invocation_count,
+        case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens,
+        case when count(duration_ms) = 0 then null else sum(duration_ms) end as duration_ms
+      from daily_capability_stats
+      where ${clauses.join(" and ")}
+      group by agent, capability_type, capability_name
+      order by coalesce(total_tokens, -1) desc, invocation_count desc
+      limit ?
+      `,
+    )
+    .all(...params) as DashboardSummaryCapabilityRow[];
+
+  return {
+    columns: ["Agent", "Type", "Capability", "Invocations", "Tokens", "Duration"],
+    rows: rows.map((row) => [
+      row.agent,
+      row.capability_type,
+      row.capability_name,
+      String(row.invocation_count),
+      formatTokenCount(row.total_tokens),
+      formatAverageDurationMs(row.duration_ms, row.invocation_count),
+    ]),
+    emptyText: "No capability usage found.",
   };
 }
 
@@ -1106,7 +1305,9 @@ function readDashboardSummary(
         coalesce(sum(session_count), 0) as session_count,
         coalesce(sum(turn_count), 0) as turn_count,
         case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens,
-        case when count(duration_ms) = 0 then null else sum(duration_ms) end as duration_ms
+        case when count(duration_ms) = 0 then null else sum(duration_ms) end as duration_ms,
+        coalesce(sum(success_count), 0) as success_count,
+        coalesce(sum(failure_count), 0) as failure_count
       from daily_agent_stats
       where date between ? and ?
       `,
@@ -1116,6 +1317,8 @@ function readDashboardSummary(
     turn_count: number;
     total_tokens: number | null;
     duration_ms: number | null;
+    success_count: number;
+    failure_count: number;
   };
 
   return {
@@ -1123,6 +1326,8 @@ function readDashboardSummary(
     turn_count: row.turn_count,
     total_tokens: row.total_tokens,
     duration_ms: row.duration_ms,
+    success_count: row.success_count,
+    failure_count: row.failure_count,
   };
 }
 
@@ -1163,7 +1368,7 @@ function aggregateDashboardTokenRows(
     buckets.set(descriptor.key, bucket);
   }
 
-  return [...buckets.values()].sort((left, right) => left.key.localeCompare(right.key));
+  return [...buckets.values()].sort((left, right) => right.key.localeCompare(left.key));
 }
 
 function describeDashboardTokenPeriod(
@@ -1240,13 +1445,32 @@ function renderMetric(label: string, value: string): string {
   )}</div><div class="metric-value">${escapeHtml(value)}</div></div>`;
 }
 
-function renderSection(section: DashboardSection): string {
-  return `<section><h2>${escapeHtml(section.title)}</h2>${renderDashboardTable(
+function renderSection(section: DashboardSection, display: DashboardDisplayMode): string {
+  if (display === "text" && section.cliBlocks) {
+    return `<section><h2>${escapeHtml(section.title)}</h2>${renderCliBlocks(
+      section.cliBlocks,
+    )}</section>`;
+  }
+
+  if (section.tableBlocks) {
+    return `<section><h2>${escapeHtml(section.title)}</h2>${renderTableBlocks(
+      section.tableBlocks,
+      display,
+    )}</section>`;
+  }
+
+  return `<section><h2>${escapeHtml(section.title)}</h2>${renderDashboardContent(
     section.table,
+    display,
   )}</section>`;
 }
 
-function renderTabbedSection(title: string, idPrefix: string, tabs: DashboardTab[]): string {
+function renderTabbedSection(
+  title: string,
+  idPrefix: string,
+  tabs: DashboardTab[],
+  display: DashboardDisplayMode,
+): string {
   const tabButtons = tabs
     .map((tab, index) => {
       const active = index === 0;
@@ -1268,7 +1492,7 @@ function renderTabbedSection(title: string, idPrefix: string, tabs: DashboardTab
         tab.id,
       )}" role="tabpanel" aria-labelledby="${escapeHtml(idPrefix)}-tab-${escapeHtml(
         tab.id,
-      )}"${hidden}>${renderDashboardTable(tab.table)}</div>`;
+      )}"${hidden}>${renderDashboardContent(tab.table, display)}</div>`;
     })
     .join("");
 
@@ -1279,12 +1503,18 @@ function renderTabbedSection(title: string, idPrefix: string, tabs: DashboardTab
   )}">${tabButtons}</div></div>${panels}</section>`;
 }
 
-function renderDashboardTable(table: DashboardTable): string {
+function renderDashboardContent(table: DashboardTable, display: DashboardDisplayMode): string {
   const note = table.note
     ? `<p class="table-note">${escapeHtml(table.note)}</p>`
     : "";
   if (table.rows.length === 0) {
     return `${note}<p class="empty-state">${escapeHtml(table.emptyText)}</p>`;
+  }
+
+  if (display === "text") {
+    return `${note}<pre class="cli-output">${escapeHtml(
+      formatTable(table.columns, table.rows).join("\n"),
+    )}</pre>`;
   }
 
   const header = table.columns
@@ -1299,7 +1529,69 @@ function renderDashboardTable(table: DashboardTable): string {
     )
     .join("");
 
-  return `${note}<div class="table-scroll"><table><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  const scrollClass = table.width === "compact" ? "table-scroll is-compact" : "table-scroll";
+
+  return `${note}<div class="${scrollClass}"><table><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function renderCliOutput(lines: string[]): string {
+  return `<pre class="cli-output">${escapeHtml(lines.join("\n"))}</pre>`;
+}
+
+function renderCliBlocks(blocks: DashboardCliBlock[]): string {
+  return blocks
+    .map((block) => {
+      const body = block.lines.length > 0 ? renderCliOutput(block.lines) : "";
+      return `<p class="table-note">${escapeHtml(block.title)}</p>${body}`;
+    })
+    .join("");
+}
+
+function renderTableBlocks(blocks: DashboardTableBlock[], display: DashboardDisplayMode): string {
+  return blocks
+    .map(
+      (block) =>
+        `<p class="table-note">${escapeHtml(block.title)}</p>${renderDashboardContent(
+          block.table,
+          display,
+        )}`,
+    )
+    .join("");
+}
+
+function splitCliOutputBlocks(lines: string[]): DashboardCliBlock[] {
+  const blocks: DashboardCliBlock[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    while (lines[index] === "") {
+      index += 1;
+    }
+
+    const title = lines[index];
+    if (title === undefined) {
+      break;
+    }
+    index += 1;
+
+    if (lines[index] === "") {
+      index += 1;
+    }
+
+    const blockLines: string[] = [];
+    while (index < lines.length) {
+      if (lines[index] === "" && lines[index + 1] !== undefined) {
+        break;
+      }
+
+      blockLines.push(lines[index] ?? "");
+      index += 1;
+    }
+
+    blocks.push({ title, lines: blockLines });
+  }
+
+  return blocks;
 }
 
 function renderIngestStatus(snapshot: ReportServerIngestSnapshot | null): string {
@@ -1387,10 +1679,18 @@ function parseReportServerState(value: unknown, statePath: string): ReportServer
     typeof (value as ReportServerState).interval_seconds === "number" &&
     typeof (value as ReportServerState).since === "string"
   ) {
-    return value as ReportServerState;
+    const state = value as ReportServerState;
+    return {
+      ...state,
+      display: isDashboardDisplayMode(state.display) ? state.display : "table",
+    };
   }
 
   throw new Error(`Invalid server state file: ${statePath}`);
+}
+
+function isDashboardDisplayMode(value: unknown): value is DashboardDisplayMode {
+  return value === "table" || value === "text";
 }
 
 function formatLocalDateTime(value: string | Date): string {
