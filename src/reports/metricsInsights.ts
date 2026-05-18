@@ -206,7 +206,7 @@ function readMetricsPeriodInsight(
   now: Date,
 ): MetricsPeriodInsight {
   const currentRange = createCurrentRange(spec.period, now);
-  const previousRange = createPreviousRange(spec.period, currentRange);
+  const previousRange = createPreviousRange(db, spec.period, currentRange);
   const overallRows = readOverallMetricsHistory(db, spec.period, currentRange);
   const currentOverall = overallRows[0] ?? createOverallMetricsPeriodRow(db, spec.period, currentRange);
   const previousOverall = readOverallMetrics(db, previousRange);
@@ -256,7 +256,7 @@ function createOverallMetricsPeriodRow(
   period: MetricsPeriod,
   range: DateRange,
 ): OverallMetricsPeriodRow {
-  const previousRange = createPreviousRange(period, range);
+  const previousRange = createPreviousRange(db, period, range);
   const current = readOverallMetrics(db, range);
   const previous = readOverallMetrics(db, previousRange);
 
@@ -741,12 +741,22 @@ function createCurrentRange(period: MetricsPeriod, now: Date): DateRange {
   return createDateRange(start, endOfLocalMonth(today));
 }
 
-function createPreviousRange(period: MetricsPeriod, currentRange: DateRange): DateRange {
+function createPreviousRange(
+  db: SqliteDatabase,
+  period: MetricsPeriod,
+  currentRange: DateRange,
+): DateRange {
   const currentStart = parseLocalDate(currentRange.startDate);
 
   if (period === "day") {
-    const previous = addDays(currentStart, -1);
-    return createDateRange(previous, previous);
+    const nearestAvailableDate = findNearestPreviousDayWithTurns(db, currentRange.startDate);
+    if (nearestAvailableDate !== null) {
+      const nearest = parseLocalDate(nearestAvailableDate);
+      return createDateRange(nearest, nearest);
+    }
+
+    const fallbackDate = addDays(currentStart, -1);
+    return createDateRange(fallbackDate, fallbackDate);
   }
 
   if (period === "week") {
@@ -756,6 +766,27 @@ function createPreviousRange(period: MetricsPeriod, currentRange: DateRange): Da
 
   const previousMonth = new Date(currentStart.getFullYear(), currentStart.getMonth() - 1, 1);
   return createDateRange(previousMonth, endOfLocalMonth(previousMonth));
+}
+
+function findNearestPreviousDayWithTurns(db: SqliteDatabase, currentDate: string): string | null {
+  const row = db
+    .prepare(
+      `
+      select date(occurred_at, 'localtime') as metric_date
+      from turns
+      where date(occurred_at, 'localtime') < ?
+      group by metric_date
+      order by metric_date desc
+      limit 1
+      `,
+    )
+    .get(currentDate) as
+    | {
+        metric_date: string;
+      }
+    | undefined;
+
+  return row?.metric_date ?? null;
 }
 
 function createDateRange(start: Date, end: Date): DateRange {
