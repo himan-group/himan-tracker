@@ -38,6 +38,7 @@ describe("ingestEvents", () => {
         "002_capability_invocation_origin",
         "003_monthly_archive",
         "004_skill_metadata",
+        "005_ingest_file_cursors",
       ]);
       assert.deepEqual(first.affected_dates, [toLocalDate(events[0].occurred_at)]);
 
@@ -47,8 +48,9 @@ describe("ingestEvents", () => {
         now: () => new Date("2026-05-12T05:05:00.000Z"),
       });
 
+      assert.equal(second.events_read, 0);
       assert.equal(second.events_inserted, 0);
-      assert.equal(second.events_skipped, 3);
+      assert.equal(second.events_skipped, 0);
       assert.deepEqual(second.applied_migrations, []);
 
       assertDatabaseStats(sqlitePath, toLocalDate(events[0].occurred_at));
@@ -79,6 +81,7 @@ describe("ingestEvents", () => {
         "002_capability_invocation_origin",
         "003_monthly_archive",
         "004_skill_metadata",
+        "005_ingest_file_cursors",
       ]);
 
       assertDatabaseStats(sqlitePath, toLocalDate(events[0].occurred_at));
@@ -120,6 +123,15 @@ describe("ingestEvents", () => {
       assert.equal(result.events_read, 4);
       assert.equal(result.events_inserted, 4);
       assert.deepEqual(result.affected_dates, ["2026-05-12", "2026-05-13"]);
+
+      const incremental = await ingestEvents({
+        sqlitePath,
+        eventsDir,
+        now: () => new Date("2026-05-13T13:05:00.000Z"),
+      });
+      assert.equal(incremental.events_read, 0);
+      assert.equal(incremental.events_inserted, 0);
+      assert.equal(incremental.events_skipped, 0);
     } finally {
       await rm(homeDir, { recursive: true, force: true });
     }

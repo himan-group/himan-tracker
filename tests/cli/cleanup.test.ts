@@ -10,6 +10,7 @@ import {
   resolveTrackerPaths,
   type TrackerPaths,
 } from "../../src/config/paths.js";
+import { initializeTrackerDatabase } from "../../src/storage/sqlite.js";
 
 describe("cleanup command", () => {
   it("previews raw log deletion without touching files", async () => {
@@ -126,6 +127,71 @@ describe("cleanup command", () => {
       await assertMissing(paths.eventsPath);
       await assertMissing(paths.errorsPath);
       assert.equal(await readFile(paths.sqlitePath, "utf8"), "stats stay");
+    } finally {
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("removes ingest cursor rows for deleted raw log files", async () => {
+    const homeDir = await mkdtemp(path.join(tmpdir(), "himan-cleanup-test-"));
+    const paths = resolveTrackerPaths({ HIMAN_TRACKER_HOME: homeDir });
+
+    try {
+      await ensureTrackerDirectories(paths);
+      await writeLog(paths, "events", "2026-05-10");
+      const deletedLog = path.join(paths.eventsDir, "2026-05-10.jsonl");
+      const retainedLog = path.join(paths.eventsDir, "2026-05-13.jsonl");
+      await writeLog(paths, "events", "2026-05-13");
+
+      const { db } = initializeTrackerDatabase(paths.sqlitePath);
+      try {
+        db.prepare(
+          `
+          insert into ingest_file_cursors (
+            file_path,
+            inode,
+            size_bytes,
+            offset_bytes,
+            mtime_ms,
+            updated_at
+          )
+          values (?, ?, ?, ?, ?, ?)
+          `,
+        ).run(deletedLog, "1", 20, 20, 1_000, "2026-05-13T00:00:00.000Z");
+        db.prepare(
+          `
+          insert into ingest_file_cursors (
+            file_path,
+            inode,
+            size_bytes,
+            offset_bytes,
+            mtime_ms,
+            updated_at
+          )
+          values (?, ?, ?, ?, ?, ?)
+          `,
+        ).run(retainedLog, "2", 20, 20, 1_000, "2026-05-13T00:00:00.000Z");
+      } finally {
+        db.close();
+      }
+
+      const result = await runCleanup({
+        paths,
+        before: "2026-05-11",
+      });
+
+      assert.equal(result.ok, true);
+      assert.match(result.lines.join("\n"), /Cursor rows deleted: 1/);
+
+      const { db: verifyDb } = initializeTrackerDatabase(paths.sqlitePath);
+      try {
+        const cursorRows = verifyDb.prepare("select file_path from ingest_file_cursors").all() as Array<{
+          file_path: string;
+        }>;
+        assert.deepEqual(cursorRows.map((row) => row.file_path), [retainedLog]);
+      } finally {
+        verifyDb.close();
+      }
     } finally {
       await rm(homeDir, { recursive: true, force: true });
     }

@@ -25,6 +25,7 @@ describe("initializeTrackerDatabase", () => {
           "002_capability_invocation_origin",
           "003_monthly_archive",
           "004_skill_metadata",
+          "005_ingest_file_cursors",
         ]);
 
         const tables = db
@@ -39,6 +40,7 @@ describe("initializeTrackerDatabase", () => {
           "capability_usages",
           "daily_agent_stats",
           "daily_capability_stats",
+          "ingest_file_cursors",
           "ingested_events",
           "monthly_agent_stats",
           "monthly_capability_stats",
@@ -149,6 +151,7 @@ describe("initializeTrackerDatabase", () => {
           "002_capability_invocation_origin",
           "003_monthly_archive",
           "004_skill_metadata",
+          "005_ingest_file_cursors",
         ]);
 
         const capability = db

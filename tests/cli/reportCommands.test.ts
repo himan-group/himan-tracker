@@ -38,6 +38,7 @@ describe("report commands", () => {
       assert.match(summaryOutput, /Top 5 agents/);
       assert.match(summaryOutput, /Top 10 capabilities/);
       assert.match(summaryOutput, /github\.create_pull_request/);
+      assert.match(summaryOutput, /github\.create_pull_request[^\n]*\|\s+400ms/);
 
       const limitedSummary = await runSummary({
         paths,
@@ -448,6 +449,27 @@ function createFixtureEvents(): NormalizedEvent[] {
       capability_type: "mcp_tool",
       capability_name: "github.create_pull_request",
       duration_ms: 600,
+      input_tokens: null,
+      output_tokens: null,
+      total_tokens: null,
+      adopted: "unknown",
+      attribution_confidence: "estimated",
+      invocation_origin: "observed",
+    },
+    {
+      schema_version: "1.0",
+      event_id: "evt_capability_005",
+      event_type: "capability_usage",
+      occurred_at: "2026-05-12T12:00:08.000Z",
+      agent: "codex",
+      source: "fixture",
+      session_id: "s_001",
+      turn_id: "t_001",
+      repo_hash: "repo_hash_001",
+      status: "failure",
+      capability_type: "mcp_tool",
+      capability_name: "github.create_pull_request",
+      duration_ms: null,
       input_tokens: null,
       output_tokens: null,
       total_tokens: null,

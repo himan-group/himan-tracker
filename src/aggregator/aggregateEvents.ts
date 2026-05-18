@@ -1,4 +1,5 @@
-import { readdir, readFile, rm } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { access, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -7,7 +8,11 @@ import {
   type SkillMetadataIssue,
 } from "../adapters/himan/metadata.js";
 import { validateNormalizedEvent } from "../normalizer/eventSchema.js";
-import { initializeTrackerDatabase, type SqliteDatabase } from "../storage/sqlite.js";
+import {
+  initializeTrackerDatabase,
+  openTrackerDatabase,
+  type SqliteDatabase,
+} from "../storage/sqlite.js";
 import type {
   CapabilityUsageEvent,
   NormalizedEvent,
@@ -38,13 +43,28 @@ export type IngestEventsResult = {
   skill_metadata_issues: number;
 };
 
+type IngestFileCursorRow = {
+  file_path: string;
+  inode: string;
+  size_bytes: number;
+  offset_bytes: number;
+  mtime_ms: number;
+};
+
+type IngestReadCursor = {
+  filePath: string;
+  inode: string;
+  sizeBytes: number;
+  offsetBytes: number;
+  mtimeMs: number;
+};
+
 export async function ingestEvents(options: IngestEventsOptions): Promise<IngestEventsResult> {
   if (options.rebuild) {
     await removeSqliteProjection(options.sqlitePath);
   }
 
   const eventFiles = await resolveEventFiles(options);
-  const events = await readJsonlEvents(eventFiles);
   const now = options.now ?? (() => new Date());
   const skillMetadata =
     options.skillMetadataRoots && options.skillMetadataRoots.length > 0
@@ -53,13 +73,21 @@ export async function ingestEvents(options: IngestEventsOptions): Promise<Ingest
   const { db, appliedMigrations } = initializeTrackerDatabase(options.sqlitePath);
 
   try {
-    const result = insertEvents(db, events, now, skillMetadata.definitions, skillMetadata.issues);
+    const ingestReadResult = await readIncrementalJsonlEvents(db, eventFiles);
+    const result = insertEvents(
+      db,
+      ingestReadResult.events,
+      ingestReadResult.cursors,
+      now,
+      skillMetadata.definitions,
+      skillMetadata.issues,
+    );
 
     return {
       sqlite_path: options.sqlitePath,
       events_path: options.eventsPath ?? options.eventsDir ?? "",
       event_files: eventFiles,
-      events_read: events.length,
+      events_read: ingestReadResult.events.length,
       events_inserted: result.inserted,
       events_skipped: result.skipped,
       affected_dates: result.affectedDates,
@@ -105,13 +133,32 @@ async function resolveEventFiles(options: IngestEventsOptions): Promise<string[]
   }
 }
 
-async function readJsonlEvents(eventsPaths: string[]): Promise<NormalizedEvent[]> {
+async function readIncrementalJsonlEvents(
+  db: SqliteDatabase,
+  eventsPaths: string[],
+): Promise<{ events: NormalizedEvent[]; cursors: IngestReadCursor[] }> {
+  const currentCursors = readIngestFileCursors(db);
   const events: NormalizedEvent[] = [];
+  const nextCursors: IngestReadCursor[] = [];
 
   for (const eventsPath of eventsPaths) {
-    const rawEvents = await readFile(eventsPath, "utf8");
+    let fileStat;
+    try {
+      fileStat = await stat(eventsPath);
+    } catch (error) {
+      if (isNodeErrorCode(error, "ENOENT")) {
+        continue;
+      }
+      throw error;
+    }
+    const inode = String(fileStat.ino);
+    const sizeBytes = fileStat.size;
+    const mtimeMs = Math.floor(fileStat.mtimeMs);
+    const previousCursor = currentCursors.get(eventsPath);
+    const offsetBytes = resolveReadOffset(previousCursor, inode, sizeBytes);
+    const fileDelta = await readFileDelta(eventsPath, offsetBytes);
 
-    for (const [index, line] of rawEvents.split(/\r?\n/).entries()) {
+    for (const [index, line] of fileDelta.lines.entries()) {
       if (line.trim().length === 0) {
         continue;
       }
@@ -124,14 +171,23 @@ async function readJsonlEvents(eventsPaths: string[]): Promise<NormalizedEvent[]
         );
       }
     }
+
+    nextCursors.push({
+      filePath: eventsPath,
+      inode,
+      sizeBytes,
+      offsetBytes: sizeBytes,
+      mtimeMs,
+    });
   }
 
-  return events;
+  return { events, cursors: nextCursors };
 }
 
 function insertEvents(
   db: SqliteDatabase,
   events: NormalizedEvent[],
+  cursors: IngestReadCursor[],
   now: () => Date,
   skillDefinitions: SkillDefinitionMetadata[],
   skillIssues: SkillMetadataIssue[],
@@ -141,6 +197,25 @@ function insertEvents(
     `
     insert into ingested_events (event_id, event_type, occurred_at, ingested_at)
     values (?, ?, ?, ?)
+    `,
+  );
+  const upsertIngestFileCursor = db.prepare(
+    `
+    insert into ingest_file_cursors (
+      file_path,
+      inode,
+      size_bytes,
+      offset_bytes,
+      mtime_ms,
+      updated_at
+    )
+    values (?, ?, ?, ?, ?, ?)
+    on conflict(file_path) do update set
+      inode = excluded.inode,
+      size_bytes = excluded.size_bytes,
+      offset_bytes = excluded.offset_bytes,
+      mtime_ms = excluded.mtime_ms,
+      updated_at = excluded.updated_at
     `,
   );
   const affectedDates = new Set<string>();
@@ -171,6 +246,17 @@ function insertEvents(
     }
 
     recomputeDailyStats(db, affectedDates);
+    const updatedAt = now().toISOString();
+    for (const cursor of cursors) {
+      upsertIngestFileCursor.run(
+        cursor.filePath,
+        cursor.inode,
+        cursor.sizeBytes,
+        cursor.offsetBytes,
+        cursor.mtimeMs,
+        updatedAt,
+      );
+    }
   });
 
   insertTransaction();
@@ -180,6 +266,108 @@ function insertEvents(
     skipped,
     affectedDates: [...affectedDates].sort(),
   };
+}
+
+function readIngestFileCursors(db: SqliteDatabase): Map<string, IngestFileCursorRow> {
+  const hasCursorTable = db
+    .prepare(
+      "select name from sqlite_master where type = 'table' and name = 'ingest_file_cursors' limit 1",
+    )
+    .get() as { name: string } | undefined;
+  if (!hasCursorTable) {
+    return new Map();
+  }
+
+  const rows = db.prepare("select * from ingest_file_cursors").all() as IngestFileCursorRow[];
+  return new Map(rows.map((row) => [row.file_path, row]));
+}
+
+function resolveReadOffset(
+  cursor: IngestFileCursorRow | undefined,
+  inode: string,
+  fileSize: number,
+): number {
+  if (!cursor) {
+    return 0;
+  }
+  if (cursor.inode !== inode) {
+    return 0;
+  }
+  if (fileSize < cursor.offset_bytes) {
+    return 0;
+  }
+
+  return cursor.offset_bytes;
+}
+
+async function readFileDelta(
+  filePath: string,
+  startOffset: number,
+): Promise<{ lines: string[] }> {
+  if (startOffset < 0) {
+    throw new Error(`Invalid read offset for ${filePath}: ${startOffset}`);
+  }
+
+  const text = await new Promise<string>((resolve, reject) => {
+    let chunks = "";
+    const stream = createReadStream(filePath, {
+      encoding: "utf8",
+      start: startOffset,
+    });
+    stream.on("data", (chunk: string | Buffer) => {
+      chunks += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+    });
+    stream.on("error", reject);
+    stream.on("end", () => {
+      resolve(chunks);
+    });
+  });
+
+  return { lines: text.split(/\r?\n/) };
+}
+
+export async function deleteIngestFileCursorsForFiles(
+  sqlitePath: string,
+  filePaths: string[],
+): Promise<number> {
+  const targetPaths = [...new Set(filePaths)];
+  if (targetPaths.length === 0) {
+    return 0;
+  }
+
+  try {
+    await access(sqlitePath);
+  } catch {
+    return 0;
+  }
+
+  let db: SqliteDatabase | null = null;
+  try {
+    db = openTrackerDatabase(sqlitePath);
+    const hasCursorTable = db
+      .prepare(
+        "select name from sqlite_master where type = 'table' and name = 'ingest_file_cursors' limit 1",
+      )
+      .get() as { name: string } | undefined;
+    if (!hasCursorTable) {
+      return 0;
+    }
+
+    const deleteCursor = db.prepare("delete from ingest_file_cursors where file_path = ?");
+    const deleteTransaction = db.transaction((paths: string[]) => {
+      let deleted = 0;
+      for (const filePath of paths) {
+        deleted += deleteCursor.run(filePath).changes;
+      }
+      return deleted;
+    });
+
+    return deleteTransaction(targetPaths);
+  } catch {
+    return 0;
+  } finally {
+    db?.close();
+  }
 }
 
 function insertBaseEvent(
@@ -597,4 +785,13 @@ function createUnknownSkillMetadataSnapshot(): SkillMetadataSnapshot {
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isNodeErrorCode(error: unknown, code: string): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: string }).code === code
+  );
 }

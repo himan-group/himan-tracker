@@ -196,8 +196,8 @@ describe("server command", () => {
       };
       assert.equal(health.ok, true);
       assert.equal(health.last_ingest.ok, true);
-      assert.equal(health.last_ingest.events_read, events.length);
-      assert.equal(health.last_ingest.events_skipped, events.length);
+      assert.equal(health.last_ingest.events_read, 0);
+      assert.equal(health.last_ingest.events_skipped, 0);
 
       const status = await runServerStatus({ paths });
       assert.equal(status.ok, true);
