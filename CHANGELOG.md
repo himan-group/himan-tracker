@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-05-18
+
 ### Changed
 
 - Changed Metrics day-over-day growth to compare against the nearest prior day with recorded turns instead of strictly using calendar day minus one, so weekend/holiday gaps no longer force `n/a` growth.
