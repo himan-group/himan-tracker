@@ -271,7 +271,7 @@ type SummaryCommandOptions = {
 
 program
   .command("tokens")
-  .description("Show token usage grouped by day, week, or month")
+  .description("Show runtime token usage grouped by day, week, or month")
   .option("--since <period>", "Date range such as 30d, 12w, or 12m", "30d")
   .option("--period <period>", "Group by day, week, month, daily, weekly, or monthly", "day")
   .action(async (options: TokensCommandOptions) => {

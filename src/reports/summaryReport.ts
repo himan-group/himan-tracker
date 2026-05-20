@@ -33,6 +33,7 @@ type TopCapabilityRow = {
   invocation_count: number;
   total_tokens: number | null;
   duration_ms: number | null;
+  duration_count: number;
 };
 
 const TOP_AGENT_LIMIT = 5;
@@ -82,7 +83,7 @@ export function renderSummaryReport(
       [
         ["Sessions", String(summary.session_count)],
         ["Turns", String(summary.turn_count)],
-        ["Total tokens", formatTokenCount(summary.total_tokens)],
+        ["Total runtime tokens", formatTokenCount(summary.total_tokens)],
         ["Average latency", formatAverageDurationMs(summary.duration_ms, summary.turn_count)],
         ["Success rate", formatSuccessRate(summary.success_count, summary.failure_count)],
       ],
@@ -113,7 +114,7 @@ function renderTopAgents(db: SqliteDatabase, range: DateRange): string[] {
       from daily_agent_stats
       where date between ? and ?
       group by agent, model
-      order by coalesce(total_tokens, -1) desc, turn_count desc
+      order by turn_count desc, coalesce(total_tokens, -1) desc, agent asc, model asc
       limit ${TOP_AGENT_LIMIT}
       `,
     )
@@ -124,7 +125,7 @@ function renderTopAgents(db: SqliteDatabase, range: DateRange): string[] {
   }
 
   return formatTable(
-    ["Agent", "Model", "Turns", "Tokens"],
+    ["Agent", "Model", "Turns", "Runtime tokens"],
     rows.map((row) => [
       row.agent,
       formatNullableText(row.model),
@@ -142,11 +143,11 @@ function renderTopCapabilities(
     limit: number;
   },
 ): string[] {
-  const clauses = ["date between ? and ?"];
+  const clauses = ["date(c.occurred_at, 'localtime') between ? and ?"];
   const params: Array<string | number> = [range.startDate, range.endDate];
 
   if (filters.excludeSystem) {
-    const condition = createExcludeSystemCapabilityCondition();
+    const condition = createExcludeSystemCapabilityCondition("c");
     clauses.push(condition.sql);
     params.push(...condition.params);
   }
@@ -156,15 +157,30 @@ function renderTopCapabilities(
   const rows = db
     .prepare(
       `
+      with capability_events as (
+        select
+          c.agent,
+          c.capability_type,
+          c.capability_name,
+          c.total_tokens,
+          coalesce(c.duration_ms, case when c.capability_type = 'skill' then t.duration_ms end)
+            as effective_duration_ms
+        from capability_usages c
+        left join turns t
+          on t.id = c.turn_id
+          and t.session_id = c.session_id
+          and t.agent = c.agent
+        where ${clauses.join(" and ")}
+      )
       select
         agent,
         capability_type,
         capability_name,
-        sum(invocation_count) as invocation_count,
+        count(*) as invocation_count,
         case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens,
-        case when count(duration_ms) = 0 then null else sum(duration_ms) end as duration_ms
-      from daily_capability_stats
-      where ${clauses.join(" and ")}
+        case when count(effective_duration_ms) = 0 then null else sum(effective_duration_ms) end as duration_ms,
+        count(effective_duration_ms) as duration_count
+      from capability_events
       group by agent, capability_type, capability_name
       order by coalesce(total_tokens, -1) desc, invocation_count desc
       limit ?
@@ -177,14 +193,14 @@ function renderTopCapabilities(
   }
 
   return formatTable(
-    ["Agent", "Type", "Capability", "Invocations", "Tokens", "Duration"],
+    ["Agent", "Type", "Capability", "Invocations", "Runtime tokens", "Duration"],
     rows.map((row) => [
       row.agent,
       row.capability_type,
       row.capability_name,
       String(row.invocation_count),
       formatTokenCount(row.total_tokens),
-      formatAverageDurationMs(row.duration_ms, row.invocation_count),
+      formatAverageDurationMs(row.duration_ms, row.duration_count),
     ]),
   );
 }

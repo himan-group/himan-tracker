@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-05-20
+
+### Changed
+
+- Changed token-facing CLI and dashboard labels to consistently call the tracked values `runtime tokens`, and clarified that token reports exclude `himan.yaml` static token estimates.
+
+## [0.2.1] - 2026-05-18
+
+### Changed
+
+- Changed Metrics day-over-day growth to compare against the nearest prior day with recorded turns instead of strictly using calendar day minus one, so weekend/holiday gaps no longer force `n/a` growth.
+- Changed Summary `Top agents` ordering to sort by turns descending first, then runtime tokens descending.
+- Changed Summary `Top capabilities` duration to use average duration based on calls with available duration data.
+- Changed ingest to use per-file cursor offsets for incremental JSONL reads instead of re-reading all event files on every run.
+- Changed cleanup to delete matching ingest file cursor rows when raw log files are deleted.
+
 ## [0.2.0] - 2026-05-15
 
 ### Added

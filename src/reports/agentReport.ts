@@ -47,7 +47,7 @@ export function renderAgentReport(db: SqliteDatabase, date: string): string[] {
     `Agents (${date})`,
     "",
     ...formatTable(
-      ["Agent", "Model", "Sessions", "Turns", "Tokens", "Avg latency", "Success rate"],
+      ["Agent", "Model", "Sessions", "Turns", "Runtime tokens", "Avg latency", "Success rate"],
       rows.map((row) => [
         row.agent,
         formatNullableText(row.model),

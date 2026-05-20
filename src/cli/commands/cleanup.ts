@@ -1,6 +1,7 @@
 import { access, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
+import { deleteIngestFileCursorsForFiles } from "../../aggregator/aggregateEvents.js";
 import {
   ensureTrackerDirectories,
   resolveTrackerPaths,
@@ -62,11 +63,16 @@ export async function runCleanup(
     await ensureTrackerDirectories(paths);
     const scope = resolveCleanupScope(options, (options.now ?? (() => new Date()))());
     const files = await listMatchingRawLogFiles(paths, scope);
+    let deletedCursorRows = 0;
 
     if (!options.dryRun) {
       for (const file of files) {
         await rm(file.filePath, { force: true });
       }
+      deletedCursorRows = await deleteIngestFileCursorsForFiles(
+        paths.sqlitePath,
+        files.map((file) => file.filePath),
+      );
     }
 
     return {
@@ -76,6 +82,7 @@ export async function runCleanup(
         scope,
         files,
         dryRun: options.dryRun ?? false,
+        deletedCursorRows,
       }),
     };
   } catch (error) {
@@ -245,6 +252,7 @@ function formatCleanupResult(options: {
   scope: CleanupScope;
   files: RawLogFile[];
   dryRun: boolean;
+  deletedCursorRows: number;
 }): string[] {
   const eventFiles = options.files.filter((file) => file.category === "events");
   const errorFiles = options.files.filter((file) => file.category === "errors");
@@ -263,6 +271,9 @@ function formatCleanupResult(options: {
     `Total files matched: ${options.files.length}`,
     `Bytes matched: ${sizeBytes}`,
     options.dryRun ? "Deleted files: 0 (dry-run)" : `Deleted files: ${options.files.length}`,
+    options.dryRun
+      ? "Cursor rows deleted: 0 (dry-run)"
+      : `Cursor rows deleted: ${options.deletedCursorRows}`,
     "Stats retained: yes",
   ];
 }

@@ -58,13 +58,13 @@ describe("server command", () => {
       assert.match(html, /Summary/);
       const summaryHtml = html.slice(
         html.indexOf("<h2>Summary</h2>"),
-        html.indexOf("<h2>Token usage</h2>"),
+        html.indexOf("<h2>Runtime token usage</h2>"),
       );
       assert.match(
         summaryHtml,
         /<p class="table-note">Summary \(2026-05-06 to 2026-05-12\)<\/p>/,
       );
-      assert.match(summaryHtml, /Total tokens/);
+      assert.match(summaryHtml, /Total runtime tokens/);
       assert.match(summaryHtml, /Success rate/);
       assert.match(summaryHtml, /<p class="table-note">Top 5 agents<\/p>/);
       assert.match(summaryHtml, /<p class="table-note">Top 15 capabilities<\/p>/);
@@ -75,8 +75,8 @@ describe("server command", () => {
       assert.equal(summaryHtml.includes("server-capability-16"), false);
       assert.equal(summaryHtml.includes("apply_patch"), false);
       assert.equal(summaryHtml.includes("Bash"), false);
-      assert.match(html, /Token usage/);
-      assert.ok(html.indexOf("<h2>Summary</h2>") < html.indexOf("<h2>Token usage</h2>"));
+      assert.match(html, /Runtime token usage/);
+      assert.ok(html.indexOf("<h2>Summary</h2>") < html.indexOf("<h2>Runtime token usage</h2>"));
       assert.match(html, /role="tablist"/);
       assert.match(html, /role="tab"[^>]*>Daily<\/button>/);
       assert.match(html, /role="tab"[^>]*>Weekly<\/button>/);
@@ -196,8 +196,8 @@ describe("server command", () => {
       };
       assert.equal(health.ok, true);
       assert.equal(health.last_ingest.ok, true);
-      assert.equal(health.last_ingest.events_read, events.length);
-      assert.equal(health.last_ingest.events_skipped, events.length);
+      assert.equal(health.last_ingest.events_read, 0);
+      assert.equal(health.last_ingest.events_skipped, 0);
 
       const status = await runServerStatus({ paths });
       assert.equal(status.ok, true);
@@ -359,7 +359,7 @@ describe("server command", () => {
       assert.equal(response.status, 200);
       assert.match(html, /<pre class="cli-output">/);
       assert.match(html, /Metric\s+\| Value/);
-      assert.match(html, /Total tokens\s+\| 1\.23K/);
+      assert.match(html, /Total runtime tokens\s+\| 1\.23K/);
       assert.match(html, /Capability\s+\| Invocations/);
       assert.equal(html.includes("<table>"), false);
     } finally {

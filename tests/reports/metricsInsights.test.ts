@@ -233,6 +233,58 @@ describe("readMetricsInsightData", () => {
     }
   });
 
+  it("uses the nearest prior day with turns for day-over-day growth", async () => {
+    const homeDir = await mkdtemp(path.join(tmpdir(), "himan-metrics-gap-test-"));
+
+    try {
+      const { db } = initializeTrackerDatabase(path.join(homeDir, "himan.sqlite"));
+      try {
+        insertTurn(db, {
+          id: "turn_gap_prev",
+          eventId: "evt_turn_gap_prev",
+          sessionId: "session_gap_prev",
+          occurredAt: "2026-05-15T12:00:00.000Z",
+          repoHash: "repo_gap",
+          durationMs: 1_000,
+          totalTokens: 100,
+        });
+        insertTurn(db, {
+          id: "turn_gap_current",
+          eventId: "evt_turn_gap_current",
+          sessionId: "session_gap_current",
+          occurredAt: "2026-05-18T12:00:00.000Z",
+          repoHash: "repo_gap",
+          durationMs: 1_200,
+          totalTokens: 150,
+        });
+
+        const data = readMetricsInsightData(db, {
+          now: new Date("2026-05-18T10:00:00.000Z"),
+        });
+        const day = data.periods.find((period) => period.period === "day");
+        assert.ok(day);
+        assert.deepEqual(day.currentRange, {
+          startDate: "2026-05-18",
+          endDate: "2026-05-18",
+        });
+        assert.deepEqual(day.previousRange, {
+          startDate: "2026-05-15",
+          endDate: "2026-05-15",
+        });
+        assert.deepEqual(
+          day.overallRows.map((row) => row.label),
+          ["2026-05-18", "2026-05-15"],
+        );
+        assert.equal(day.overall.tokenGrowthRate, 0.5);
+        assert.equal(day.overall.durationGrowthRate, 0.2);
+      } finally {
+        db.close();
+      }
+    } finally {
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
   it("keeps previous-only projects and capabilities so drops can alert", async () => {
     const homeDir = await mkdtemp(path.join(tmpdir(), "himan-metrics-drop-test-"));
 

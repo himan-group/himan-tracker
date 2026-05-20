@@ -34,10 +34,11 @@ describe("report commands", () => {
       const summary = await runSummary({ paths, since: "7d", now: () => now });
       const summaryOutput = summary.lines.join("\n");
       assert.equal(summary.ok, true);
-      assert.match(summaryOutput, /Total tokens\s+\|\s+3\.56M/);
+      assert.match(summaryOutput, /Total runtime tokens\s+\|\s+3\.56M/);
       assert.match(summaryOutput, /Top 5 agents/);
       assert.match(summaryOutput, /Top 10 capabilities/);
       assert.match(summaryOutput, /github\.create_pull_request/);
+      assert.match(summaryOutput, /github\.create_pull_request[^\n]*\|\s+400ms/);
 
       const limitedSummary = await runSummary({
         paths,
@@ -74,7 +75,7 @@ describe("report commands", () => {
 
       const tokens = await runTokens({ paths, since: "7d", period: "day", now: () => now });
       assert.equal(tokens.ok, true);
-      assert.match(tokens.lines.join("\n"), /Token usage by day/);
+      assert.match(tokens.lines.join("\n"), /Runtime token usage by day/);
       assert.match(tokens.lines.join("\n"), /2026-05-12/);
       assert.match(tokens.lines.join("\n"), /3\.56M/);
 
@@ -200,7 +201,7 @@ describe("report commands", () => {
       assert.equal(summary.ok, true);
       assert.match(summary.lines.join("\n"), /No usage data found/);
       assert.equal(tokens.ok, true);
-      assert.match(tokens.lines.join("\n"), /No token usage found/);
+      assert.match(tokens.lines.join("\n"), /No runtime token usage found/);
     } finally {
       await rm(homeDir, { recursive: true, force: true });
     }
@@ -213,7 +214,7 @@ describe("report commands", () => {
       const daily = await runTokens({ paths, since: "30d", period: "day", now: () => now });
       const dailyOutput = daily.lines.join("\n");
       assert.equal(daily.ok, true);
-      assert.match(dailyOutput, /Token usage by day/);
+      assert.match(dailyOutput, /Runtime token usage by day/);
       assert.match(dailyOutput, /2026-04-28\s+\|\s+1\s+\|\s+1K\s+\|\s+500\s+\|\s+1\.5K/);
       assert.match(dailyOutput, /2026-05-01\s+\|\s+1\s+\|\s+2K\s+\|\s+500\s+\|\s+2\.5K/);
       assert.match(dailyOutput, /2026-05-12\s+\|\s+1\s+\|\s+2\.5K\s+\|\s+500\s+\|\s+3K/);
@@ -448,6 +449,27 @@ function createFixtureEvents(): NormalizedEvent[] {
       capability_type: "mcp_tool",
       capability_name: "github.create_pull_request",
       duration_ms: 600,
+      input_tokens: null,
+      output_tokens: null,
+      total_tokens: null,
+      adopted: "unknown",
+      attribution_confidence: "estimated",
+      invocation_origin: "observed",
+    },
+    {
+      schema_version: "1.0",
+      event_id: "evt_capability_005",
+      event_type: "capability_usage",
+      occurred_at: "2026-05-12T12:00:08.000Z",
+      agent: "codex",
+      source: "fixture",
+      session_id: "s_001",
+      turn_id: "t_001",
+      repo_hash: "repo_hash_001",
+      status: "failure",
+      capability_type: "mcp_tool",
+      capability_name: "github.create_pull_request",
+      duration_ms: null,
       input_tokens: null,
       output_tokens: null,
       total_tokens: null,

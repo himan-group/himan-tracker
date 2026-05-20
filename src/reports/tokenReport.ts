@@ -11,6 +11,9 @@ import {
 
 export type TokenPeriod = "day" | "week" | "month";
 
+const RUNTIME_TOKEN_NOTE =
+  "Runtime tokens use observed input/output/total token fields only; himan.yaml static token estimates are excluded.";
+
 type DailyTokenRow = {
   date: string;
   turn_count: number;
@@ -55,16 +58,16 @@ export function renderTokenReport(
 
   if (rows.length === 0) {
     return [
-      `Token usage by ${period} (${formatDateRange(range)})`,
+      `Runtime token usage by ${period} (${formatDateRange(range)})`,
       "",
-      "No token usage found for this range.",
+      "No runtime token usage found for this range.",
     ];
   }
 
   const buckets = aggregateTokenRows(rows, period);
 
   return [
-    `Token usage by ${period} (${formatDateRange(range)})`,
+    `Runtime token usage by ${period} (${formatDateRange(range)})`,
     "",
     ...formatTable(
       ["Period", "Turns", "Input", "Output", "Total", "Avg / turn"],
@@ -81,6 +84,8 @@ export function renderTokenReport(
         ];
       }),
     ),
+    "",
+    RUNTIME_TOKEN_NOTE,
   ];
 }
 

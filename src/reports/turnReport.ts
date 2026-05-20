@@ -64,7 +64,7 @@ export function renderTurnReport(
     `Turns (${formatDateRange(range)})`,
     "",
     ...formatTable(
-      ["Time", "Agent", "Model", "Turn", "Duration", "Tokens", "Status"],
+      ["Time", "Agent", "Model", "Turn", "Duration", "Runtime tokens", "Status"],
       rows.map((row) => [
         formatLocalDateTime(row.occurred_at),
         row.agent,
