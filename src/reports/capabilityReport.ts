@@ -150,7 +150,7 @@ export function renderCapabilityReport(
         "Inferred",
         "Observed",
         "Unknown",
-        "Tokens",
+        "Runtime tokens",
         "Avg duration",
         "Min duration",
         "Max duration",

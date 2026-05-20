@@ -187,7 +187,7 @@ Report rules:
 - `server start` launches a detached local HTTP server, records PID/state under the tracker home, runs immediate and interval-based incremental ingest, and serves a local dashboard page from SQLite reports. It supports `--display table|text` to choose HTML tables or CLI-style text blocks for dashboard report sections.
 - `server status` reads the state file and checks whether the recorded PID is still running; `server stop` sends `SIGTERM` and removes stale state when needed.
 - `summary` supports `--since`, shows overall usage, top agents, and top capabilities.
-- `tokens` supports `--since` and `--period day|week|month` to show input, output, total, and average token consumption by period.
+- `tokens` supports `--since` and `--period day|week|month` to show runtime input, output, total, and average token consumption by period.
 - `agents` supports `--date` and groups by agent/model.
 - `turns` supports `--since`, `--agent`, and `--limit` for per-turn duration/token/status output.
 - `capabilities` supports `--since`, `--sort`, `--type`, and `--agent`.

@@ -225,6 +225,9 @@ type DashboardTokenDayRow = {
   total_tokens: number | null;
 };
 
+const RUNTIME_TOKEN_NOTE =
+  "Runtime tokens use observed input/output/total token fields only; himan.yaml static token estimates are excluded.";
+
 type DashboardTokenBucket = {
   key: string;
   label: string;
@@ -1020,11 +1023,11 @@ function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode)
     <div class="metrics">
       ${renderMetric("Sessions", String(data.summary.session_count))}
       ${renderMetric("Turns", String(data.summary.turn_count))}
-      ${renderMetric("Tokens", formatTokenCount(data.summary.total_tokens))}
+      ${renderMetric("Runtime tokens", formatTokenCount(data.summary.total_tokens))}
       ${renderMetric("Avg latency", formatAverageDurationMs(data.summary.duration_ms, data.summary.turn_count))}
     </div>
     ${renderSection(data.summarySection, display)}
-    ${renderTabbedSection("Token usage", "token", data.tokenTabs, display)}
+    ${renderTabbedSection("Runtime token usage", "token", data.tokenTabs, display)}
     ${data.sections.map((section) => renderSection(section, display)).join("\n")}
     ${renderTabbedSection("Capability calls", "capability-calls", data.capabilityCallTabs, display)}
     ${renderSection(data.recentTurnsSection, display)}
@@ -1793,7 +1796,7 @@ function readDashboardCapabilityCalls(
   const label = type === "skill" ? "skill" : "MCP tool";
 
   return {
-    columns: ["Time", "Agent", "Source", "Capability", "Duration", "Basis", "Tokens", "Status", "Origin"],
+    columns: ["Time", "Agent", "Source", "Capability", "Duration", "Basis", "Runtime tokens", "Status", "Origin"],
     rows: rows.map((row) => [
         formatLocalDateTime(row.occurred_at),
         row.agent,
@@ -1835,7 +1838,7 @@ function readDashboardAgents(
     .all(date) as DashboardAgentRow[];
 
   return {
-    columns: ["Agent", "Model", "Sessions", "Turns", "Tokens", "Avg latency", "Success rate"],
+    columns: ["Agent", "Model", "Sessions", "Turns", "Runtime tokens", "Avg latency", "Success rate"],
     rows: rows.map((row) => [
       row.agent,
       formatNullableText(row.model),
@@ -1881,7 +1884,7 @@ function createDashboardSummaryMetricTable(summary: DashboardSummary): Dashboard
     rows: [
       ["Sessions", String(summary.session_count)],
       ["Turns", String(summary.turn_count)],
-      ["Total tokens", formatTokenCount(summary.total_tokens)],
+      ["Total runtime tokens", formatTokenCount(summary.total_tokens)],
       ["Average latency", formatAverageDurationMs(summary.duration_ms, summary.turn_count)],
       ["Success rate", formatSuccessRate(summary.success_count, summary.failure_count)],
     ],
@@ -1912,7 +1915,7 @@ function readDashboardSummaryAgents(
     .all(range.startDate, range.endDate, limit) as DashboardSummaryAgentRow[];
 
   return {
-    columns: ["Agent", "Model", "Turns", "Tokens"],
+    columns: ["Agent", "Model", "Turns", "Runtime tokens"],
     width: "compact",
     rows: rows.map((row) => [
       row.agent,
@@ -1978,7 +1981,7 @@ function readDashboardSummaryCapabilities(
     .all(...params) as DashboardSummaryCapabilityRow[];
 
   return {
-    columns: ["Agent", "Type", "Capability", "Invocations", "Tokens", "Duration"],
+    columns: ["Agent", "Type", "Capability", "Invocations", "Runtime tokens", "Duration"],
     rows: rows.map((row) => [
       row.agent,
       row.capability_type,
@@ -2078,7 +2081,7 @@ function readDashboardCapabilities(
       "Inferred",
       "Observed",
       "Unknown",
-      "Tokens",
+      "Runtime tokens",
       "Avg duration",
       "Min duration",
       "Max duration",
@@ -2143,8 +2146,8 @@ function readDashboardTokenUsage(
         formatAverageTokens(totalTokens, bucket.turn_count),
       ];
     }),
-    emptyText: "No token usage found for this range.",
-    note: `Token usage by ${period} (${formatDateRange(range)}).`,
+    emptyText: "No runtime token usage found for this range.",
+    note: `Runtime token usage by ${period} (${formatDateRange(range)}). ${RUNTIME_TOKEN_NOTE}`,
   };
 }
 
@@ -2173,7 +2176,7 @@ function readDashboardTurns(
     .all(range.startDate, range.endDate, limit) as DashboardTurnRow[];
 
   return {
-    columns: ["Time", "Agent", "Model", "Turn", "Duration", "Tokens", "Status"],
+    columns: ["Time", "Agent", "Model", "Turn", "Duration", "Runtime tokens", "Status"],
     rows: rows.map((row) => [
       formatLocalDateTime(row.occurred_at),
       row.agent,

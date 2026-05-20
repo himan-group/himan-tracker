@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Changed token-facing CLI and dashboard labels to consistently call the tracked values `runtime tokens`, and clarified that token reports exclude `himan.yaml` static token estimates.
+
 ## [0.2.1] - 2026-05-18
 
 ### Changed

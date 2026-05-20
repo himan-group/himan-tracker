@@ -98,7 +98,7 @@ export function renderCapabilityEventReport(
         "Turn",
         "Duration",
         "Basis",
-        "Tokens",
+        "Runtime tokens",
         "Status",
         "Adopted",
         "Origin",

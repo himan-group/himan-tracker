@@ -83,7 +83,7 @@ export function renderSummaryReport(
       [
         ["Sessions", String(summary.session_count)],
         ["Turns", String(summary.turn_count)],
-        ["Total tokens", formatTokenCount(summary.total_tokens)],
+        ["Total runtime tokens", formatTokenCount(summary.total_tokens)],
         ["Average latency", formatAverageDurationMs(summary.duration_ms, summary.turn_count)],
         ["Success rate", formatSuccessRate(summary.success_count, summary.failure_count)],
       ],
@@ -125,7 +125,7 @@ function renderTopAgents(db: SqliteDatabase, range: DateRange): string[] {
   }
 
   return formatTable(
-    ["Agent", "Model", "Turns", "Tokens"],
+    ["Agent", "Model", "Turns", "Runtime tokens"],
     rows.map((row) => [
       row.agent,
       formatNullableText(row.model),
@@ -193,7 +193,7 @@ function renderTopCapabilities(
   }
 
   return formatTable(
-    ["Agent", "Type", "Capability", "Invocations", "Tokens", "Duration"],
+    ["Agent", "Type", "Capability", "Invocations", "Runtime tokens", "Duration"],
     rows.map((row) => [
       row.agent,
       row.capability_type,

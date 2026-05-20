@@ -244,7 +244,7 @@ himan-tracker archive monthly
 
 ### `server`
 
-启动、停止和查看本地报表 Web server。server 默认只监听 `127.0.0.1`，启动后会立即执行一次增量 `ingest`，之后按固定间隔继续导入 `events/*.jsonl`。页面默认会以 HTML 表格展示总览、一个可切换日/周/月的 token 消耗卡片、agent、capability、一个可切换 skill/MCP tool 的调用列表卡片和近期 turn；也可以通过 `--display text` 切换为命令行风格文本块，并提供 `/dashboard.json` 结构化数据端点。
+启动、停止和查看本地报表 Web server。server 默认只监听 `127.0.0.1`，启动后会立即执行一次增量 `ingest`，之后按固定间隔继续导入 `events/*.jsonl`。页面默认会以 HTML 表格展示总览、一个可切换日/周/月的 runtime token 用量卡片、agent、capability、一个可切换 skill/MCP tool 的调用列表卡片和近期 turn；也可以通过 `--display text` 切换为命令行风格文本块，并提供 `/dashboard.json` 结构化数据端点。
 
 ```bash
 himan-tracker server start
@@ -329,11 +329,11 @@ himan-tracker summary --since 7d --limit 20
 himan-tracker summary --since 7d --exclude-system
 ```
 
-输出包含 session 数、turn 数、token 总量、平均延迟、成功率、Top agents 和 `Top N capabilities`。`Top N capabilities` 默认展示 10 个，可用 `--limit` 调整为 1 到 200；可用 `--exclude-system` 排除 `Bash`、`apply_patch` 等系统自带 capability。Top capabilities 会展示调用次数、token 和平均耗时。报表中的 token 总量使用 1000 进制的紧凑单位显示，例如 `1.25K`、`3.56M`、`1.2G`。
+输出包含 session 数、turn 数、runtime token 总量、平均延迟、成功率、Top agents 和 `Top N capabilities`。`Top N capabilities` 默认展示 10 个，可用 `--limit` 调整为 1 到 200；可用 `--exclude-system` 排除 `Bash`、`apply_patch` 等系统自带 capability。Top capabilities 会展示调用次数、runtime token 和平均耗时。报表中的 runtime token 总量使用 1000 进制的紧凑单位显示，例如 `1.25K`、`3.56M`、`1.2G`。
 
 ### `tokens`
 
-查看指定时间范围内按日、自然周或自然月聚合的 token 消耗。
+查看指定时间范围内按日、自然周或自然月聚合的 runtime token 用量。
 
 ```bash
 himan-tracker tokens --period day --since 30d
@@ -341,7 +341,7 @@ himan-tracker tokens --period week --since 12w
 himan-tracker tokens --period month --since 12m
 ```
 
-`--period` 支持 `day`、`week`、`month`，也支持 `daily`、`weekly`、`monthly`。自然周按本地时间的周一到周日聚合。输出包含 turns、input tokens、output tokens、total tokens 和平均每 turn token。
+`--period` 支持 `day`、`week`、`month`，也支持 `daily`、`weekly`、`monthly`。自然周按本地时间的周一到周日聚合。输出包含 turns、input tokens、output tokens、total tokens 和平均每 turn token；这些 token 只使用观测到的 runtime token 字段，不包含 `himan.yaml` 的静态 token estimate。
 
 ### `agents`
 
@@ -355,7 +355,7 @@ himan-tracker agents --date 2026-05-12
 
 ### `turns`
 
-查看最近一段时间内的逐轮对话耗时、token 和状态。
+查看最近一段时间内的逐轮对话耗时、runtime token 和状态。
 
 ```bash
 himan-tracker turns --since 7d
@@ -419,7 +419,7 @@ himan-tracker capability-events --type mcp_tool --name openaiDeveloperDocs.searc
 himan-tracker capability-events --type skill --name common-git-commit --agent codex --limit 50
 ```
 
-输出包含调用时间、agent、source、model、turn、耗时、token、状态、采纳状态、调用来源和归因置信度。`Origin` 表示 `explicit`、`inferred`、`observed` 或 `unknown`；`Confidence` 表示 `exact`、`estimated` 或 `unknown`。`Basis` 表示耗时来源：`event` 是 capability 事件自身提供的耗时，`turn` 是使用同一 turn 耗时估算，`n/a` 表示未知。
+输出包含调用时间、agent、source、model、turn、耗时、runtime token、状态、采纳状态、调用来源和归因置信度。`Origin` 表示 `explicit`、`inferred`、`observed` 或 `unknown`；`Confidence` 表示 `exact`、`estimated` 或 `unknown`。`Basis` 表示耗时来源：`event` 是 capability 事件自身提供的耗时，`turn` 是使用同一 turn 耗时估算，`n/a` 表示未知。
 
 ### `unused`
 
@@ -495,7 +495,7 @@ HIMAN_TRACKER_HOME=/custom/path himan-tracker doctor
 {"schema_version":"1.0","event_id":"evt_capability_001","event_type":"capability_usage","occurred_at":"2026-05-12T12:00:02.000Z","agent":"codex","source":"manual-import","session_id":"s_001","turn_id":"t_001","repo_hash":"repo_hash_001","status":"failure","capability_type":"mcp_tool","capability_name":"github.create_pull_request","duration_ms":200,"input_tokens":4,"output_tokens":1,"total_tokens":5,"adopted":"unknown","attribution_confidence":"estimated","invocation_origin":"observed"}
 ```
 
-`event_id` 用于幂等导入。同一个 `event_id` 重复导入时会被跳过，不会重复计数。token 或耗时未知时可以使用 `null`，报表会显示为未知，而不是强行当作 `0`。
+`event_id` 用于幂等导入。同一个 `event_id` 重复导入时会被跳过，不会重复计数。runtime token 或耗时未知时可以使用 `null`，报表会显示为未知，而不是强行当作 `0`。
 
 最小 Codex payload 示例：
 

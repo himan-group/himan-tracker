@@ -1,6 +1,6 @@
 # himan-tracker
 
-`himan-tracker` 是一个面向 Codex 和 Claude Code 的本地优先使用分析工具，用于统计 agent 对话、token 成本、执行耗时，以及 skill / MCP tool / plugin 的使用情况，帮助团队评估 AI 工作流 ROI。
+`himan-tracker` 是一个面向 Codex 和 Claude Code 的本地优先使用分析工具，用于统计 agent 对话、runtime token 用量、执行耗时，以及 skill / MCP tool / plugin 的使用情况，帮助团队评估 AI 工作流 ROI。
 
 ## 当前进度
 
@@ -40,7 +40,7 @@ himan-tracker server start --open
 - `ingest` 将本地 JSONL 事件导入 SQLite。
 - `archive monthly` 把最近 6 个自然月之前的日统计汇总到月度归档表，并清理对应日分片。
 - `summary` 查看最近使用总览。
-- `tokens` 查看每日、每周或每月 token 消耗。
+- `tokens` 查看每日、每周或每月 runtime token 用量。
 - `server start` 启动本地报表页面，并定时增量导入事件；加 `--open` 会自动打开浏览器，`--display text` 可切换为命令行风格文本展示。
 
 安装全局 Codex hooks：
@@ -71,9 +71,9 @@ himan-tracker setup --dry-run
 | `himan-tracker server status` | 查看本地报表 Web server 状态 |
 | `himan-tracker server stop` | 停止本地报表 Web server |
 | `himan-tracker summary --since 7d` | 查看最近 7 天总览 |
-| `himan-tracker tokens --period day --since 30d` | 查看每日 token 消耗 |
-| `himan-tracker tokens --period week --since 12w` | 查看每周 token 消耗 |
-| `himan-tracker tokens --period month --since 12m` | 查看每月 token 消耗 |
+| `himan-tracker tokens --period day --since 30d` | 查看每日 runtime token 用量 |
+| `himan-tracker tokens --period week --since 12w` | 查看每周 runtime token 用量 |
+| `himan-tracker tokens --period month --since 12m` | 查看每月 runtime token 用量 |
 | `himan-tracker agents --date 2026-05-12` | 查看某天的 agent / model 使用 |
 | `himan-tracker turns --since 7d --limit 50` | 查看逐 turn 明细 |
 | `himan-tracker capabilities --since 30d` | 查看 capability 使用排行 |
