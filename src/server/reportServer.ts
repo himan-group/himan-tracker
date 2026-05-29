@@ -5,7 +5,9 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 
 import { ingestEvents } from "../aggregator/aggregateEvents.js";
+import { createKnownProjectDisplayNameMap } from "../config/knownProjects.js";
 import { ensureTrackerDirectories, type TrackerPaths } from "../config/paths.js";
+import { readOrCreateUserConfig } from "../config/userConfig.js";
 import { formatDateRange, parseSinceRange, todayLocalDate } from "../reports/dateRange.js";
 import {
   formatAverageDurationMs,
@@ -487,7 +489,7 @@ async function handleRequest(options: {
 
   if (url.pathname === "/metrics.json") {
     await options.runIngestNow();
-    const data = readMetricsDashboardData({
+    const data = await readMetricsDashboardData({
       paths: options.paths,
       now: options.now,
       lastIngest: options.getLastIngest(),
@@ -503,7 +505,7 @@ async function handleRequest(options: {
 
   if (url.pathname === "/metrics") {
     await options.runIngestNow();
-    const html = renderMetricsPage({
+    const html = await renderMetricsPage({
       paths: options.paths,
       display: options.display,
       now: options.now,
@@ -539,13 +541,13 @@ function renderDashboardPage(options: {
   return renderDashboardHtml(readDashboardData(options), options.display);
 }
 
-function renderMetricsPage(options: {
+async function renderMetricsPage(options: {
   paths: TrackerPaths;
   display: DashboardDisplayMode;
   now: () => Date;
   lastIngest: ReportServerIngestSnapshot | null;
-}): string {
-  return renderMetricsHtml(readMetricsDashboardData(options), options.display);
+}): Promise<string> {
+  return renderMetricsHtml(await readMetricsDashboardData(options), options.display);
 }
 
 function readDashboardData(options: {
@@ -636,12 +638,14 @@ function readDashboardData(options: {
   }
 }
 
-function readMetricsDashboardData(options: {
+async function readMetricsDashboardData(options: {
   paths: TrackerPaths;
   now: () => Date;
   lastIngest: ReportServerIngestSnapshot | null;
-}): MetricsDashboardData {
+}): Promise<MetricsDashboardData> {
   const generatedAt = options.now();
+  const config = await readOrCreateUserConfig(options.paths);
+  const projectDisplayNames = createKnownProjectDisplayNameMap(config);
   const { db } = initializeTrackerDatabase(options.paths.sqlitePath);
 
   try {
@@ -666,7 +670,7 @@ function readMetricsDashboardData(options: {
       projectTabs: insights.periods.map((period) => ({
         id: period.period,
         label: formatMetricsPeriodTabLabel(period),
-        table: createMetricsProjectTable(period),
+        table: createMetricsProjectTable(period, projectDisplayNames),
       })),
       capabilityTabs: insights.periods.map((period) => ({
         id: period.period,
@@ -1487,7 +1491,10 @@ function createMetricsOverallTable(period: MetricsPeriodInsight): DashboardTable
   };
 }
 
-function createMetricsProjectTable(period: MetricsPeriodInsight): DashboardTable {
+function createMetricsProjectTable(
+  period: MetricsPeriodInsight,
+  projectDisplayNames: ReadonlyMap<string, string>,
+): DashboardTable {
   return {
     columns: [
       "Project",
@@ -1503,15 +1510,22 @@ function createMetricsProjectTable(period: MetricsPeriodInsight): DashboardTable
       "MCP calls",
       "MCP runtime token share",
     ],
-    rows: period.projects.map((project) => createMetricsProjectRow(project)),
+    rows: period.projects.map((project) =>
+      createMetricsProjectRow(project, projectDisplayNames),
+    ),
     emptyText: `No project metrics found for ${formatMetricsPeriodCaption(period)}.`,
-    note: `Project metrics by repo hash for ${formatMetricsPeriodCaption(period)}. Token columns use runtime observed tokens only.`,
+    note: `Project metrics by project label (repo hash fallback) for ${formatMetricsPeriodCaption(period)}. Token columns use runtime observed tokens only.`,
   };
 }
 
-function createMetricsProjectRow(project: ProjectMetricsRow): string[] {
+function createMetricsProjectRow(
+  project: ProjectMetricsRow,
+  projectDisplayNames: ReadonlyMap<string, string>,
+): string[] {
+  const projectLabel = projectDisplayNames.get(project.repoHash) ?? project.repoHash;
+
   return [
-    project.repoHash,
+    projectLabel,
     String(project.turnCount),
     formatTokenCount(project.totalTokens),
     formatPercentRatio(project.tokenShare),

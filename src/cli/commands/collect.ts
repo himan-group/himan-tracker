@@ -10,6 +10,7 @@ import {
   logCollectorError,
   type DrainQueuedEventsResult,
 } from "../../collector/eventQueue.js";
+import { learnKnownProjectsFromAdapterEvents } from "../../config/knownProjects.js";
 import { ensureTrackerDirectories, resolveTrackerPaths, type TrackerPaths } from "../../config/paths.js";
 import { readOrCreateUserConfig } from "../../config/userConfig.js";
 import { normalizeEvent } from "../../normalizer/normalizeEvent.js";
@@ -63,6 +64,17 @@ export async function runCollect(
     const observedAt = now().toISOString();
     const adapterEvents = parseAgentPayload(agent, payload, observedAt);
     const enrichments = collectAgentEnrichments(agent, payload, observedAt);
+
+    try {
+      await learnKnownProjectsFromAdapterEvents({
+        paths,
+        config,
+        events: adapterEvents,
+        persist: options.config === undefined,
+      });
+    } catch {
+      // Keep collect hook-safe even when project label metadata cannot be updated.
+    }
 
     let rejectedEvents = 0;
     let errorsLogged = 0;

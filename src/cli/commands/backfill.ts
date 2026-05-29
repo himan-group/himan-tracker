@@ -9,6 +9,7 @@ import {
   resolveTrackerPaths,
   type TrackerPaths,
 } from "../../config/paths.js";
+import { learnKnownProjectsFromAdapterEvents } from "../../config/knownProjects.js";
 import { readOrCreateUserConfig } from "../../config/userConfig.js";
 import { appendJsonlRecord } from "../../collector/jsonlWriter.js";
 import { normalizeEvent } from "../../normalizer/normalizeEvent.js";
@@ -57,6 +58,12 @@ export async function runBackfill(
     await ensureTrackerDirectories(paths);
     const config = options.config ?? (await readOrCreateUserConfig(paths));
     const parsed = await parseAgentTranscripts(agent, transcriptDir);
+    await learnKnownProjectsFromAdapterEvents({
+      paths,
+      config,
+      events: parsed.events,
+      persist: options.config === undefined,
+    });
     const normalizedEvents = parsed.events.map((event) => normalizeEvent(event, config));
     const writeResult = await appendUniqueEvents(paths, normalizedEvents);
 

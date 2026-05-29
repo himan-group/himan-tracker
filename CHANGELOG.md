@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Changed Metrics `Project` column to prefer a learned local project label (`package.json` name first, folder name fallback) while keeping repo hash as the fallback display.
+
 ## [0.2.3] - 2026-05-29
 
 ### Changed
