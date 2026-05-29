@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-05-29
+
+### Changed
+
+- Refreshed README positioning and onboarding so the homepage now focuses on target users, differentiators, quick start workflows, and links to detailed user and development docs.
+
 ## [0.2.2] - 2026-05-20
 
 ### Changed
