@@ -6,17 +6,17 @@
     "repo": "https://git.garena.com/detao.li/himan-resource.git",
     "repoId": "https_git.garena.com_detao.li_himan-resource"
   },
-  "updatedAt": "2026-05-14T08:03:16.284Z",
+  "updatedAt": "2026-05-29T09:40:36.601Z",
   "resources": [
     {
       "type": "skill",
       "name": "common-dev-pattern",
-      "version": "0.0.6",
+      "version": "0.0.7",
       "agents": [
         "codex"
       ],
       "mode": "copy",
-      "updatedAt": "2026-05-14T08:00:09.728Z"
+      "updatedAt": "2026-05-29T09:39:59.649Z"
     },
     {
       "type": "skill",
@@ -26,7 +26,17 @@
         "codex"
       ],
       "mode": "copy",
-      "updatedAt": "2026-05-14T08:00:30.327Z"
+      "updatedAt": "2026-05-29T09:38:11.099Z"
+    },
+    {
+      "type": "skill",
+      "name": "common-issue-spec",
+      "version": "0.0.1",
+      "agents": [
+        "codex"
+      ],
+      "mode": "copy",
+      "updatedAt": "2026-05-29T09:39:59.690Z"
     },
     {
       "type": "skill",
@@ -36,7 +46,7 @@
         "codex"
       ],
       "mode": "copy",
-      "updatedAt": "2026-05-14T08:00:58.801Z"
+      "updatedAt": "2026-05-29T09:38:29.182Z"
     },
     {
       "type": "skill",
@@ -46,7 +56,7 @@
         "codex"
       ],
       "mode": "copy",
-      "updatedAt": "2026-05-14T08:01:19.769Z"
+      "updatedAt": "2026-05-29T09:39:59.724Z"
     },
     {
       "type": "skill",
@@ -56,17 +66,17 @@
         "codex"
       ],
       "mode": "copy",
-      "updatedAt": "2026-05-14T08:01:47.526Z"
+      "updatedAt": "2026-05-29T09:39:04.721Z"
     },
     {
       "type": "skill",
       "name": "common-project-startup",
-      "version": "0.0.4",
+      "version": "0.0.6",
       "agents": [
         "codex"
       ],
       "mode": "copy",
-      "updatedAt": "2026-05-14T08:02:10.547Z"
+      "updatedAt": "2026-05-29T09:39:59.729Z"
     },
     {
       "type": "skill",
@@ -76,7 +86,7 @@
         "codex"
       ],
       "mode": "copy",
-      "updatedAt": "2026-05-14T08:02:31.228Z"
+      "updatedAt": "2026-05-29T09:40:11.423Z"
     },
     {
       "type": "skill",
@@ -86,7 +96,7 @@
         "codex"
       ],
       "mode": "copy",
-      "updatedAt": "2026-05-14T08:02:53.876Z"
+      "updatedAt": "2026-05-29T09:40:23.279Z"
     },
     {
       "type": "skill",
@@ -96,7 +106,7 @@
         "codex"
       ],
       "mode": "copy",
-      "updatedAt": "2026-05-14T08:03:16.284Z"
+      "updatedAt": "2026-05-29T09:40:36.601Z"
     }
   ]
 }

@@ -15,10 +15,15 @@ Use this skill while implementing code changes in an existing repository. The go
 2. Read 2-3 nearby files that represent the local pattern.
 3. Check local guidance when present:
    - `AGENTS.md`
-   - `docs/codex/repo-map.md`
+   - `docs/repository-map.md`
+   - Legacy `docs/codex/repo-map.md`
    - `.cursor/rules/**/*.mdc`
    - Feature-level docs that already exist
 4. Summarize the pattern you will follow in one or two sentences, then edit.
+
+When editing repository guidance, keep `AGENTS.md` and repository map docs readable as normal engineering documentation. Mark Codex-specific content explicitly with labels such as `Codex-specific:` or `Codex-Specific Notes`.
+
+Use `docs/repository-map.md` as the canonical repository map path. If only legacy `docs/codex/repo-map.md` exists, read it for compatibility and ask the user whether to migrate before changing paths. If the user enables the new path, move or recreate the map at `docs/repository-map.md` and delete the legacy `docs/codex/repo-map.md` file.
 
 ## During Editing
 
