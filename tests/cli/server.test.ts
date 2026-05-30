@@ -53,6 +53,8 @@ describe("server command", () => {
       intervalSeconds: 60,
       since: "7d",
       display: "table",
+      autoBackfill: false,
+      autoBackfill: false,
       now: () => now,
     });
 
@@ -249,6 +251,8 @@ describe("server command", () => {
       intervalSeconds: 60,
       since: "7d",
       display: "table",
+      autoBackfill: false,
+      autoBackfill: false,
       now: () => now,
     });
 
@@ -318,6 +322,8 @@ describe("server command", () => {
       intervalSeconds: 60,
       since: "7d",
       display: "table",
+      autoBackfill: false,
+      autoBackfill: false,
       now: () => now,
     });
 
@@ -360,6 +366,8 @@ describe("server command", () => {
       intervalSeconds: 60,
       since: "7d",
       display: "text",
+      autoBackfill: false,
+      autoBackfill: false,
       now: () => now,
     });
 
@@ -406,6 +414,8 @@ describe("server command", () => {
       intervalSeconds: 60,
       since: "7d",
       display: "table",
+      autoBackfill: false,
+      autoBackfill: false,
       now: () => now,
     });
 

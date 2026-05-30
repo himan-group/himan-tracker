@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 - Added `copilot` agent support with `himan-tracker backfill copilot` for parsing VS Code Copilot transcript JSONL files into normalized session, turn, and capability usage events.
 - Added `--since <date>` option to `himan-tracker backfill` for backfilling from a date through today.
+- Added automatic Copilot transcript backfill to `himan-tracker server start`, so the dashboard stays in sync without manual backfill runs.
 
 ### Changed
 
