@@ -10,6 +10,44 @@ export type CopilotTranscriptResult = {
     events: AdapterEvent[];
 };
 
+/**
+ * Parse a Copilot debug log (main.jsonl) for token usage and other metadata.
+ * Debug log events have: v, ts, dur, sid, type, name, spanId, status, attrs.
+ *
+ * Token data is not currently stored by Copilot (tested with v0.50.1).
+ * When Copilot begins recording token usage in debug logs or transcripts,
+ * this parser can be extended to extract input_tokens / output_tokens
+ * from the attrs or data fields.
+ */
+export function parseCopilotDebugLogLines(lines: string[]): Map<string, { inputTokens?: number; outputTokens?: number }> {
+    const tokenMap = new Map<string, { inputTokens?: number; outputTokens?: number }>();
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.length === 0) {
+            continue;
+        }
+
+        const record = parseJsonRecord(trimmed);
+        if (!record) {
+            continue;
+        }
+
+        // Future: extract token usage from attrs when Copilot adds it
+        // const attrs = getRecord(record.attrs);
+        // if (attrs) {
+        //   const input = getNumber(attrs.input_tokens);
+        //   const output = getNumber(attrs.output_tokens);
+        //   const turnId = getString(attrs.turnId);
+        //   if (turnId && (input != null || output != null)) {
+        //     tokenMap.set(turnId, { inputTokens: input, outputTokens: output });
+        //   }
+        // }
+    }
+
+    return tokenMap;
+}
+
 export async function parseCopilotTranscriptBackfill(options: {
     transcriptDir: string;
 }): Promise<CopilotTranscriptResult> {
@@ -256,6 +294,10 @@ function getRecord(value: unknown): RawRecord | null {
 
 function getString(value: unknown): string | undefined {
     return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function getNumber(value: unknown): number | undefined {
+    return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function isRecord(value: unknown): value is RawRecord {

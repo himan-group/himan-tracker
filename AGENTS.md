@@ -37,6 +37,7 @@ himan-tracker doctor
 himan-tracker setup --dry-run
 himan-tracker collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
 himan-tracker backfill codex --date YYYY-MM-DD
+himan-tracker backfill copilot --from <dir>
 himan-tracker ingest
 himan-tracker server start
 ```

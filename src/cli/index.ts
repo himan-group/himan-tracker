@@ -125,8 +125,9 @@ backfillCommand
   .command("codex")
   .description("Backfill Codex events from local Codex transcript JSONL files")
   .option("--date <date>", "Transcript date to backfill in YYYY-MM-DD; defaults to today")
+  .option("--since <date>", "Backfill from this date through today in YYYY-MM-DD")
   .option("--from <dir>", "Read transcript JSONL files from a specific directory")
-  .action(async (options: BackfillCodexCommandOptions) => {
+  .action(async (options: BackfillCommandOptions) => {
     const result = await runBackfill({ ...options, agent: "codex" });
     console.log(result.lines.join("\n"));
     process.exitCode = result.ok ? 0 : 1;
@@ -136,20 +137,17 @@ backfillCommand
   .command("copilot")
   .description("Backfill Copilot events from local Copilot transcript JSONL files")
   .option("--date <date>", "Transcript date to backfill in YYYY-MM-DD; defaults to today")
+  .option("--since <date>", "Backfill from this date through today in YYYY-MM-DD")
   .option("--from <dir>", "Read transcript JSONL files from a specific directory")
-  .action(async (options: BackfillCopilotCommandOptions) => {
+  .action(async (options: BackfillCommandOptions) => {
     const result = await runBackfill({ ...options, agent: "copilot" });
     console.log(result.lines.join("\n"));
     process.exitCode = result.ok ? 0 : 1;
   });
 
-type BackfillCodexCommandOptions = {
+type BackfillCommandOptions = {
   date?: string;
-  from?: string;
-};
-
-type BackfillCopilotCommandOptions = {
-  date?: string;
+  since?: string;
   from?: string;
 };
 

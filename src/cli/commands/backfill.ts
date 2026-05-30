@@ -1,4 +1,5 @@
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, readdir } from "node:fs/promises";
+import { readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -21,6 +22,7 @@ import type { AgentName, NormalizedEvent } from "../../types/events.js";
 export type BackfillCommandOptions = {
   agent?: string;
   date?: string;
+  since?: string;
   from?: string;
   paths?: TrackerPaths;
   config?: UserConfig;
@@ -51,26 +53,48 @@ export async function runBackfill(
   const paths = options.paths ?? resolveTrackerPaths();
   const now = options.now ?? (() => new Date());
 
+  // --since mode: backfill from a date through today
+  if (options.since) {
+    return runBackfillSince(options, paths, now);
+  }
+
   try {
     const agent = resolveBackfillAgent(options.agent);
     const date = options.date ? parseDate(options.date) : todayLocalDate(now());
-    const transcriptDir = options.from
-      ? path.resolve(options.from)
+    const transcriptDirs = options.from
+      ? [path.resolve(options.from)]
       : agent === "copilot"
-        ? resolveCopilotTranscriptDir()
-        : resolveCodexTranscriptDir(date);
+        ? resolveCopilotTranscriptDirs()
+        : [resolveCodexTranscriptDir(date)];
 
     await ensureTrackerDirectories(paths);
     const config = options.config ?? (await readOrCreateUserConfig(paths));
-    const parsed = await parseAgentTranscripts(agent, transcriptDir);
-    await learnKnownProjectsFromAdapterEvents({
-      paths,
-      config,
-      events: parsed.events,
-      persist: options.config === undefined,
-    });
-    const normalizedEvents = parsed.events.map((event) => normalizeEvent(event, config));
-    const writeResult = await appendUniqueEvents(paths, normalizedEvents);
+
+    let totalParsed = 0;
+    let totalWritten = 0;
+    let totalSkipped = 0;
+    const allTranscriptFiles: string[] = [];
+    const allEventFiles = new Set<string>();
+
+    for (const transcriptDir of transcriptDirs) {
+      const parsed = await parseAgentTranscripts(agent, transcriptDir);
+      await learnKnownProjectsFromAdapterEvents({
+        paths,
+        config,
+        events: parsed.events,
+        persist: options.config === undefined,
+      });
+      const normalizedEvents = parsed.events.map((event) => normalizeEvent(event, config));
+      const writeResult = await appendUniqueEvents(paths, normalizedEvents);
+
+      totalParsed += parsed.events.length;
+      totalWritten += writeResult.written;
+      totalSkipped += writeResult.skipped;
+      allTranscriptFiles.push(...parsed.transcriptFiles);
+      for (const f of writeResult.eventFiles) {
+        allEventFiles.add(f);
+      }
+    }
 
     return {
       ok: true,
@@ -79,13 +103,12 @@ export async function runBackfill(
         "",
         `Agent: ${agent}`,
         `Date: ${date}`,
-        `Transcript dir: ${transcriptDir}`,
-        `Transcript files: ${parsed.transcriptFiles.length}`,
-        `Parsed events: ${parsed.events.length}`,
-        `Written events: ${writeResult.written}`,
-        `Skipped duplicates: ${writeResult.skipped}`,
-        `Event files: ${writeResult.eventFiles.length > 0 ? writeResult.eventFiles.join(", ") : "none"
-        }`,
+        `Transcript dirs: ${transcriptDirs.length}`,
+        `Transcript files: ${allTranscriptFiles.length}`,
+        `Parsed events: ${totalParsed}`,
+        `Written events: ${totalWritten}`,
+        `Skipped duplicates: ${totalSkipped}`,
+        `Event files: ${allEventFiles.size > 0 ? [...allEventFiles].join(", ") : "none"}`,
       ],
     };
   } catch (error) {
@@ -94,6 +117,93 @@ export async function runBackfill(
       lines: ["himan-tracker backfill", "", `[fail] backfill: ${getErrorMessage(error)}`],
     };
   }
+}
+
+async function runBackfillSince(
+  options: BackfillCommandOptions,
+  paths: TrackerPaths,
+  now: () => Date,
+): Promise<BackfillCommandResult> {
+  const agent = resolveBackfillAgent(options.agent);
+  const sinceDate = parseDate(options.since!);
+  const endDate = todayLocalDate(now());
+  const dates = enumerateDates(sinceDate, endDate);
+
+  let totalParsed = 0;
+  let totalWritten = 0;
+  let totalSkipped = 0;
+  const allTranscriptFiles: string[] = [];
+  const allEventFiles = new Set<string>();
+  const errors: string[] = [];
+
+  await ensureTrackerDirectories(paths);
+  const config = options.config ?? (await readOrCreateUserConfig(paths));
+
+  for (const date of dates) {
+    try {
+      const transcriptDirs = options.from
+        ? [path.resolve(options.from)]
+        : agent === "copilot"
+          ? resolveCopilotTranscriptDirs()
+          : [resolveCodexTranscriptDir(date)];
+
+      for (const transcriptDir of transcriptDirs) {
+        const parsed = await parseAgentTranscripts(agent, transcriptDir);
+        await learnKnownProjectsFromAdapterEvents({
+          paths,
+          config,
+          events: parsed.events,
+          persist: options.config === undefined,
+        });
+        const normalizedEvents = parsed.events.map((event) => normalizeEvent(event, config));
+        const writeResult = await appendUniqueEvents(paths, normalizedEvents);
+
+        totalParsed += parsed.events.length;
+        totalWritten += writeResult.written;
+        totalSkipped += writeResult.skipped;
+        allTranscriptFiles.push(...parsed.transcriptFiles);
+        for (const f of writeResult.eventFiles) {
+          allEventFiles.add(f);
+        }
+      }
+    } catch (error) {
+      errors.push(`${date}: ${getErrorMessage(error)}`);
+    }
+  }
+
+  const lines = [
+    "himan-tracker backfill",
+    "",
+    `Agent: ${agent}`,
+    `Range: ${sinceDate} → ${endDate} (${dates.length} days)`,
+    `Transcript files: ${allTranscriptFiles.length}`,
+    `Parsed events: ${totalParsed}`,
+    `Written events: ${totalWritten}`,
+    `Skipped duplicates: ${totalSkipped}`,
+    `Event files: ${allEventFiles.size > 0 ? [...allEventFiles].join(", ") : "none"}`,
+  ];
+
+  if (errors.length > 0) {
+    lines.push("", `Errors (${errors.length}):`, ...errors.map((e) => `  ${e}`));
+  }
+
+  return {
+    ok: errors.length === 0,
+    lines,
+  };
+}
+
+function enumerateDates(start: string, end: string): string[] {
+  const dates: string[] = [];
+  const current = new Date(start);
+  const endDate = new Date(end);
+
+  while (current <= endDate) {
+    dates.push(current.toISOString().slice(0, 10));
+    current.setDate(current.getDate() + 1);
+  }
+
+  return dates;
 }
 
 function resolveBackfillAgent(agent: string | undefined): AgentName {
@@ -115,18 +225,45 @@ function resolveCodexTranscriptDir(date: string): string {
   return path.join(homedir(), ".codex", "sessions", year, month, day);
 }
 
-function resolveCopilotTranscriptDir(): string {
+function resolveCopilotTranscriptDirs(): string[] {
   const codeUserDir = path.join(homedir(), "Library", "Application Support", "Code", "User");
   const workspaceStorageDir = path.join(codeUserDir, "workspaceStorage");
-  const transcriptDir = path.join("GitHub.copilot-chat", "transcripts");
+  const transcriptRelPath = path.join("GitHub.copilot-chat", "transcripts");
 
-  // Try common workspace storage paths; the first one with transcript files wins.
+  const dirs: string[] = [];
+
   try {
-    return path.join(workspaceStorageDir, transcriptDir);
+    const workspaceDirs = readdirSyncSafe(workspaceStorageDir);
+    for (const wsDir of workspaceDirs) {
+      const transcriptDir = path.join(workspaceStorageDir, wsDir, transcriptRelPath);
+      try {
+        const files = readdirSyncSafe(transcriptDir);
+        if (files.some((f) => f.endsWith(".jsonl"))) {
+          dirs.push(transcriptDir);
+        }
+      } catch {
+        // Skip workspaces without Copilot transcripts
+      }
+    }
   } catch {
+    // workspaceStorage not found
+  }
+
+  if (dirs.length === 0) {
     throw new Error(
-      "Could not auto-detect Copilot transcript directory. Use --from to specify the path.",
+      "Could not auto-detect Copilot transcript directories. Use --from to specify the path.\n" +
+      'Example: himan-tracker backfill copilot --from "~/Library/Application Support/Code/User/workspaceStorage/{id}/GitHub.copilot-chat/transcripts/"',
     );
+  }
+
+  return dirs;
+}
+
+function readdirSyncSafe(dirPath: string): string[] {
+  try {
+    return readdirSync(dirPath);
+  } catch {
+    return [];
   }
 }
 
