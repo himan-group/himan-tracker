@@ -19,6 +19,9 @@ export function createDefaultUserConfig(): UserConfig {
       "claude-code": {
         enabled: true,
       },
+      copilot: {
+        enabled: true,
+      },
     },
     known_capabilities: [],
     known_projects: [],

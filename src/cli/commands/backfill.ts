@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 
 import { parseCodexTranscriptBackfill } from "../../adapters/codex/transcriptBackfill.js";
+import { parseCopilotTranscriptBackfill } from "../../adapters/copilot/index.js";
 import {
   ensureTrackerDirectories,
   resolveDailyEventsPath,
@@ -53,7 +54,11 @@ export async function runBackfill(
   try {
     const agent = resolveBackfillAgent(options.agent);
     const date = options.date ? parseDate(options.date) : todayLocalDate(now());
-    const transcriptDir = options.from ? path.resolve(options.from) : resolveCodexTranscriptDir(date);
+    const transcriptDir = options.from
+      ? path.resolve(options.from)
+      : agent === "copilot"
+        ? resolveCopilotTranscriptDir()
+        : resolveCodexTranscriptDir(date);
 
     await ensureTrackerDirectories(paths);
     const config = options.config ?? (await readOrCreateUserConfig(paths));
@@ -79,8 +84,7 @@ export async function runBackfill(
         `Parsed events: ${parsed.events.length}`,
         `Written events: ${writeResult.written}`,
         `Skipped duplicates: ${writeResult.skipped}`,
-        `Event files: ${
-          writeResult.eventFiles.length > 0 ? writeResult.eventFiles.join(", ") : "none"
+        `Event files: ${writeResult.eventFiles.length > 0 ? writeResult.eventFiles.join(", ") : "none"
         }`,
       ],
     };
@@ -95,11 +99,11 @@ export async function runBackfill(
 function resolveBackfillAgent(agent: string | undefined): AgentName {
   const resolvedAgent = agent ?? "codex";
 
-  if (resolvedAgent === "codex") {
+  if (resolvedAgent === "codex" || resolvedAgent === "copilot") {
     return resolvedAgent;
   }
 
-  throw new Error(`Unsupported backfill agent "${resolvedAgent}". Currently only "codex" is supported.`);
+  throw new Error(`Unsupported backfill agent "${resolvedAgent}". Currently "codex" and "copilot" are supported.`);
 }
 
 function resolveCodexTranscriptDir(date: string): string {
@@ -111,10 +115,27 @@ function resolveCodexTranscriptDir(date: string): string {
   return path.join(homedir(), ".codex", "sessions", year, month, day);
 }
 
+function resolveCopilotTranscriptDir(): string {
+  const codeUserDir = path.join(homedir(), "Library", "Application Support", "Code", "User");
+  const workspaceStorageDir = path.join(codeUserDir, "workspaceStorage");
+  const transcriptDir = path.join("GitHub.copilot-chat", "transcripts");
+
+  // Try common workspace storage paths; the first one with transcript files wins.
+  try {
+    return path.join(workspaceStorageDir, transcriptDir);
+  } catch {
+    throw new Error(
+      "Could not auto-detect Copilot transcript directory. Use --from to specify the path.",
+    );
+  }
+}
+
 async function parseAgentTranscripts(agent: AgentName, transcriptDir: string) {
   switch (agent) {
     case "codex":
       return parseCodexTranscriptBackfill({ transcriptDir });
+    case "copilot":
+      return parseCopilotTranscriptBackfill({ transcriptDir });
     case "claude-code":
       throw new Error('Agent "claude-code" is not supported by backfill yet');
   }

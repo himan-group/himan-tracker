@@ -192,6 +192,8 @@ function parseAgentPayload(
       return parseCodexHookPayload(payload, { observedAt });
     case "claude-code":
       throw new Error('Agent "claude-code" is not supported by collect yet');
+    case "copilot":
+      throw new Error('Agent "copilot" does not support hook-based collect. Use backfill instead.');
   }
 }
 
@@ -204,6 +206,7 @@ function collectAgentEnrichments(
     case "codex":
       return collectCodexEnrichmentTasks(payload, observedAt);
     case "claude-code":
+    case "copilot":
       return [];
   }
 }
@@ -269,7 +272,13 @@ function resolveSupportedAgent(agent: string | undefined): AgentName {
     return resolvedAgent;
   }
 
-  throw new Error(`Unsupported agent "${resolvedAgent}". Currently only "codex" is supported.`);
+  if (resolvedAgent === "copilot") {
+    throw new Error(
+      'Agent "copilot" does not support hook-based collect. Use "himan-tracker backfill copilot" instead.',
+    );
+  }
+
+  throw new Error(`Unsupported agent "${resolvedAgent}". Currently "codex" is supported for hook collect.`);
 }
 
 function formatDrainSummary(result: DrainQueuedEventsResult): string[] {

@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Added `copilot` agent support with `himan-tracker backfill copilot` for parsing VS Code Copilot transcript JSONL files into normalized session, turn, and capability usage events.
+
 ### Changed
 
 - Changed Metrics `Project` column to prefer a learned local project label (`package.json` name first, folder name fallback) while keeping repo hash as the fallback display.

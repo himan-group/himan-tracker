@@ -132,7 +132,23 @@ backfillCommand
     process.exitCode = result.ok ? 0 : 1;
   });
 
+backfillCommand
+  .command("copilot")
+  .description("Backfill Copilot events from local Copilot transcript JSONL files")
+  .option("--date <date>", "Transcript date to backfill in YYYY-MM-DD; defaults to today")
+  .option("--from <dir>", "Read transcript JSONL files from a specific directory")
+  .action(async (options: BackfillCopilotCommandOptions) => {
+    const result = await runBackfill({ ...options, agent: "copilot" });
+    console.log(result.lines.join("\n"));
+    process.exitCode = result.ok ? 0 : 1;
+  });
+
 type BackfillCodexCommandOptions = {
+  date?: string;
+  from?: string;
+};
+
+type BackfillCopilotCommandOptions = {
   date?: string;
   from?: string;
 };

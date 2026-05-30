@@ -15,6 +15,7 @@ Current implementation status:
 - CLI commands for setup, collect, backfill, ingest, archive, reports, and local server are implemented.
 - Codex collection and Codex transcript backfill are implemented.
 - Claude Code parsing fixtures are present, but `collect --agent claude-code` is not yet supported.
+- Copilot transcript backfill (`backfill copilot`) is implemented; hook-based collect is not supported.
 
 ## Commands
 
