@@ -16,7 +16,7 @@ Current implementation status:
 - Codex collection and Codex transcript backfill are implemented.
 - Claude Code parsing fixtures are present, but `collect --agent claude-code` is not yet supported.
 - Copilot transcript backfill (`backfill copilot`) is implemented.
-- Copilot hook-based collect (`collect --agent copilot`) and hook setup (`setup --agent copilot`) are implemented.
+- Copilot hook-based collect (`collect --agent copilot`) and hook setup (`setup copilot`) are implemented.
 
 ## Commands
 
