@@ -27,16 +27,16 @@ export type CollectAdapterEventOptions = {
 
 export type CollectAdapterEventResult =
   | {
-      ok: true;
-      accepted: true;
-      event: NormalizedEvent;
-    }
+    ok: true;
+    accepted: true;
+    event: NormalizedEvent;
+  }
   | {
-      ok: true;
-      accepted: false;
-      error: CollectorErrorRecord;
-      error_logged: boolean;
-    };
+    ok: true;
+    accepted: false;
+    error: CollectorErrorRecord;
+    error_logged: boolean;
+  };
 
 export async function collectAdapterEvent(
   event: AdapterEvent,
@@ -119,5 +119,5 @@ function getSafeString(value: unknown): string | null {
 }
 
 function isAgentName(value: unknown): value is AgentName {
-  return value === "codex" || value === "claude-code";
+  return value === "codex" || value === "claude-code" || value === "copilot";
 }

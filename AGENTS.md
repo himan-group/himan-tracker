@@ -15,7 +15,8 @@ Current implementation status:
 - CLI commands for setup, collect, backfill, ingest, archive, reports, and local server are implemented.
 - Codex collection and Codex transcript backfill are implemented.
 - Claude Code parsing fixtures are present, but `collect --agent claude-code` is not yet supported.
-- Copilot transcript backfill (`backfill copilot`) is implemented; hook-based collect is not supported.
+- Copilot transcript backfill (`backfill copilot`) is implemented.
+- Copilot hook-based collect (`collect --agent copilot`) and hook setup (`setup --agent copilot`) are implemented.
 
 ## Commands
 
@@ -36,6 +37,7 @@ himan-tracker --help
 himan-tracker doctor
 himan-tracker setup --dry-run
 himan-tracker collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
+himan-tracker collect --agent copilot --from tests/fixtures/copilot/hook-raw/session.json --sync --strict
 himan-tracker backfill codex --date YYYY-MM-DD
 himan-tracker backfill copilot --from <dir>
 himan-tracker ingest
@@ -56,7 +58,7 @@ Main source layout:
 - `src/types/`: shared event/config contracts.
 - `src/normalizer/`: schema validation, privacy hashing, token normalization, capability classification.
 - `src/collector/`: JSONL writer and async queue drain.
-- `src/adapters/`: Codex/Claude Code parsers and Himan metadata helpers.
+- `src/adapters/`: Codex/Claude Code/Copilot parsers and Himan metadata helpers.
 - `src/aggregator/`: JSONL -> SQLite projection, daily stats, monthly archive.
 - `src/reports/`: report queries/formatters and metrics insights.
 - `src/server/`: local report web server.
@@ -150,6 +152,7 @@ For CLI behavior changes, also run at least one smoke flow with temporary home:
 ```bash
 HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker doctor
 HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
+HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker collect --agent copilot --from tests/fixtures/copilot/hook-raw/session.json --sync --strict
 ```
 
 If a check cannot run, report the reason and risk.

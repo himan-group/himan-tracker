@@ -51,7 +51,7 @@ program
 program
   .command("collect")
   .description("Collect raw agent hook payloads without blocking the agent workflow")
-  .option("--agent <agent>", "Agent adapter to use; currently only codex is supported", "codex")
+  .option("--agent <agent>", "Agent adapter to use; currently codex and copilot are supported", "codex")
   .option("--from <path>", "Read the agent payload from a JSON file")
   .option("--quiet", "Suppress collect output for hook usage")
   .option("--sync", "Drain the local collect queue in the foreground after enqueueing")
@@ -77,7 +77,7 @@ type CollectCommandOptions = {
 program
   .command("setup")
   .description("Configure agent integrations")
-  .option("--agent <agent>", "Agent integration to configure; currently only codex is supported", "codex")
+  .option("--agent <agent>", "Agent integration to configure; currently codex and copilot are supported", "codex")
   .option("-g, --global", "Install hooks into ~/.codex instead of the current project")
   .option("--dry-run", "Preview files without writing them")
   .action(async (options: SetupCommandOptions) => {

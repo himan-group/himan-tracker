@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { collectCodexEnrichmentTasks } from "../../adapters/codex/enrichment.js";
 import { parseCodexHookPayload } from "../../adapters/codex/index.js";
+import { parseCopilotHookPayload } from "../../adapters/copilot/index.js";
 import {
   drainQueuedEvents,
   enqueueNormalizedEvents,
@@ -193,7 +194,7 @@ function parseAgentPayload(
     case "claude-code":
       throw new Error('Agent "claude-code" is not supported by collect yet');
     case "copilot":
-      throw new Error('Agent "copilot" does not support hook-based collect. Use backfill instead.');
+      return parseCopilotHookPayload(payload, { observedAt });
   }
 }
 
@@ -273,12 +274,10 @@ function resolveSupportedAgent(agent: string | undefined): AgentName {
   }
 
   if (resolvedAgent === "copilot") {
-    throw new Error(
-      'Agent "copilot" does not support hook-based collect. Use "himan-tracker backfill copilot" instead.',
-    );
+    return resolvedAgent;
   }
 
-  throw new Error(`Unsupported agent "${resolvedAgent}". Currently "codex" is supported for hook collect.`);
+  throw new Error(`Unsupported agent "${resolvedAgent}". Currently "codex" and "copilot" are supported for hook collect.`);
 }
 
 function formatDrainSummary(result: DrainQueuedEventsResult): string[] {

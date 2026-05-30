@@ -9,7 +9,10 @@ It collects privacy-safe normalized events, writes local JSONL shards, projects 
 Current implemented areas include:
 
 - Codex hook collection and queue drain.
+- Copilot hook collection and queue drain.
+- Copilot hook setup (`.github/hooks/himan-tracker.json` generation).
 - Codex transcript backfill with inferred skill/MCP usage.
+- Copilot transcript backfill.
 - SQLite ingestion, daily stats, and monthly archive.
 - CLI reports and local server dashboards (`/` and `/metrics`).
 
@@ -32,6 +35,7 @@ himan-tracker --help
 himan-tracker doctor
 himan-tracker setup --dry-run
 himan-tracker collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
+himan-tracker collect --agent copilot --from tests/fixtures/copilot/hook-raw/session.json --sync --strict
 himan-tracker backfill codex --date YYYY-MM-DD
 himan-tracker ingest
 himan-tracker archive monthly --dry-run
@@ -60,6 +64,9 @@ src/
       enrichment.ts
       transcriptBackfill.ts
       skillEvidence.ts
+    copilot/
+      index.ts
+      hookParser.ts
     himan/
       lockfile.ts
       metadata.ts

@@ -3,6 +3,8 @@ import path from "node:path";
 
 import type { AdapterEvent, EventStatus } from "../../types/events.js";
 
+export { parseCopilotHookPayload, type ParseCopilotHookPayloadOptions } from "./hookParser.js";
+
 type RawRecord = Record<string, unknown>;
 
 export type CopilotTranscriptResult = {

@@ -33,16 +33,16 @@ export type EnqueueNormalizedEventsOptions = {
 
 export type EnqueueNormalizedEventsResult =
   | {
-      queued: true;
-      queuePath: string;
-      eventCount: number;
-      enrichmentCount: number;
-    }
+    queued: true;
+    queuePath: string;
+    eventCount: number;
+    enrichmentCount: number;
+  }
   | {
-      queued: false;
-      eventCount: 0;
-      enrichmentCount: 0;
-    };
+    queued: false;
+    eventCount: 0;
+    enrichmentCount: 0;
+  };
 
 export type DrainQueuedEventsOptions = {
   paths: TrackerPaths;
@@ -416,7 +416,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isAgentName(value: unknown): value is AgentName {
-  return value === "codex" || value === "claude-code";
+  return value === "codex" || value === "claude-code" || value === "copilot";
 }
 
 function getErrorCode(error: unknown): string | undefined {

@@ -51,6 +51,7 @@ himan-tracker --help
 himan-tracker setup --dry-run
 HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker doctor
 HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
+HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker collect --agent copilot --from tests/fixtures/copilot/hook-raw/session.json --sync --strict
 ```
 
 涉及 ingest 或报表时，可以继续用临时 tracker home 做 smoke check：
