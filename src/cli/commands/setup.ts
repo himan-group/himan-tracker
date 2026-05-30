@@ -50,7 +50,7 @@ export async function runSetup(
   }
 }
 
-async function setupCodex(
+export async function setupCodex(
   options: SetupCommandOptions,
 ): Promise<SetupCommandResult> {
   try {
@@ -120,13 +120,23 @@ async function setupCodex(
   }
 }
 
-async function setupCopilot(
+export async function setupCopilot(
   options: SetupCommandOptions,
 ): Promise<SetupCommandResult> {
   try {
-    const cwd = options.cwd ?? process.cwd();
-    const hooksDir = path.join(cwd, ".github", "hooks");
-    const scriptsDir = path.join(hooksDir, "scripts");
+    const scope = options.global ? "global" : "project";
+    const homeDir = options.homeDir ?? homedir();
+
+    const hooksDir =
+      scope === "global"
+        ? resolveCopilotHooksDir(homeDir)
+        : path.join(options.cwd ?? process.cwd(), ".github", "hooks");
+
+    const scriptsDir =
+      scope === "global"
+        ? resolveTrackerScriptsDir(homeDir)
+        : path.join(hooksDir, "scripts");
+
     const hooksJsonPath = path.join(hooksDir, "himan-tracker.json");
     const helperPath = path.join(scriptsDir, "himan-tracker-collect.sh");
     const hookCommand = shellQuote(helperPath);
@@ -139,6 +149,7 @@ async function setupCopilot(
 
     if (!options.dryRun) {
       await mkdir(scriptsDir, { recursive: true, mode: 0o700 });
+      await mkdir(hooksDir, { recursive: true, mode: 0o700 });
       await writeFile(helperPath, helperScript, { encoding: "utf8", mode: 0o700 });
       await chmod(helperPath, 0o700);
       await writeFile(hooksJsonPath, `${JSON.stringify(mergedHooks, null, 2)}\n`, {
@@ -154,7 +165,7 @@ async function setupCopilot(
         "himan-tracker setup",
         "",
         "Agent: copilot",
-        "Mode: project-level hooks",
+        `Scope: ${scope}`,
         `Mode: ${options.dryRun ? "dry-run" : "write"}`,
         `Hooks config: ${hooksJsonPath}`,
         `Hook helper: ${helperPath}`,
@@ -337,6 +348,22 @@ function resolveFallbackCliPath(options: SetupCommandOptions): string {
   }
 
   return path.join(options.cwd ?? process.cwd(), "dist", "cli", "index.js");
+}
+
+function resolveCopilotHooksDir(homeDir: string): string {
+  const copilotHome = process.env.COPILOT_HOME?.trim();
+  if (copilotHome && copilotHome.length > 0) {
+    return path.join(copilotHome, "hooks");
+  }
+  return path.join(homeDir, ".copilot", "hooks");
+}
+
+function resolveTrackerScriptsDir(homeDir: string): string {
+  const trackerHome = process.env.HIMAN_TRACKER_HOME?.trim();
+  if (trackerHome && trackerHome.length > 0) {
+    return path.join(trackerHome, "scripts");
+  }
+  return path.join(homeDir, ".himan-tracker", "scripts");
 }
 
 // ── Copilot hook helpers ──
