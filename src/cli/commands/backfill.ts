@@ -1,10 +1,14 @@
 import { mkdir, readFile, readdir } from "node:fs/promises";
-import { readdirSync } from "node:fs";
+import { readdirSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
 import { parseCodexTranscriptBackfill } from "../../adapters/codex/transcriptBackfill.js";
-import { parseCopilotTranscriptBackfill } from "../../adapters/copilot/index.js";
+import {
+  parseCopilotSessionStore,
+  resolveCopilotSessionStorePath,
+  parseCopilotTranscriptBackfill,
+} from "../../adapters/copilot/index.js";
 import {
   ensureTrackerDirectories,
   resolveDailyEventsPath,
@@ -64,7 +68,7 @@ export async function runBackfill(
     const transcriptDirs = options.from
       ? [path.resolve(options.from)]
       : agent === "copilot"
-        ? resolveCopilotTranscriptDirs()
+        ? resolveCopilotDataSource()
         : [resolveCodexTranscriptDir(date)];
 
     await ensureTrackerDirectories(paths);
@@ -144,7 +148,7 @@ async function runBackfillSince(
       const transcriptDirs = options.from
         ? [path.resolve(options.from)]
         : agent === "copilot"
-          ? resolveCopilotTranscriptDirs()
+          ? resolveCopilotDataSource()
           : [resolveCodexTranscriptDir(date)];
 
       for (const transcriptDir of transcriptDirs) {
@@ -225,6 +229,15 @@ function resolveCodexTranscriptDir(date: string): string {
   return path.join(homedir(), ".codex", "sessions", year, month, day);
 }
 
+function resolveCopilotDataSource(): string[] {
+  const sessionStorePath = resolveCopilotSessionStorePath();
+  if (existsSync(sessionStorePath)) {
+    return [`__copilot_db__${sessionStorePath}`];
+  }
+
+  return resolveCopilotTranscriptDirs();
+}
+
 function resolveCopilotTranscriptDirs(): string[] {
   const codeUserDir = path.join(homedir(), "Library", "Application Support", "Code", "User");
   const workspaceStorageDir = path.join(codeUserDir, "workspaceStorage");
@@ -268,6 +281,12 @@ function readdirSyncSafe(dirPath: string): string[] {
 }
 
 async function parseAgentTranscripts(agent: AgentName, transcriptDir: string) {
+  // Handle Copilot session-store DB source (sentinel prefix)
+  if (transcriptDir.startsWith("__copilot_db__")) {
+    const dbPath = transcriptDir.slice("__copilot_db__".length);
+    return parseCopilotSessionStore(dbPath);
+  }
+
   switch (agent) {
     case "codex":
       return parseCodexTranscriptBackfill({ transcriptDir });

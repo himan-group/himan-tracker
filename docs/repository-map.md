@@ -11,6 +11,7 @@ Current implemented areas include:
 - Codex hook collection and queue drain.
 - Copilot hook collection and queue drain.
 - Copilot hook setup (`.github/hooks/himan-tracker.json` generation).
+- Copilot session-store backfill (`~/.copilot/session-store.db`).
 - Codex transcript backfill with inferred skill/MCP usage.
 - Copilot transcript backfill.
 - SQLite ingestion, daily stats, and monthly archive.
@@ -67,6 +68,7 @@ src/
     copilot/
       index.ts
       hookParser.ts
+      sessionStoreBackfill.ts
     himan/
       lockfile.ts
       metadata.ts

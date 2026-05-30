@@ -4,6 +4,11 @@ import path from "node:path";
 import type { AdapterEvent, EventStatus } from "../../types/events.js";
 
 export { parseCopilotHookPayload, type ParseCopilotHookPayloadOptions } from "./hookParser.js";
+export {
+  parseCopilotSessionStore,
+  resolveCopilotSessionStorePath,
+  type CopilotSessionStoreResult,
+} from "./sessionStoreBackfill.js";
 
 type RawRecord = Record<string, unknown>;
 

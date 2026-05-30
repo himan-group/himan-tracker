@@ -9,13 +9,19 @@ All notable changes to this project will be documented in this file.
 - Added Copilot hook-based collect via `himan-tracker collect --agent copilot`, supporting real-time event collection from GitHub Copilot hooks (SessionStart, PostToolUse, PostToolUseFailure, Stop, SessionEnd).
 - Added `himan-tracker setup --agent copilot` to generate `.github/hooks/himan-tracker.json` and a lightweight hook helper script that forwards Copilot hook JSON to the collector.
 - Added `src/adapters/copilot/hookParser.ts` for parsing Copilot hook JSON payloads in both camelCase (Copilot CLI native) and PascalCase/snake_case (VS Code compatible) formats.
+- Added `src/adapters/copilot/sessionStoreBackfill.ts` for reading Copilot CLI's `~/.copilot/session-store.db` SQLite database, providing a faster and more reliable data source than transcript scanning for `backfill copilot`.
 - Added `copilot` agent support with `himan-tracker backfill copilot` for parsing VS Code Copilot transcript JSONL files into normalized session, turn, and capability usage events.
 - Added `--since <date>` option to `himan-tracker backfill` for backfilling from a date through today.
 - Added automatic Copilot transcript backfill to `himan-tracker server start`, so the dashboard stays in sync without manual backfill runs.
 
 ### Changed
 
+- Changed `backfill copilot` default data source to prefer `~/.copilot/session-store.db` (Copilot CLI's SQLite database) over VS Code transcript scanning, falling back to transcript auto-detection when the database is not found.
 - Changed Metrics `Project` column to prefer a learned local project label (`package.json` name first, folder name fallback) while keeping repo hash as the fallback display.
+
+### Fixed
+
+- Fixed `turns --agent`, `capabilities --agent`, and `capability-events --agent` to accept `copilot` as a valid agent filter, matching the `collect` and `setup` commands.
 
 ## [0.2.3] - 2026-05-29
 

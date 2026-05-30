@@ -129,6 +129,8 @@ himan-tracker backfill copilot --from /path/to/transcripts/
 himan-tracker backfill copilot --date 2026-05-30
 ```
 
+`backfill copilot` 默认会优先使用 Copilot CLI 的 `~/.copilot/session-store.db` SQLite 数据库（如果存在），它比 transcript 扫描更快速可靠。该数据库包含 session 元数据、turn 记录和 `forge_trajectory_events` 工具调用轨迹。当数据库不可用时，会自动回退到 VS Code workspace transcript 扫描。
+
 ## 命令手册
 
 ### `doctor`
