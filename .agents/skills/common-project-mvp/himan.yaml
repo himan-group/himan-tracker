@@ -1,6 +1,6 @@
 name: common-project-mvp
 type: skill
-version: 0.0.3
+version: 0.0.1
 entry: SKILL.md
 description: Create or update MVP planning docs from a blueprint and technical
   design. Use when Codex is asked to split MVP features, define priorities,

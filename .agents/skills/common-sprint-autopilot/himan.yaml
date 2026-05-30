@@ -1,6 +1,6 @@
 name: common-sprint-autopilot
 type: skill
-version: 0.0.3
+version: 0.0.1
 entry: SKILL.md
 description: Plan and execute a named sprint or development stage across
   multiple requirements. Use when Codex is asked to run a sprint, execute an

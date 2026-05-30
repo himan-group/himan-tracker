@@ -1,6 +1,6 @@
 name: common-project-blueprint
 type: skill
-version: 0.0.3
+version: 0.0.1
 entry: SKILL.md
 description: Create or update project blueprint and user-facing README content
   for early-stage repositories. Use when Codex is asked to define project

@@ -1,6 +1,6 @@
 name: common-project-tech-design
 type: skill
-version: 0.0.3
+version: 0.0.1
 entry: SKILL.md
 description: Create or update project technical design docs and bootstrap
   repository structure from a blueprint. Use when Codex is asked to design
