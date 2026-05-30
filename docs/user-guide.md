@@ -16,10 +16,11 @@ npm install -g @hi-man/himan-tracker
 himan-tracker <command>
 ```
 
-当前 `collect` 只支持 Codex：
+当前 `collect` 和 `setup` 支持 Codex 与 Copilot（通过 GitHub Copilot hooks）：
 
 ```bash
 himan-tracker collect --agent codex
+himan-tracker collect --agent copilot
 ```
 
 Claude Code 相关配置和 adapter 属于后续工作。
@@ -51,8 +52,8 @@ capability 类型目前包括：
 ## 推荐流程
 
 1. 运行 `himan-tracker doctor` 初始化本地数据目录。
-2. 在需要采集的项目中运行 `himan-tracker setup` 安装当前项目 Codex hooks，或运行 `himan-tracker setup -g` 安装全局 Codex hooks。
-3. Codex hook 会把 `UserPromptSubmit`、`PostToolUse` 和 `Stop` payload 通过 stdin 传给 `himan-tracker collect --agent codex --quiet`。
+2. 在需要采集的项目中运行 `himan-tracker setup` 安装当前项目 Codex hooks，或运行 `himan-tracker setup -g` 安装全局 Codex hooks；对于 Copilot，运行 `himan-tracker setup --agent copilot`。
+3. Codex hook 会把 `UserPromptSubmit`、`PostToolUse` 和 `Stop` payload 通过 stdin 传给 `himan-tracker collect --agent codex --quiet`；Copilot hook 会把 `SessionStart`、`PostToolUse`、`PostToolUseFailure`、`Stop`、`SessionEnd` payload 传给 `himan-tracker collect --agent copilot --sync --quiet`。
 4. `collect` 立即入队并返回，后台 worker 异步写入 JSONL，并从 Codex `transcript_path` 补齐 turn token、turn duration、MCP tool 调用和可推断的 skill 使用。
 5. 运行 `himan-tracker ingest`，把事件日志导入 SQLite 投影。
 6. 使用 `summary`、`tokens`、`agents`、`turns`、`capabilities`、`capability-events` 和 `unused` 查看使用情况。
@@ -86,6 +87,50 @@ himan-tracker summary --since 7d
 
 项目级安装写入当前仓库的 `.codex/`，只有该项目被 Codex 信任后才会加载；全局安装写入 `~/.codex`，会在所有 Codex 项目中生效。
 
+## 与 Copilot 集成
+
+通过 GitHub Copilot 官方 hooks 机制采集。使用 `setup --agent copilot` 在当前项目生成 hooks 配置：
+
+```bash
+himan-tracker setup --agent copilot
+```
+
+命令会在 `.github/hooks/` 下生成：
+
+```text
+.github/hooks/himan-tracker.json
+.github/hooks/scripts/himan-tracker-collect.sh
+```
+
+`himan-tracker.json` 配置了 5 种 hook 事件：
+
+- `SessionStart`：会话开始时记录 `session_summary`。
+- `PostToolUse`：工具调用成功后记录 `capability_usage`（含工具名和耗时）。
+- `PostToolUseFailure`：工具调用失败后记录 `capability_usage`（status=failure）。
+- `Stop`：Agent 完成一轮回复后记录 `turn_summary`（含 model、token、耗时），同时从嵌入的 session 数据生成 `session_summary`。
+- `SessionEnd`：会话终止时记录 `session_summary`（含 reason 映射）。
+
+hook helper 脚本会把 Copilot 传入的 JSON payload 通过 stdin 转发给 `himan-tracker collect --agent copilot --sync --quiet`。
+
+与 Codex 采集一样，hook 采集不保存 prompt、response、代码内容或明文仓库路径。`cwd` 会被用于生成 `repo_hash`。
+
+本地验证：
+
+```bash
+himan-tracker collect --agent copilot --from ./hook-payload.json --sync --strict
+himan-tracker ingest
+himan-tracker summary --since 7d
+```
+
+Copilot transcript backfill 作为补充方案仍然可用：
+
+```bash
+himan-tracker backfill copilot --from /path/to/transcripts/
+himan-tracker backfill copilot --date 2026-05-30
+```
+
+`backfill copilot` 默认会优先使用 Copilot CLI 的 `~/.copilot/session-store.db` SQLite 数据库（如果存在），它比 transcript 扫描更快速可靠。该数据库包含 session 元数据、turn 记录和 `forge_trajectory_events` 工具调用轨迹。当数据库不可用时，会自动回退到 VS Code workspace transcript 扫描。
+
 ## 命令手册
 
 ### `doctor`
@@ -106,9 +151,9 @@ himan-tracker doctor
 
 ### `setup`
 
-安装 Codex hooks，让 Codex 自动把使用元数据投递给 `himan-tracker collect`。
+安装 agent hooks，让 agent 自动把使用元数据投递给 `himan-tracker collect`。
 
-安装到当前项目的 `.codex/`：
+安装到当前项目的 `.codex/`（Codex）或 `.github/hooks/`（Copilot）：
 
 ```bash
 himan-tracker setup
@@ -118,9 +163,10 @@ himan-tracker setup
 
 ```bash
 himan-tracker setup --agent codex
+himan-tracker setup --agent copilot
 ```
 
-全局安装到 `~/.codex`：
+全局安装（仅 Codex，写入 `~/.codex`）：
 
 ```bash
 himan-tracker setup -g
@@ -133,7 +179,7 @@ himan-tracker setup --global
 himan-tracker setup --dry-run
 ```
 
-命令会写入或合并这些文件：
+命令会写入或合并这些文件（Codex）：
 
 ```text
 <repo>/.codex/config.toml
@@ -147,6 +193,13 @@ himan-tracker setup --dry-run
 ~/.codex/config.toml
 ~/.codex/hooks.json
 ~/.codex/hooks/himan-tracker-collect.sh
+```
+
+对于 Copilot（`--agent copilot`），写入：
+
+```text
+<repo>/.github/hooks/himan-tracker.json
+<repo>/.github/hooks/scripts/himan-tracker-collect.sh
 ```
 
 `setup` 会打开 Codex hooks feature flag：
@@ -176,13 +229,14 @@ backfill 会写入 `events/YYYY-MM-DD.jsonl`，并在写入前读取现有分片
 
 ### `collect`
 
-采集 agent hook 或 wrapper JSON payload。当前 `--agent` 默认是 `codex`，也只支持 `codex`。
+采集 agent hook 或 wrapper JSON payload。当前 `--agent` 默认是 `codex`，也支持 `copilot`。
 
 ```bash
 himan-tracker collect --agent codex
+himan-tracker collect --agent copilot
 ```
 
-默认从 stdin 读取 payload，适合放在 Codex hook 或 wrapper 中。也可以从文件读取：
+默认从 stdin 读取 payload，适合放在 agent hook 或 wrapper 中。
 
 ```bash
 himan-tracker collect --agent codex --from ./codex-hook-payload.json

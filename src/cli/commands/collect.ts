@@ -4,12 +4,14 @@ import path from "node:path";
 
 import { collectCodexEnrichmentTasks } from "../../adapters/codex/enrichment.js";
 import { parseCodexHookPayload } from "../../adapters/codex/index.js";
+import { parseCopilotHookPayload } from "../../adapters/copilot/index.js";
 import {
   drainQueuedEvents,
   enqueueNormalizedEvents,
   logCollectorError,
   type DrainQueuedEventsResult,
 } from "../../collector/eventQueue.js";
+import { learnKnownProjectsFromAdapterEvents } from "../../config/knownProjects.js";
 import { ensureTrackerDirectories, resolveTrackerPaths, type TrackerPaths } from "../../config/paths.js";
 import { readOrCreateUserConfig } from "../../config/userConfig.js";
 import { normalizeEvent } from "../../normalizer/normalizeEvent.js";
@@ -63,6 +65,17 @@ export async function runCollect(
     const observedAt = now().toISOString();
     const adapterEvents = parseAgentPayload(agent, payload, observedAt);
     const enrichments = collectAgentEnrichments(agent, payload, observedAt);
+
+    try {
+      await learnKnownProjectsFromAdapterEvents({
+        paths,
+        config,
+        events: adapterEvents,
+        persist: options.config === undefined,
+      });
+    } catch {
+      // Keep collect hook-safe even when project label metadata cannot be updated.
+    }
 
     let rejectedEvents = 0;
     let errorsLogged = 0;
@@ -180,6 +193,8 @@ function parseAgentPayload(
       return parseCodexHookPayload(payload, { observedAt });
     case "claude-code":
       throw new Error('Agent "claude-code" is not supported by collect yet');
+    case "copilot":
+      return parseCopilotHookPayload(payload, { observedAt });
   }
 }
 
@@ -192,6 +207,7 @@ function collectAgentEnrichments(
     case "codex":
       return collectCodexEnrichmentTasks(payload, observedAt);
     case "claude-code":
+    case "copilot":
       return [];
   }
 }
@@ -257,7 +273,11 @@ function resolveSupportedAgent(agent: string | undefined): AgentName {
     return resolvedAgent;
   }
 
-  throw new Error(`Unsupported agent "${resolvedAgent}". Currently only "codex" is supported.`);
+  if (resolvedAgent === "copilot") {
+    return resolvedAgent;
+  }
+
+  throw new Error(`Unsupported agent "${resolvedAgent}". Currently "codex" and "copilot" are supported for hook collect.`);
 }
 
 function formatDrainSummary(result: DrainQueuedEventsResult): string[] {

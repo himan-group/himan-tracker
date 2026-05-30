@@ -1,6 +1,6 @@
 name: common-dev-pattern
 type: skill
-version: 0.0.6
+version: 0.0.7
 entry: SKILL.md
 description: Follow existing repository patterns for code changes and validate
   them before the final response. Use for nontrivial edits across pages,
@@ -12,10 +12,10 @@ analysis:
   content:
     tokenizer: approx-char-v1
     tokenEstimator: ceil(chars/4)
-    entryTokens: 847
-    packageTokens: 847
-    contentHash: sha256:df99d6f14d663886e426a711940733d4202d0d6dfbb1678cf914d0ffb5e8eba6
-    measuredAt: 2026-05-14T07:52:32.527Z
+    entryTokens: 998
+    packageTokens: 998
+    contentHash: sha256:78849a1fff6d14df5a0e125ef5370f93d1b48a46f5128a51903c5e260094c165
+    measuredAt: 2026-05-28T03:52:10.384Z
     measuredBy: codex
   dependencies:
     skills:
@@ -24,6 +24,9 @@ analysis:
     mcpTools: []
   generation:
     generatedBy: codex
-    generatedAt: 2026-05-14T07:52:32.527Z
+    generatedAt: 2026-05-28T03:52:10.384Z
     model: gpt-5
     promptRef: himan-skill-metadata
+comment:
+  score: 9
+  text: 常用，约束Coding Agent不要乱改

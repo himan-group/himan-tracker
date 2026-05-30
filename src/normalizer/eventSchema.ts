@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import type { NormalizedEvent } from "../types/events.js";
 
-const agentNameSchema = z.enum(["codex", "claude-code"]);
+const agentNameSchema = z.enum(["codex", "claude-code", "copilot"]);
 const eventStatusSchema = z.enum(["success", "failure", "cancelled", "unknown"]);
 const capabilityTypeSchema = z.enum([
   "skill",

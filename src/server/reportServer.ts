@@ -5,7 +5,10 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 
 import { ingestEvents } from "../aggregator/aggregateEvents.js";
+import { runBackfill } from "../cli/commands/backfill.js";
+import { createKnownProjectDisplayNameMap } from "../config/knownProjects.js";
 import { ensureTrackerDirectories, type TrackerPaths } from "../config/paths.js";
+import { readOrCreateUserConfig } from "../config/userConfig.js";
 import { formatDateRange, parseSinceRange, todayLocalDate } from "../reports/dateRange.js";
 import {
   formatAverageDurationMs,
@@ -45,18 +48,23 @@ const DASHBOARD_CAPABILITY_CALL_LIMIT = 50;
 
 export type ReportServerIngestSnapshot =
   | {
-      ok: true;
-      at: string;
-      events_read: number;
-      events_inserted: number;
-      events_skipped: number;
-      event_files: number;
-    }
+    ok: true;
+    at: string;
+    events_read: number;
+    events_inserted: number;
+    events_skipped: number;
+    event_files: number;
+  }
   | {
-      ok: false;
-      at: string;
-      error: string;
-    };
+    ok: false;
+    at: string;
+    error: string;
+  };
+
+export type ReportServerBackfillSnapshot =
+  | { ok: true; at: string; parsed: number; written: number; skipped: number }
+  | { ok: false; at: string; error: string }
+  | null;
 
 export type ReportServerState = {
   pid: number;
@@ -67,6 +75,7 @@ export type ReportServerState = {
   interval_seconds: number;
   since: string;
   display: DashboardDisplayMode;
+  last_backfill: ReportServerBackfillSnapshot;
   last_ingest: ReportServerIngestSnapshot | null;
 };
 
@@ -78,6 +87,7 @@ export type StartReportHttpServerOptions = {
   since?: string;
   display?: DashboardDisplayMode;
   now?: () => Date;
+  autoBackfill?: boolean;
 };
 
 export type ReportHttpServerInstance = {
@@ -85,7 +95,7 @@ export type ReportHttpServerInstance = {
   url: string;
   state: ReportServerState;
   close: () => Promise<void>;
-  runIngestNow: () => Promise<void>;
+  runSyncNow: () => Promise<void>;
 };
 
 type DashboardTab = {
@@ -266,14 +276,29 @@ export async function startReportHttpServer(
   const intervalSeconds = options.intervalSeconds ?? DEFAULT_SERVER_INTERVAL_SECONDS;
   const since = options.since ?? DEFAULT_SERVER_SINCE;
   const display = options.display ?? "table";
+  const autoBackfill = options.autoBackfill ?? true;
   const now = options.now ?? (() => new Date());
   let lastIngest: ReportServerIngestSnapshot | null = null;
+  let lastBackfill: ReportServerBackfillSnapshot = null;
   let currentState: ReportServerState | null = null;
   let ingestInFlight: Promise<void> | null = null;
 
   await ensureTrackerDirectories(paths);
 
-  const runIngestNow = async (): Promise<void> => {
+  const runSyncNow = async (): Promise<void> => {
+    if (autoBackfill) {
+      try {
+        const br = await runBackfill({ agent: "copilot", paths, now });
+        if (br.ok) {
+          lastBackfill = { ok: true, at: now().toISOString(), parsed: extractBackfillParsed(br), written: extractBackfillWritten(br), skipped: extractBackfillSkipped(br) };
+        } else {
+          lastBackfill = { ok: false, at: now().toISOString(), error: br.lines.join("\n") };
+        }
+      } catch (e) {
+        lastBackfill = { ok: false, at: now().toISOString(), error: getErrorMessage(e) };
+      }
+    }
+
     if (ingestInFlight) {
       return ingestInFlight;
     }
@@ -292,7 +317,7 @@ export async function startReportHttpServer(
       .finally(async () => {
         ingestInFlight = null;
         if (currentState) {
-          currentState = { ...currentState, last_ingest: lastIngest };
+          currentState = { ...currentState, last_backfill: lastBackfill, last_ingest: lastIngest };
           await writeReportServerState(paths, currentState);
         }
       });
@@ -300,7 +325,7 @@ export async function startReportHttpServer(
     return ingestInFlight;
   };
 
-  await runIngestNow();
+  await runSyncNow();
 
   const server = createServer((request, response) => {
     void handleRequest({
@@ -310,8 +335,9 @@ export async function startReportHttpServer(
       since,
       display,
       now,
+      getLastBackfill: () => lastBackfill,
       getLastIngest: () => lastIngest,
-      runIngestNow,
+      runSyncNow,
     }).catch((error: unknown) => {
       writeResponse(response, 500, "text/plain; charset=utf-8", getErrorMessage(error));
     });
@@ -329,7 +355,7 @@ export async function startReportHttpServer(
   const resolvedPort = resolveListeningPort(address);
   const url = `http://${host}:${resolvedPort}`;
   const timer = setInterval(() => {
-    void runIngestNow();
+    void runSyncNow();
   }, intervalSeconds * 1_000);
 
   currentState = {
@@ -341,6 +367,7 @@ export async function startReportHttpServer(
     interval_seconds: intervalSeconds,
     since,
     display,
+    last_backfill: lastBackfill,
     last_ingest: lastIngest,
   };
   await writeReportServerState(paths, currentState);
@@ -354,7 +381,7 @@ export async function startReportHttpServer(
       await closeServer(server, sockets);
       await removeReportServerState(paths, process.pid);
     },
-    runIngestNow,
+    runSyncNow,
   };
 }
 
@@ -437,6 +464,11 @@ async function runIngest(
   };
 }
 
+function extractBackfillParsed(r: { lines: string[] }): number { return extractBackfillNumber(r, "Parsed events: "); }
+function extractBackfillWritten(r: { lines: string[] }): number { return extractBackfillNumber(r, "Written events: "); }
+function extractBackfillSkipped(r: { lines: string[] }): number { return extractBackfillNumber(r, "Skipped duplicates: "); }
+function extractBackfillNumber(r: { lines: string[] }, prefix: string): number { for (const l of r.lines) { if (l.startsWith(prefix)) { const n = Number(l.slice(prefix.length)); if (Number.isFinite(n)) return n; } } return 0; }
+
 async function handleRequest(options: {
   request: IncomingMessage;
   response: ServerResponse;
@@ -444,8 +476,9 @@ async function handleRequest(options: {
   since: string;
   display: DashboardDisplayMode;
   now: () => Date;
+  getLastBackfill: () => ReportServerBackfillSnapshot;
   getLastIngest: () => ReportServerIngestSnapshot | null;
-  runIngestNow: () => Promise<void>;
+  runSyncNow: () => Promise<void>;
 }): Promise<void> {
   const method = options.request.method ?? "GET";
   const url = new URL(options.request.url ?? "/", "http://localhost");
@@ -462,6 +495,7 @@ async function handleRequest(options: {
       "application/json; charset=utf-8",
       JSON.stringify({
         ok: true,
+        last_backfill: options.getLastBackfill(),
         last_ingest: options.getLastIngest(),
       }),
     );
@@ -469,7 +503,7 @@ async function handleRequest(options: {
   }
 
   if (url.pathname === "/dashboard.json") {
-    await options.runIngestNow();
+    await options.runSyncNow();
     const data = readDashboardData({
       paths: options.paths,
       since: options.since,
@@ -486,8 +520,8 @@ async function handleRequest(options: {
   }
 
   if (url.pathname === "/metrics.json") {
-    await options.runIngestNow();
-    const data = readMetricsDashboardData({
+    await options.runSyncNow();
+    const data = await readMetricsDashboardData({
       paths: options.paths,
       now: options.now,
       lastIngest: options.getLastIngest(),
@@ -502,8 +536,8 @@ async function handleRequest(options: {
   }
 
   if (url.pathname === "/metrics") {
-    await options.runIngestNow();
-    const html = renderMetricsPage({
+    await options.runSyncNow();
+    const html = await renderMetricsPage({
       paths: options.paths,
       display: options.display,
       now: options.now,
@@ -518,7 +552,7 @@ async function handleRequest(options: {
     return;
   }
 
-  await options.runIngestNow();
+  await options.runSyncNow();
   const html = renderDashboardPage({
     paths: options.paths,
     since: options.since,
@@ -539,13 +573,13 @@ function renderDashboardPage(options: {
   return renderDashboardHtml(readDashboardData(options), options.display);
 }
 
-function renderMetricsPage(options: {
+async function renderMetricsPage(options: {
   paths: TrackerPaths;
   display: DashboardDisplayMode;
   now: () => Date;
   lastIngest: ReportServerIngestSnapshot | null;
-}): string {
-  return renderMetricsHtml(readMetricsDashboardData(options), options.display);
+}): Promise<string> {
+  return renderMetricsHtml(await readMetricsDashboardData(options), options.display);
 }
 
 function readDashboardData(options: {
@@ -636,12 +670,14 @@ function readDashboardData(options: {
   }
 }
 
-function readMetricsDashboardData(options: {
+async function readMetricsDashboardData(options: {
   paths: TrackerPaths;
   now: () => Date;
   lastIngest: ReportServerIngestSnapshot | null;
-}): MetricsDashboardData {
+}): Promise<MetricsDashboardData> {
   const generatedAt = options.now();
+  const config = await readOrCreateUserConfig(options.paths);
+  const projectDisplayNames = createKnownProjectDisplayNameMap(config);
   const { db } = initializeTrackerDatabase(options.paths.sqlitePath);
 
   try {
@@ -666,7 +702,7 @@ function readMetricsDashboardData(options: {
       projectTabs: insights.periods.map((period) => ({
         id: period.period,
         label: formatMetricsPeriodTabLabel(period),
-        table: createMetricsProjectTable(period),
+        table: createMetricsProjectTable(period, projectDisplayNames),
       })),
       capabilityTabs: insights.periods.map((period) => ({
         id: period.period,
@@ -1011,8 +1047,8 @@ function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode)
     <div class="header-inner">
       <h1>himan-tracker</h1>
       <div class="status">${renderIngestStatus(data.lastIngest)} · Generated ${escapeHtml(
-        formatLocalDateTime(generatedAt),
-      )}</div>
+    formatLocalDateTime(generatedAt),
+  )}</div>
       <nav class="nav" aria-label="Dashboard navigation">
         <a href="/" aria-current="page">Overview</a>
         <a href="/metrics">Metrics</a>
@@ -1390,8 +1426,8 @@ function renderMetricsHtml(data: MetricsDashboardData, display: DashboardDisplay
     <div class="header-inner">
       <h1>Metrics</h1>
       <div class="status">${renderIngestStatus(data.lastIngest)} · Generated ${escapeHtml(
-        formatLocalDateTime(generatedAt),
-      )}</div>
+    formatLocalDateTime(generatedAt),
+  )}</div>
       <nav class="nav" aria-label="Dashboard navigation">
         <a href="/">Overview</a>
         <a href="/metrics" aria-current="page">Metrics</a>
@@ -1402,15 +1438,15 @@ function renderMetricsHtml(data: MetricsDashboardData, display: DashboardDisplay
     <div class="metrics">
       ${renderMetric("Day runtime tokens", formatTokenCount(data.summary.totalTokens))}
       ${renderMetric("Runtime token growth", formatSignedPercent(data.summary.tokenGrowthRate), {
-        tone: getTrendTone(data.summary.tokenGrowthRate),
-      })}
+    tone: getTrendTone(data.summary.tokenGrowthRate),
+  })}
       ${renderMetric("Day duration", formatDurationMs(data.summary.durationMs))}
       ${renderMetric("Duration growth", formatSignedPercent(data.summary.durationGrowthRate), {
-        tone: getTrendTone(data.summary.durationGrowthRate),
-      })}
+    tone: getTrendTone(data.summary.durationGrowthRate),
+  })}
       ${renderMetric("Alerts", String(data.summary.alertCount), {
-        tone: data.summary.alertCount > 0 ? "warning" : "positive",
-      })}
+    tone: data.summary.alertCount > 0 ? "warning" : "positive",
+  })}
     </div>
     ${renderTabbedSection("Overall metrics", "metrics-overall", data.overallTabs, display)}
     ${renderTabbedSection("Project metrics", "metrics-project", data.projectTabs, display)}
@@ -1487,7 +1523,10 @@ function createMetricsOverallTable(period: MetricsPeriodInsight): DashboardTable
   };
 }
 
-function createMetricsProjectTable(period: MetricsPeriodInsight): DashboardTable {
+function createMetricsProjectTable(
+  period: MetricsPeriodInsight,
+  projectDisplayNames: ReadonlyMap<string, string>,
+): DashboardTable {
   return {
     columns: [
       "Project",
@@ -1503,15 +1542,22 @@ function createMetricsProjectTable(period: MetricsPeriodInsight): DashboardTable
       "MCP calls",
       "MCP runtime token share",
     ],
-    rows: period.projects.map((project) => createMetricsProjectRow(project)),
+    rows: period.projects.map((project) =>
+      createMetricsProjectRow(project, projectDisplayNames),
+    ),
     emptyText: `No project metrics found for ${formatMetricsPeriodCaption(period)}.`,
-    note: `Project metrics by repo hash for ${formatMetricsPeriodCaption(period)}. Token columns use runtime observed tokens only.`,
+    note: `Project metrics by project label (repo hash fallback) for ${formatMetricsPeriodCaption(period)}. Token columns use runtime observed tokens only.`,
   };
 }
 
-function createMetricsProjectRow(project: ProjectMetricsRow): string[] {
+function createMetricsProjectRow(
+  project: ProjectMetricsRow,
+  projectDisplayNames: ReadonlyMap<string, string>,
+): string[] {
+  const projectLabel = projectDisplayNames.get(project.repoHash) ?? project.repoHash;
+
   return [
-    project.repoHash,
+    projectLabel,
     String(project.turnCount),
     formatTokenCount(project.totalTokens),
     formatPercentRatio(project.tokenShare),
@@ -1798,16 +1844,16 @@ function readDashboardCapabilityCalls(
   return {
     columns: ["Time", "Agent", "Source", "Capability", "Duration", "Basis", "Runtime tokens", "Status", "Origin"],
     rows: rows.map((row) => [
-        formatLocalDateTime(row.occurred_at),
-        row.agent,
-        row.source,
-        row.capability_name,
-        formatDurationMs(row.duration_ms),
-        row.duration_basis,
-        formatTokenCount(row.total_tokens),
-        row.status,
-        formatNullableText(row.invocation_origin),
-      ]),
+      formatLocalDateTime(row.occurred_at),
+      row.agent,
+      row.source,
+      row.capability_name,
+      formatDurationMs(row.duration_ms),
+      row.duration_basis,
+      formatTokenCount(row.total_tokens),
+      row.status,
+      formatNullableText(row.invocation_origin),
+    ]),
     emptyText: `No ${label} calls found for ${formatDateRange(range)}.`,
     note: `Showing latest ${rows.length} ${label} calls (${formatDateRange(range)}).`,
   };
@@ -2210,13 +2256,13 @@ function readDashboardSummary(
       `,
     )
     .get(range.startDate, range.endDate) as {
-    session_count: number;
-    turn_count: number;
-    total_tokens: number | null;
-    duration_ms: number | null;
-    success_count: number;
-    failure_count: number;
-  };
+      session_count: number;
+      turn_count: number;
+      total_tokens: number | null;
+      duration_ms: number | null;
+      success_count: number;
+      failure_count: number;
+    };
 
   return {
     session_count: row.session_count,
@@ -2358,9 +2404,8 @@ function renderTabbedSection(
         tab.id,
       )}" role="tab" type="button" aria-selected="${String(
         active,
-      )}" aria-controls="${escapeHtml(idPrefix)}-panel-${escapeHtml(tab.id)}" tabindex="${
-        active ? "0" : "-1"
-      }">${escapeHtml(tab.label)}</button>`;
+      )}" aria-controls="${escapeHtml(idPrefix)}-panel-${escapeHtml(tab.id)}" tabindex="${active ? "0" : "-1"
+        }">${escapeHtml(tab.label)}</button>`;
     })
     .join("");
   const panels = tabs

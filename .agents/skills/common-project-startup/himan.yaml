@@ -1,22 +1,26 @@
 name: common-project-startup
 type: skill
-version: 0.0.4
+version: 0.0.6
 entry: SKILL.md
-description: Onboard Codex to an existing repository by inspecting structure,
-  commands, rules, generated files, and validation workflow; create or update
-  docs/codex/repo-map.md and AGENTS.md. Use when starting work in an unfamiliar
-  project, refreshing project guidance, or syncing local rules into Codex
-  instructions.
+description: Onboard coding agents to an existing repository by inspecting
+  structure, commands, rules, generated files, and validation workflow; create
+  or update docs/repository-map.md or legacy docs/codex/repo-map.md plus
+  AGENTS.md. Use when starting work in an unfamiliar project, refreshing project
+  guidance, or syncing local rules into broadly compatible agent instructions.
+category: Common
 agents:
   - codex
+comment:
+  score: 7
+  text: 已有中大型项目推荐使用
 analysis:
   content:
     tokenizer: approx-char-v1
     tokenEstimator: ceil(chars/4)
-    entryTokens: 823
-    packageTokens: 823
-    contentHash: sha256:e76753d3001ee860a169d4505f6ae088d42b14e27df9622c25aad68acbfc58ae
-    measuredAt: 2026-05-14T07:52:32.801Z
+    entryTokens: 1873
+    packageTokens: 1873
+    contentHash: sha256:c3a0cbebb49cd5e890606fca09bb90ca9027b53683987d2d80cc5b4b6001be8f
+    measuredAt: 2026-05-29T08:02:11.028Z
     measuredBy: codex
   dependencies:
     skills:
@@ -27,6 +31,6 @@ analysis:
     mcpTools: []
   generation:
     generatedBy: codex
-    generatedAt: 2026-05-14T07:52:32.801Z
+    generatedAt: 2026-05-29T08:02:11.028Z
     model: gpt-5
     promptRef: himan-skill-metadata

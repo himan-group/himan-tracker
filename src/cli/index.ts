@@ -18,7 +18,7 @@ import {
   runServerStatus,
   runServerStop,
 } from "./commands/server.js";
-import { runSetup } from "./commands/setup.js";
+import { runSetup, setupCodex, setupCopilot } from "./commands/setup.js";
 import { runSummary } from "./commands/summary.js";
 import { runTokens } from "./commands/tokens.js";
 import { runTurns } from "./commands/turns.js";
@@ -51,7 +51,7 @@ program
 program
   .command("collect")
   .description("Collect raw agent hook payloads without blocking the agent workflow")
-  .option("--agent <agent>", "Agent adapter to use; currently only codex is supported", "codex")
+  .option("--agent <agent>", "Agent adapter to use; currently codex and copilot are supported", "codex")
   .option("--from <path>", "Read the agent payload from a JSON file")
   .option("--quiet", "Suppress collect output for hook usage")
   .option("--sync", "Drain the local collect queue in the foreground after enqueueing")
@@ -74,23 +74,31 @@ type CollectCommandOptions = {
   drain?: boolean;
 };
 
-program
+const setupCommand = program
   .command("setup")
-  .description("Configure agent integrations")
-  .option("--agent <agent>", "Agent integration to configure; currently only codex is supported", "codex")
-  .option("-g, --global", "Install hooks into ~/.codex instead of the current project")
+  .description("Configure agent integrations");
+
+setupCommand
+  .command("codex")
+  .description("Configure Codex hooks")
+  .option("-g, --global", "Install hooks globally instead of the current project")
   .option("--dry-run", "Preview files without writing them")
-  .action(async (options: SetupCommandOptions) => {
-    const result = await runSetup(options);
+  .action(async (options: { global?: boolean; dryRun?: boolean }) => {
+    const result = await setupCodex(options);
     console.log(result.lines.join("\n"));
     process.exitCode = result.exitCode;
   });
 
-type SetupCommandOptions = {
-  agent?: string;
-  global?: boolean;
-  dryRun?: boolean;
-};
+setupCommand
+  .command("copilot")
+  .description("Configure Copilot hooks")
+  .option("-g, --global", "Install hooks globally instead of the current project")
+  .option("--dry-run", "Preview files without writing them")
+  .action(async (options: { global?: boolean; dryRun?: boolean }) => {
+    const result = await setupCopilot(options);
+    console.log(result.lines.join("\n"));
+    process.exitCode = result.exitCode;
+  });
 
 program
   .command("doctor")
@@ -125,15 +133,29 @@ backfillCommand
   .command("codex")
   .description("Backfill Codex events from local Codex transcript JSONL files")
   .option("--date <date>", "Transcript date to backfill in YYYY-MM-DD; defaults to today")
+  .option("--since <date>", "Backfill from this date through today in YYYY-MM-DD")
   .option("--from <dir>", "Read transcript JSONL files from a specific directory")
-  .action(async (options: BackfillCodexCommandOptions) => {
+  .action(async (options: BackfillCommandOptions) => {
     const result = await runBackfill({ ...options, agent: "codex" });
     console.log(result.lines.join("\n"));
     process.exitCode = result.ok ? 0 : 1;
   });
 
-type BackfillCodexCommandOptions = {
+backfillCommand
+  .command("copilot")
+  .description("Backfill Copilot events from local Copilot transcript JSONL files")
+  .option("--date <date>", "Transcript date to backfill in YYYY-MM-DD; defaults to today")
+  .option("--since <date>", "Backfill from this date through today in YYYY-MM-DD")
+  .option("--from <dir>", "Read transcript JSONL files from a specific directory")
+  .action(async (options: BackfillCommandOptions) => {
+    const result = await runBackfill({ ...options, agent: "copilot" });
+    console.log(result.lines.join("\n"));
+    process.exitCode = result.ok ? 0 : 1;
+  });
+
+type BackfillCommandOptions = {
   date?: string;
+  since?: string;
   from?: string;
 };
 

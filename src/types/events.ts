@@ -1,4 +1,4 @@
-export type AgentName = "codex" | "claude-code";
+export type AgentName = "codex" | "claude-code" | "copilot";
 
 export type EventStatus = "success" | "failure" | "cancelled" | "unknown";
 

@@ -1,0 +1,27 @@
+name: common-issue-spec
+type: skill
+version: 0.0.4
+entry: SKILL.md
+description: Turn vague issues, product requests, bug reports, or engineering
+  tasks into a concise implementation spec before coding. Use when the request
+  is underspecified, business-heavy, cross-file, or likely to require scope,
+  acceptance criteria, references, assumptions, or validation steps.
+category: Common
+agents:
+  - codex
+analysis:
+  content:
+    tokenizer: approx-char-v1
+    tokenEstimator: ceil(chars/4)
+    entryTokens: 391
+    packageTokens: 391
+    contentHash: sha256:96b893927c91ea34083d3282f697b6a32d8d995702c9ec3b86045f17924c893c
+    measuredAt: 2026-05-30T02:57:22.830Z
+    measuredBy: codex
+  dependencies:
+    skills: []
+    scripts: []
+    mcpTools: []
+  generation:
+    generatedBy: codex
+    generatedAt: 2026-05-30T02:57:22.830Z

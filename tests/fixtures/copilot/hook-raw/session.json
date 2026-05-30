@@ -1,0 +1,87 @@
+{
+    "schema_version": "fixture-1",
+    "events": [
+        {
+            "hook_event_name": "SessionStart",
+            "session_id": "copilot_hook_s_001",
+            "timestamp": "2026-05-30T12:00:00.000Z",
+            "cwd": "/Users/example/project",
+            "source": "new",
+            "initial_prompt": "Read the file for me"
+        },
+        {
+            "hook_event_name": "PostToolUse",
+            "session_id": "copilot_hook_s_001",
+            "turn_id": "turn-0",
+            "timestamp": "2026-05-30T12:00:02.000Z",
+            "cwd": "/Users/example/project",
+            "tool_name": "read_file",
+            "tool_input": {
+                "filePath": "/Users/example/project/src/index.ts",
+                "startLine": 1,
+                "endLine": 10
+            },
+            "tool_result": {
+                "result_type": "success",
+                "text_result_for_llm": "console.log('hello');"
+            },
+            "duration_ms": 250
+        },
+        {
+            "hook_event_name": "PostToolUse",
+            "session_id": "copilot_hook_s_001",
+            "turn_id": "turn-0",
+            "timestamp": "2026-05-30T12:00:05.000Z",
+            "cwd": "/Users/example/project",
+            "tool_name": "grep_search",
+            "tool_input": {
+                "query": "TODO"
+            },
+            "tool_result": {
+                "result_type": "success",
+                "text_result_for_llm": "Found 3 matches"
+            },
+            "duration_ms": 150
+        },
+        {
+            "hook_event_name": "PostToolUseFailure",
+            "session_id": "copilot_hook_s_001",
+            "turn_id": "turn-0",
+            "timestamp": "2026-05-30T12:00:08.000Z",
+            "cwd": "/Users/example/project",
+            "tool_name": "run_in_terminal",
+            "tool_input": {
+                "command": "invalid-cmd"
+            },
+            "error": "command not found"
+        },
+        {
+            "hook_event_name": "Stop",
+            "session_id": "copilot_hook_s_001",
+            "turn_id": "turn-0",
+            "timestamp": "2026-05-30T12:00:10.000Z",
+            "cwd": "/Users/example/project",
+            "transcript_path": "/tmp/transcripts/session.jsonl",
+            "stop_reason": "end_turn",
+            "duration_ms": 10000,
+            "model": "claude-sonnet-4.5",
+            "input_tokens": 500,
+            "output_tokens": 120,
+            "total_tokens": 620,
+            "session": {
+                "turn_count": 1,
+                "duration_ms": 10000,
+                "status": "success"
+            }
+        },
+        {
+            "hook_event_name": "SessionEnd",
+            "session_id": "copilot_hook_s_001",
+            "timestamp": "2026-05-30T12:00:15.000Z",
+            "cwd": "/Users/example/project",
+            "reason": "complete",
+            "turn_count": 1,
+            "duration_ms": 15000
+        }
+    ]
+}

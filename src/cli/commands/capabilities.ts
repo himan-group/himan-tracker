@@ -49,11 +49,11 @@ function parseAgent(agent: string | undefined): AgentName | undefined {
     return undefined;
   }
 
-  if (agent === "codex" || agent === "claude-code") {
+  if (agent === "codex" || agent === "claude-code" || agent === "copilot") {
     return agent;
   }
 
-  throw new Error("Expected --agent to be codex or claude-code");
+  throw new Error("Expected --agent to be codex, claude-code, or copilot");
 }
 
 function parseCapabilityType(type: string | undefined): CapabilityType | undefined {

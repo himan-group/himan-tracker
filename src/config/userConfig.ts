@@ -19,8 +19,12 @@ export function createDefaultUserConfig(): UserConfig {
       "claude-code": {
         enabled: true,
       },
+      copilot: {
+        enabled: true,
+      },
     },
     known_capabilities: [],
+    known_projects: [],
     local_salt: randomBytes(16).toString("hex"),
   };
 }
@@ -43,6 +47,7 @@ export async function readOrCreateUserConfig(paths: TrackerPaths): Promise<UserC
         ...parsedConfig.agents,
       },
       known_capabilities: parsedConfig.known_capabilities ?? defaults.known_capabilities,
+      known_projects: parsedConfig.known_projects ?? defaults.known_projects,
       local_salt: parsedConfig.local_salt ?? defaults.local_salt,
     };
   } catch (error) {

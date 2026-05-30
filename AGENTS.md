@@ -1,88 +1,126 @@
-# Codex Instructions
+# Repository Guidelines
 
 ## Project Snapshot
 
-`himan-tracker` is a local-first TypeScript CLI for AI coding agent observability. The MVP focuses on Codex and Claude Code metadata tracking: sessions, turns, tokens, latency, success status, and capability usage.
+`himan-tracker` is a local-first TypeScript CLI for AI coding agent observability.
 
-Current implementation is early MVP:
+Current MVP tracks Codex and Claude Code metadata such as:
 
-- CLI skeleton, `doctor`, `collect`, `ingest`, and report commands are implemented.
-- Config/path handling, normalized event contracts, JSONL collection, SQLite ingestion, and agent adapters are implemented.
-- `collect --agent codex` is the current Codex data entry point; Claude Code collection remains future work.
+- sessions and turns
+- runtime tokens and latency
+- status and capability usage
+
+Current implementation status:
+
+- CLI commands for setup, collect, backfill, ingest, archive, reports, and local server are implemented.
+- Codex collection and Codex transcript backfill are implemented.
+- Claude Code parsing fixtures are present, but `collect --agent claude-code` is not yet supported.
+- Copilot transcript backfill (`backfill copilot`) is implemented.
+- Copilot hook-based collect (`collect --agent copilot`) and hook setup (`setup copilot`) are implemented.
 
 ## Commands
 
-Use the package scripts from `package.json` for build/test, and the published CLI command for smoke checks:
+Primary project commands:
 
 ```bash
 pnpm run build
+npm run build:sandbox
 pnpm run typecheck
 pnpm test
+pnpm run verify
+```
+
+CLI smoke commands:
+
+```bash
 himan-tracker --help
 himan-tracker doctor
 himan-tracker setup --dry-run
 himan-tracker collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
+himan-tracker collect --agent copilot --from tests/fixtures/copilot/hook-raw/session.json --sync --strict
+himan-tracker backfill codex --date YYYY-MM-DD
+himan-tracker backfill copilot --from <dir>
+himan-tracker ingest
+himan-tracker server start
 ```
 
-In Codex sandboxed sessions, prefer this build command because `pnpm run build` may hang and then fail with `fetch failed`:
+Codex sandbox note:
 
-```bash
-npm run build:sandbox
-```
-
-If npm is not available, run the same compiler directly:
-
-```bash
-node node_modules/typescript/bin/tsc -p tsconfig.json
-```
-
-When running `doctor`, prefer a temp data home:
-
-```bash
-HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker doctor
-```
-
-When validating `collect`, prefer a temp data home and `--sync --strict` for deterministic foreground processing:
-
-```bash
-HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
-```
+- Prefer `npm run build:sandbox` because `pnpm run build` may hang in sandboxed sessions.
+- If npm is unavailable, use `node node_modules/typescript/bin/tsc -p tsconfig.json`.
 
 ## Architecture
 
-Current source layout:
+Main source layout:
 
-- `src/cli/`: CLI entry and commands.
-- `src/config/`: tracker data paths and user config defaults.
-- `src/types/`: shared TypeScript contracts.
-- `src/normalizer/`: adapter event to normalized event conversion, zod schema validation, privacy helpers, and capability classification.
-- `src/collector/`: JSONL event/error writers and async collect queue.
-- `src/storage/`: SQLite connection and migrations.
-- `src/aggregator/`: JSONL-to-SQLite projection and daily stats.
-- `src/reports/`: report queries and formatting.
-- `src/adapters/`: Codex and Claude Code payload parsers.
+- `src/cli/`: command registration and command handlers.
+- `src/config/`: tracker paths, user config defaults, known project name mapping.
+- `src/types/`: shared event/config contracts.
+- `src/normalizer/`: schema validation, privacy hashing, token normalization, capability classification.
+- `src/collector/`: JSONL writer and async queue drain.
+- `src/adapters/`: Codex/Claude Code/Copilot parsers and Himan metadata helpers.
+- `src/aggregator/`: JSONL -> SQLite projection, daily stats, monthly archive.
+- `src/reports/`: report queries/formatters and metrics insights.
+- `src/server/`: local report web server.
+- `src/storage/`: SQLite initialization and migrations.
 
-Follow `docs/technical-design.md` and `docs/mvp/development-plan.md` for expected module boundaries.
+Data flow overview:
+
+1. Hook/transcript payload -> `AdapterEvent`.
+2. `normalizeEvent` -> privacy-safe `NormalizedEvent`.
+3. JSONL append (`events/YYYY-MM-DD.jsonl`) with fail-open behavior.
+4. `ingest` projects JSONL into SQLite.
+5. report/server commands read SQLite.
 
 ## Coding Workflow
 
-- Read nearby files before editing and follow existing TypeScript style.
-- Keep CLI orchestration thin; put behavior in command modules and shared helpers.
-- Keep adapter parsing separate from normalizer, collector, storage, and reports.
-- Keep `collect` hook-safe: default behavior must not return non-zero or block Codex when collection fails; use `--quiet` in hooks and `--strict` only for manual validation.
-- Do not edit generated `dist/` output directly.
-- Use `.gitkeep` only for empty directories that need to stay tracked.
-- Preserve existing user changes; do not reset, clean, or discard files unless explicitly asked.
+- Read nearby files and follow existing TypeScript style and module boundaries.
+- Keep CLI orchestration thin; place behavior in command modules and shared helpers.
+- Keep parsing/adapters separate from normalizer, collector, storage, and reports.
+- Preserve hook-safe behavior for `collect`: default should not block agent workflows.
+- Do not edit `dist/` directly.
+- Preserve existing user changes; do not reset or discard unrelated modifications.
 
-## Data And Privacy
+## Entry Points And Routing
 
-Default tracker home:
+CLI entry point:
 
-```text
-~/.himan-tracker
-```
+- `src/cli/index.ts`
 
-`HIMAN_TRACKER_HOME` overrides that location.
+Implemented command handlers:
+
+- `doctor`: `src/cli/commands/doctor.ts`
+- `setup`: `src/cli/commands/setup.ts`
+- `collect`: `src/cli/commands/collect.ts`
+- `backfill codex`: `src/cli/commands/backfill.ts`
+- `ingest`: `src/cli/commands/ingest.ts`
+- `archive monthly`: `src/cli/commands/archive.ts`
+- `cleanup`: `src/cli/commands/cleanup.ts`
+- `summary`, `tokens`, `agents`, `turns`, `capabilities`, `capability-events`, `unused`
+- `server start/status/stop`: `src/cli/commands/server.ts`
+
+## API And Data
+
+Event contracts:
+
+- `src/types/events.ts`
+- `src/normalizer/eventSchema.ts`
+
+Config contracts:
+
+- `src/types/config.ts`
+- `src/config/userConfig.ts`
+
+Storage and migrations:
+
+- `src/storage/sqlite.ts`
+- `src/storage/migrations/001_initial.sql`
+- `src/storage/migrations/002_capability_invocation_origin.sql`
+- `src/storage/migrations/005_ingest_file_cursors.sql`
+
+Default data home:
+
+- `~/.himan-tracker` (override with `HIMAN_TRACKER_HOME`)
 
 Privacy defaults:
 
@@ -90,18 +128,14 @@ Privacy defaults:
 - `hash_repo_path=true`
 - `capture_shell_args=false`
 
-Do not add prompt text, response text, code content, plaintext repo paths, stdout/stderr, or shell args to normalized events unless a future explicit opt-in feature is implemented.
+Do not add prompt/response/code content or plaintext repo paths to normalized events unless explicit opt-in behavior is introduced.
 
-## Documentation
+## Generated Files
 
-- `README.md`: user-facing product and usage manual only.
-- `CHANGELOG.md`: Keep a Changelog style release history.
-- `docs/blueprint.md`: product direction and scope.
-- `docs/technical-design.md`: architecture, storage, data contracts, CLI behavior, and validation strategy.
-- `docs/mvp/features.md`: MVP feature inventory.
-- `docs/mvp/technical-plan.md`: detailed MVP implementation plan.
-- `docs/mvp/development-plan.md`: step-by-step execution status and checklists.
-- `docs/codex/repo-map.md`: durable repository map for Codex.
+Generated or derived outputs:
+
+- `dist/` build output from TypeScript compile.
+- local runtime data under `~/.himan-tracker/` (or `HIMAN_TRACKER_HOME`): `events/`, `errors/`, `queue/`, `himan.sqlite`, `locks/`, server state/log.
 
 ## Validation
 
@@ -113,31 +147,38 @@ pnpm test
 npm run build:sandbox
 ```
 
-For CLI behavior changes, also run a smoke command such as:
+For CLI behavior changes, also run at least one smoke flow with temporary home:
 
 ```bash
-himan-tracker --help
-himan-tracker setup --dry-run
 HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker doctor
 HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
+HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker collect --agent copilot --from tests/fixtures/copilot/hook-raw/session.json --sync --strict
 ```
 
-If a check cannot be run, report the reason and the risk.
+If a check cannot run, report the reason and risk.
 
-## Skill Routing
+## Agent-Specific Notes
 
+Agent-neutral guidance in this repository should live in `AGENTS.md`.
+
+Current repository map canonical path:
+
+- `docs/repository-map.md`
+
+## Codex-Specific Skill Routing
+
+- Use `common-issue-spec` to clarify vague requests before coding.
 - Use `common-dev-pattern` for nontrivial code changes.
-- Use `common-project-blueprint` for product positioning, scope, target users, or user-facing README/manual content.
-- Use `common-project-tech-design` for architecture, module boundaries, data contracts, storage, CLI/API design, tests, and directory bootstrap.
-- Use `common-project-mvp` for MVP features, milestones, acceptance criteria, and development progress.
-- Use `common-sprint-autopilot` for named sprint/stage planning and step-by-step execution across multiple requirements.
-- Use `common-project-changelog` for user-visible CLI/API behavior changes, package version changes, direct changelog edits, release notes, and changelog placement fixes.
-- Use `common-git-commit` when asked to commit local changes. Never push unless explicitly asked.
+- Use `common-project-blueprint` for product positioning and scope docs.
+- Use `common-project-tech-design` for architecture and contract design docs.
+- Use `common-project-mvp` for MVP planning and execution docs.
+- Use `common-project-startup` when refreshing repository onboarding docs.
+- Use `common-project-changelog` for user-visible behavior changes, release notes, and version/changelog updates.
+- Use `common-git-commit` when asked to create local commits; do not push unless explicitly requested.
 
 ## Release And Changelog
 
-Keep `CHANGELOG.md` updated under `## [Unreleased]`.
-
-Use `### Added`, `### Changed`, `### Fixed`, `### Removed`, `### Deprecated`, and `### Security` headings when applicable.
-
-Do not add new entries to dated release sections after they are cut.
+- Keep `CHANGELOG.md` in Keep a Changelog style.
+- Add new release notes under `## [Unreleased]`.
+- Use standard sections: `Added`, `Changed`, `Fixed`, `Removed`, `Deprecated`, `Security`.
+- Do not append new items to historical released sections.

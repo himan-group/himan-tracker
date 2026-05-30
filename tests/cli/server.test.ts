@@ -16,6 +16,7 @@ import {
   resolveDailyEventsPath,
   resolveTrackerPaths,
 } from "../../src/config/paths.js";
+import { createDefaultUserConfig, writeUserConfig } from "../../src/config/userConfig.js";
 import {
   readReportServerState,
   resolveReportServerStatePath,
@@ -32,6 +33,15 @@ describe("server command", () => {
     const events = [createTurnEvent(), ...createServerCapabilityEvents()];
 
     await ensureTrackerDirectories(paths);
+    const config = createDefaultUserConfig();
+    config.known_projects = [
+      {
+        repo_hash: "repo_hash_server_001",
+        display_name: "server-project-name",
+        source: "package_name",
+      },
+    ];
+    await writeUserConfig(paths, config);
     for (const event of events) {
       await appendJsonlRecord(resolveDailyEventsPath(paths, event.occurred_at), event);
     }
@@ -43,6 +53,8 @@ describe("server command", () => {
       intervalSeconds: 60,
       since: "7d",
       display: "table",
+      autoBackfill: false,
+      autoBackfill: false,
       now: () => now,
     });
 
@@ -161,7 +173,7 @@ describe("server command", () => {
       assert.match(metricsHtml, /<th scope="col">Skill runtime token share<\/th>/);
       assert.match(metricsHtml, /Runtime tokens exclude himan\.yaml static token estimates/);
       assert.match(metricsHtml, /2026 Week 20 \(05-11 ~ 05-17\)/);
-      assert.match(metricsHtml, /repo_hash_server_001/);
+      assert.match(metricsHtml, /server-project-name/);
       assert.match(metricsHtml, /server-capability-01/);
 
       const metricsJsonResponse = await fetch(`${instance.url}/metrics.json`);
@@ -239,6 +251,8 @@ describe("server command", () => {
       intervalSeconds: 60,
       since: "7d",
       display: "table",
+      autoBackfill: false,
+      autoBackfill: false,
       now: () => now,
     });
 
@@ -308,6 +322,8 @@ describe("server command", () => {
       intervalSeconds: 60,
       since: "7d",
       display: "table",
+      autoBackfill: false,
+      autoBackfill: false,
       now: () => now,
     });
 
@@ -350,6 +366,8 @@ describe("server command", () => {
       intervalSeconds: 60,
       since: "7d",
       display: "text",
+      autoBackfill: false,
+      autoBackfill: false,
       now: () => now,
     });
 
@@ -396,6 +414,8 @@ describe("server command", () => {
       intervalSeconds: 60,
       since: "7d",
       display: "table",
+      autoBackfill: false,
+      autoBackfill: false,
       now: () => now,
     });
 

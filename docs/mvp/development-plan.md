@@ -10,7 +10,7 @@
 - `docs/mvp/technical-plan.md`
 - `docs/technical-design.md`
 - `AGENTS.md`
-- `docs/codex/repo-map.md`
+- `docs/repository-map.md`
 
 ## 开发原则
 

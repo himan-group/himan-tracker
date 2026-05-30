@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const CODEX_HOOK_EVENTS = ["UserPromptSubmit", "PostToolUse", "Stop"] as const;
+const COPILOT_HOOK_EVENTS = ["SessionStart", "PostToolUse", "PostToolUseFailure", "Stop", "SessionEnd"] as const;
 const HOOK_TIMEOUT_SECONDS = 5;
 
 export type SetupCommandOptions = {
@@ -37,6 +38,8 @@ export async function runSetup(
     switch (agent) {
       case "codex":
         return setupCodex(options);
+      case "copilot":
+        return setupCopilot(options);
     }
   } catch (error) {
     return {
@@ -47,7 +50,7 @@ export async function runSetup(
   }
 }
 
-async function setupCodex(
+export async function setupCodex(
   options: SetupCommandOptions,
 ): Promise<SetupCommandResult> {
   try {
@@ -97,14 +100,81 @@ async function setupCodex(
         `Collector command: ${collectorCommand}`,
         ...(otherConfiguredScope
           ? [
-              "",
-              `[warn] Himan Codex hooks are also configured in ${otherConfiguredScope} scope. Keep one scope enabled to avoid duplicate hook execution.`,
-            ]
+            "",
+            `[warn] Himan Codex hooks are also configured in ${otherConfiguredScope} scope. Keep one scope enabled to avoid duplicate hook execution.`,
+          ]
           : []),
         "",
         "Next steps:",
         "1. Restart Codex so it reloads hooks.",
         "2. Run a Codex turn that uses a tool.",
+        "3. Run `himan-tracker ingest` and then `himan-tracker summary --since 7d`.",
+      ],
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      exitCode: 1,
+      lines: ["himan-tracker setup", "", `[fail] ${getErrorMessage(error)}`],
+    };
+  }
+}
+
+export async function setupCopilot(
+  options: SetupCommandOptions,
+): Promise<SetupCommandResult> {
+  try {
+    const scope = options.global ? "global" : "project";
+    const homeDir = options.homeDir ?? homedir();
+
+    const hooksDir =
+      scope === "global"
+        ? resolveCopilotHooksDir(homeDir)
+        : path.join(options.cwd ?? process.cwd(), ".github", "hooks");
+
+    const scriptsDir =
+      scope === "global"
+        ? resolveTrackerScriptsDir(homeDir)
+        : path.join(hooksDir, "scripts");
+
+    const hooksJsonPath = path.join(hooksDir, "himan-tracker.json");
+    const helperPath = path.join(scriptsDir, "himan-tracker-collect.sh");
+    const hookCommand = shellQuote(helperPath);
+    const collectorCommand = "himan-tracker collect --agent copilot --sync --quiet";
+    const fallbackCliPath = resolveFallbackCliPath(options);
+
+    const existingHooks = await readJsonFile(hooksJsonPath);
+    const mergedHooks = mergeCopilotHooks(existingHooks, hookCommand);
+    const helperScript = createCopilotHelperScript(fallbackCliPath);
+
+    if (!options.dryRun) {
+      await mkdir(scriptsDir, { recursive: true, mode: 0o700 });
+      await mkdir(hooksDir, { recursive: true, mode: 0o700 });
+      await writeFile(helperPath, helperScript, { encoding: "utf8", mode: 0o700 });
+      await chmod(helperPath, 0o700);
+      await writeFile(hooksJsonPath, `${JSON.stringify(mergedHooks, null, 2)}\n`, {
+        encoding: "utf8",
+        mode: 0o600,
+      });
+    }
+
+    return {
+      ok: true,
+      exitCode: 0,
+      lines: [
+        "himan-tracker setup",
+        "",
+        "Agent: copilot",
+        `Scope: ${scope}`,
+        `Mode: ${options.dryRun ? "dry-run" : "write"}`,
+        `Hooks config: ${hooksJsonPath}`,
+        `Hook helper: ${helperPath}`,
+        `Hook events: ${COPILOT_HOOK_EVENTS.join(", ")}`,
+        `Collector command: ${collectorCommand}`,
+        "",
+        "Next steps:",
+        "1. Restart Copilot so it reloads hooks.",
+        "2. Run a Copilot session that uses tools.",
         "3. Run `himan-tracker ingest` and then `himan-tracker summary --since 7d`.",
       ],
     };
@@ -152,9 +222,9 @@ async function hasEnabledHimanCodexHooks(codexDir: string): Promise<boolean> {
 
   return Boolean(
     configToml &&
-      hooksJson &&
-      isCodexHooksFeatureEnabled(configToml) &&
-      hooksJson.includes("himan-tracker-collect.sh"),
+    hooksJson &&
+    isCodexHooksFeatureEnabled(configToml) &&
+    hooksJson.includes("himan-tracker-collect.sh"),
   );
 }
 
@@ -280,6 +350,122 @@ function resolveFallbackCliPath(options: SetupCommandOptions): string {
   return path.join(options.cwd ?? process.cwd(), "dist", "cli", "index.js");
 }
 
+function resolveCopilotHooksDir(homeDir: string): string {
+  const copilotHome = process.env.COPILOT_HOME?.trim();
+  if (copilotHome && copilotHome.length > 0) {
+    return path.join(copilotHome, "hooks");
+  }
+  return path.join(homeDir, ".copilot", "hooks");
+}
+
+function resolveTrackerScriptsDir(homeDir: string): string {
+  const trackerHome = process.env.HIMAN_TRACKER_HOME?.trim();
+  if (trackerHome && trackerHome.length > 0) {
+    return path.join(trackerHome, "scripts");
+  }
+  return path.join(homeDir, ".himan-tracker", "scripts");
+}
+
+// ── Copilot hook helpers ──
+
+type CopilotHooksFile = {
+  version: number;
+  hooks: Record<string, JsonObject[]>;
+};
+
+function mergeCopilotHooks(existingHooks: unknown, hookCommand: string): CopilotHooksFile {
+  const hooksFile = normalizeCopilotHooksFile(existingHooks);
+
+  for (const eventName of COPILOT_HOOK_EVENTS) {
+    const eventGroups = hooksFile.hooks[eventName] ?? [];
+    if (!hasCopilotHookCommand(eventGroups, hookCommand)) {
+      eventGroups.push(createCopilotHookEntry(hookCommand));
+    }
+    hooksFile.hooks[eventName] = eventGroups;
+  }
+
+  return hooksFile;
+}
+
+function normalizeCopilotHooksFile(existingHooks: unknown): CopilotHooksFile {
+  if (existingHooks === null) {
+    return { version: 1, hooks: {} };
+  }
+
+  if (!isRecord(existingHooks)) {
+    throw new Error("Existing hooks file must be a JSON object");
+  }
+
+  const version = typeof existingHooks.version === "number" ? existingHooks.version : 1;
+  const hooks = existingHooks.hooks;
+
+  if (hooks === undefined) {
+    return { version, hooks: {} };
+  }
+
+  if (!isRecord(hooks)) {
+    throw new Error("Existing hooks file field `hooks` must be a JSON object");
+  }
+
+  const normalizedHooks: Record<string, JsonObject[]> = {};
+  for (const [eventName, eventGroups] of Object.entries(hooks)) {
+    if (!Array.isArray(eventGroups) || !eventGroups.every(isRecord)) {
+      throw new Error(
+        `Existing hooks file event ${eventName} must be an array of objects`,
+      );
+    }
+    normalizedHooks[eventName] = eventGroups;
+  }
+
+  return { version, hooks: normalizedHooks };
+}
+
+function createCopilotHookEntry(hookCommand: string): JsonObject {
+  return {
+    type: "command",
+    bash: hookCommand,
+    timeoutSec: HOOK_TIMEOUT_SECONDS,
+  };
+}
+
+function hasCopilotHookCommand(
+  eventGroups: JsonObject[],
+  hookCommand: string,
+): boolean {
+  return eventGroups.some((group) => {
+    if (isRecord(group)) {
+      const bash = group.bash;
+      const command = group.command;
+      if (typeof bash === "string" && bash === hookCommand) return true;
+      if (typeof command === "string" && command === hookCommand) return true;
+    }
+    return false;
+  });
+}
+
+function createCopilotHelperScript(fallbackCliPath: string): string {
+  return `#!/usr/bin/env sh
+# Generated by himan-tracker. This script must never block Copilot.
+# Reads hook JSON from stdin and forwards to himan-tracker.
+
+if command -v himan-tracker >/dev/null 2>&1; then
+  himan-tracker collect --agent copilot --sync --quiet
+  exit 0
+fi
+
+NODE_BIN=""
+if command -v node >/dev/null 2>&1; then
+  NODE_BIN="$(command -v node)"
+fi
+
+TRACKER_DIST_CLI=${shellQuote(fallbackCliPath)}
+if [ -n "$NODE_BIN" ] && [ -f "$TRACKER_DIST_CLI" ]; then
+  "$NODE_BIN" "$TRACKER_DIST_CLI" collect --agent copilot --sync --quiet
+fi
+exit 0
+`;
+}
+
 function createHelperScript(fallbackCliPath: string): string {
   return `#!/usr/bin/env sh
 # Generated by himan-tracker. This script must never block Codex.
@@ -304,13 +490,13 @@ exit 0
 `;
 }
 
-function resolveSetupAgent(agent: string | undefined): "codex" {
+function resolveSetupAgent(agent: string | undefined): "codex" | "copilot" {
   const resolvedAgent = agent ?? "codex";
-  if (resolvedAgent === "codex") {
+  if (resolvedAgent === "codex" || resolvedAgent === "copilot") {
     return resolvedAgent;
   }
 
-  throw new Error(`Unsupported setup agent "${resolvedAgent}". Currently only "codex" is supported.`);
+  throw new Error(`Unsupported setup agent "${resolvedAgent}". Currently "codex" and "copilot" are supported.`);
 }
 
 async function readJsonFile(filePath: string): Promise<unknown> {
