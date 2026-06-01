@@ -116,6 +116,10 @@ describe("parseCopilotSessionStore", () => {
                  '2026-05-30T12:00:15.000Z'),
                 ('s1', 'call_02', 0, 'tool_end', 'bash', 'command output', 0,
                  '2026-05-30T12:00:16.500Z'),
+                ('s1', 'call_04', 1, 'tool_start', 'bash -lc "cat ~/.ssh/config"', NULL, NULL,
+                 '2026-05-30T12:01:10.000Z'),
+                ('s1', 'call_04', 1, 'tool_end', 'bash -lc "cat ~/.ssh/config"', 'sensitive output', 0,
+                 '2026-05-30T12:01:11.000Z'),
                 ('s1', 'call_03', 1, 'tool_start', 'grep_search', NULL, NULL,
                  '2026-05-30T12:01:00.000Z'),
                 ('s1', 'call_03', 1, 'tool_end', 'grep_search', 'no matches', 1,
@@ -127,11 +131,11 @@ describe("parseCopilotSessionStore", () => {
         const result = parseCopilotSessionStore(dbPath);
         const normalizedEvents = result.events.map((e) => normalizeEvent(e, config));
 
-        // Should have: 2 sessions + 3 capability usages = 5 events
+        // Should have: 2 sessions + 4 capability usages = 6 events
         assert.equal(
             normalizedEvents.length,
-            5,
-            `expected 5 events, got ${normalizedEvents.length}`,
+            6,
+            `expected 6 events, got ${normalizedEvents.length}`,
         );
 
         // Verify session events
@@ -158,7 +162,7 @@ describe("parseCopilotSessionStore", () => {
         const capabilityEvents = normalizedEvents.filter(
             (e) => e.event_type === "capability_usage",
         );
-        assert.equal(capabilityEvents.length, 3);
+        assert.equal(capabilityEvents.length, 4);
 
         // read_file (success)
         const readFileEvent = capabilityEvents.find(
@@ -178,6 +182,14 @@ describe("parseCopilotSessionStore", () => {
         assert.equal(bashEvent?.status, "success");
         assert.equal(bashEvent?.duration_ms, 1500);
         assert.equal(bashEvent?.capability_type, "shell_command");
+
+        // bash with args should only keep command name and not leak args
+        const bashWithArgsEvent = capabilityEvents.find(
+            (e) => e.duration_ms === 1000 && e.turn_id === "1",
+        );
+        assert.ok(bashWithArgsEvent);
+        assert.equal(bashWithArgsEvent?.capability_name, "bash");
+        assert.equal(bashWithArgsEvent?.capability_type, "shell_command");
 
         // grep_search (failure)
         const grepEvent = capabilityEvents.find(

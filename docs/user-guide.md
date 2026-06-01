@@ -52,7 +52,7 @@ capability 类型目前包括：
 ## 推荐流程
 
 1. 运行 `himan-tracker doctor` 初始化本地数据目录。
-2. 在需要采集的项目中运行 `himan-tracker setup` 安装当前项目 Codex hooks，或运行 `himan-tracker setup -g` 安装全局 Codex hooks；对于 Copilot，运行 `himan-tracker setup --agent copilot`。
+2. 在需要采集的项目中运行 `himan-tracker setup codex` 安装当前项目 Codex hooks，或运行 `himan-tracker setup codex -g` 安装全局 Codex hooks；对于 Copilot，运行 `himan-tracker setup copilot`。
 3. Codex hook 会把 `UserPromptSubmit`、`PostToolUse` 和 `Stop` payload 通过 stdin 传给 `himan-tracker collect --agent codex --quiet`；Copilot hook 会把 `SessionStart`、`PostToolUse`、`PostToolUseFailure`、`Stop`、`SessionEnd` payload 传给 `himan-tracker collect --agent copilot --sync --quiet`。
 4. `collect` 立即入队并返回，后台 worker 异步写入 JSONL，并从 Codex `transcript_path` 补齐 turn token、turn duration、MCP tool 调用和可推断的 skill 使用。
 5. 运行 `himan-tracker ingest`，把事件日志导入 SQLite 投影。
@@ -89,10 +89,10 @@ himan-tracker summary --since 7d
 
 ## 与 Copilot 集成
 
-通过 GitHub Copilot 官方 hooks 机制采集。使用 `setup --agent copilot` 在当前项目生成 hooks 配置：
+通过 GitHub Copilot 官方 hooks 机制采集。使用 `setup copilot` 在当前项目生成 hooks 配置：
 
 ```bash
-himan-tracker setup --agent copilot
+himan-tracker setup copilot
 ```
 
 命令会在 `.github/hooks/` 下生成：
@@ -153,30 +153,32 @@ himan-tracker doctor
 
 安装 agent hooks，让 agent 自动把使用元数据投递给 `himan-tracker collect`。
 
-安装到当前项目的 `.codex/`（Codex）或 `.github/hooks/`（Copilot）：
+安装到当前项目：
 
 ```bash
-himan-tracker setup
+himan-tracker setup codex
+himan-tracker setup copilot
 ```
 
-显式指定 agent：
+按 agent 子命令安装：
 
 ```bash
-himan-tracker setup --agent codex
-himan-tracker setup --agent copilot
+himan-tracker setup codex
+himan-tracker setup copilot
 ```
 
 全局安装（仅 Codex，写入 `~/.codex`）：
 
 ```bash
-himan-tracker setup -g
-himan-tracker setup --global
+himan-tracker setup codex -g
+himan-tracker setup codex --global
 ```
 
 预览将要写入的文件：
 
 ```bash
-himan-tracker setup --dry-run
+himan-tracker setup codex --dry-run
+himan-tracker setup copilot --dry-run
 ```
 
 命令会写入或合并这些文件（Codex）：
@@ -195,7 +197,7 @@ himan-tracker setup --dry-run
 ~/.codex/hooks/himan-tracker-collect.sh
 ```
 
-对于 Copilot（`--agent copilot`），写入：
+对于 Copilot（`setup copilot`），写入：
 
 ```text
 <repo>/.github/hooks/himan-tracker.json
@@ -226,6 +228,13 @@ himan-tracker backfill codex --date 2026-05-15 --from ~/.codex/sessions/2026/05/
 ```
 
 backfill 会写入 `events/YYYY-MM-DD.jsonl`，并在写入前读取现有分片中的 `event_id` 和相似事件，跳过已经存在的事件；同一 session/turn/name 的 skill 也只补写一次。后续 `ingest` 也会通过 SQLite 的 `ingested_events` 表跳过已导入事件。因此重复运行 backfill 或 ingest 不会重复入库。backfill 会从 transcript 的 `event_msg.user_message` 识别显式 `$skill-name`，也会从实际 shell 工具调用中读取 `SKILL.md` 的路径推断 skill；它不会从系统提示或完整 prompt context 的技能列表里推断 skill。backfill 只持久化 normalized metadata，不保存 prompt、response、stdout/stderr、tool 参数或明文 repo path。
+
+backfill 默认会使用 `backfill-cursors.json` 记录数据源指纹，源未变化时会直接跳过解析以加速重复运行。需要强制重跑时可加 `--ignore-cursor`：
+
+```bash
+himan-tracker backfill codex --date 2026-05-15 --ignore-cursor
+himan-tracker backfill copilot --since 2026-05-01 --ignore-cursor
+```
 
 ### `collect`
 
@@ -322,6 +331,17 @@ himan-tracker server start --open
 himan-tracker server start --host 127.0.0.1 --port 5127 --since 7d --interval 300 --display table
 himan-tracker server start --display text
 ```
+
+可通过 `--startup-backfill` 控制是否在启动时先执行一次 backfill（只执行一次，不会在 `--interval` 周期中重复）：
+
+```bash
+himan-tracker server start --startup-backfill none
+himan-tracker server start --startup-backfill copilot
+himan-tracker server start --startup-backfill codex
+himan-tracker server start --startup-backfill all
+```
+
+默认值是 `none`。`copilot` / `codex` 会复用对应 `backfill` 命令的默认数据源与游标规则，`all` 会依次执行 copilot 与 codex。
 
 查看状态和停止：
 
@@ -615,13 +635,13 @@ HIMAN_TRACKER_HOME=/custom/path himan-tracker doctor
 
 ### 为什么 `doctor` 显示 Codex hooks 还未配置？
 
-先运行 `himan-tracker setup`。如果想在所有 Codex 项目中启用，运行 `himan-tracker setup -g`，然后重启 Codex 让它重新加载 hooks。
+先运行 `himan-tracker setup codex`。如果想在所有 Codex 项目中启用，运行 `himan-tracker setup codex -g`，然后重启 Codex 让它重新加载 hooks。
 
 ### 为什么 `summary` 显示没有数据？
 
 报表读取的是 SQLite 投影。先确认 `events/*.jsonl` 中有合法 normalized events，然后运行 `himan-tracker ingest`；如果事件在外部文件中，运行 `himan-tracker ingest --from ./events.jsonl`。
 
-如果使用本地页面，运行 `himan-tracker server start` 后 server 会先执行一次增量导入，并在后台按 `--interval` 周期继续导入。
+如果使用本地页面，运行 `himan-tracker server start` 后 server 会先执行一次增量导入，并在后台按 `--interval` 周期继续导入。是否在启动时额外执行 backfill 由 `--startup-backfill` 控制，默认不执行。
 
 ### JSONL 和 SQLite 分别有什么用？
 

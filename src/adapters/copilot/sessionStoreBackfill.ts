@@ -225,7 +225,7 @@ function buildCapabilityEvent(
  * Copilot CLI tools are typically builtin tools or shell commands.
  */
 function classifyToolType(toolName: string): CapabilityType {
-    if (toolName === "bash" || toolName === "powershell") {
+    if (isShellCommand(toolName)) {
         return "shell_command";
     }
     // Most Copilot CLI tools (view, edit, grep, glob, etc.) are builtin
@@ -264,7 +264,21 @@ function extractToolName(command: string | null): string | null {
     if (!command || command.trim().length === 0) {
         return null;
     }
-    return command.trim();
+    const firstToken = command.trim().split(/\s+/, 1)[0];
+    return firstToken && firstToken.length > 0 ? firstToken : null;
+}
+
+function isShellCommand(toolName: string): boolean {
+    return (
+        toolName === "bash" ||
+        toolName === "sh" ||
+        toolName === "zsh" ||
+        toolName === "fish" ||
+        toolName === "powershell" ||
+        toolName === "pwsh" ||
+        toolName === "cmd" ||
+        toolName === "cmd.exe"
+    );
 }
 
 function computeDurationMs(start: string, end: string): number | null {

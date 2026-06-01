@@ -30,7 +30,7 @@
 
 ## 安装
 
-要求 Node.js `>=20.11`。
+要求 Node.js `>=20`。
 
 ```bash
 npm install -g @hi-man/himan-tracker
@@ -53,13 +53,13 @@ himan-tracker doctor
 如果你想让当前仓库开始自动采集 Codex 使用数据：
 
 ```bash
-himan-tracker setup
+himan-tracker setup codex
 ```
 
 如果你想先预览将写入的 Codex hook 配置：
 
 ```bash
-himan-tracker setup --dry-run
+himan-tracker setup codex --dry-run
 ```
 
 接下来正常使用 Codex 即可。hook 会把脱敏后的事件交给 `himan-tracker collect --agent codex --quiet`，并由后台 worker 写入本地事件日志。
@@ -83,7 +83,7 @@ himan-tracker server start --open
 
 ```bash
 himan-tracker doctor
-himan-tracker setup
+himan-tracker setup codex
 himan-tracker ingest
 himan-tracker summary --since 7d
 ```

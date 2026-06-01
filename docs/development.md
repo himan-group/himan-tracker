@@ -4,7 +4,7 @@
 
 ## 环境要求
 
-- Node.js `>=20.11`
+- Node.js `>=20`
 - pnpm `10.33.4`，或使用项目锁定版本兼容的 pnpm
 
 安装依赖：
@@ -48,7 +48,8 @@ CLI 行为变更后至少运行：
 
 ```bash
 himan-tracker --help
-himan-tracker setup --dry-run
+himan-tracker setup codex --dry-run
+himan-tracker setup copilot --dry-run
 HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker doctor
 HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
 HIMAN_TRACKER_HOME=/tmp/himan-tracker-check himan-tracker collect --agent copilot --from tests/fixtures/copilot/hook-raw/session.json --sync --strict

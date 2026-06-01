@@ -5,7 +5,7 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 
 import { ingestEvents } from "../aggregator/aggregateEvents.js";
-import { runBackfill } from "../cli/commands/backfill.js";
+import { runBackfill } from "../backfill/runBackfill.js";
 import { createKnownProjectDisplayNameMap } from "../config/knownProjects.js";
 import { ensureTrackerDirectories, type TrackerPaths } from "../config/paths.js";
 import { readOrCreateUserConfig } from "../config/userConfig.js";
@@ -79,6 +79,8 @@ export type ReportServerState = {
   last_ingest: ReportServerIngestSnapshot | null;
 };
 
+export type StartupBackfillMode = "none" | "copilot" | "codex" | "all";
+
 export type StartReportHttpServerOptions = {
   paths: TrackerPaths;
   host?: string;
@@ -87,6 +89,8 @@ export type StartReportHttpServerOptions = {
   since?: string;
   display?: DashboardDisplayMode;
   now?: () => Date;
+  startupBackfill?: StartupBackfillMode;
+  // Deprecated: kept for compatibility with older internal callers.
   autoBackfill?: boolean;
 };
 
@@ -276,7 +280,7 @@ export async function startReportHttpServer(
   const intervalSeconds = options.intervalSeconds ?? DEFAULT_SERVER_INTERVAL_SECONDS;
   const since = options.since ?? DEFAULT_SERVER_SINCE;
   const display = options.display ?? "table";
-  const autoBackfill = options.autoBackfill ?? true;
+  const startupBackfill = resolveStartupBackfillMode(options.startupBackfill, options.autoBackfill);
   const now = options.now ?? (() => new Date());
   let lastIngest: ReportServerIngestSnapshot | null = null;
   let lastBackfill: ReportServerBackfillSnapshot = null;
@@ -285,20 +289,11 @@ export async function startReportHttpServer(
 
   await ensureTrackerDirectories(paths);
 
-  const runSyncNow = async (): Promise<void> => {
-    if (autoBackfill) {
-      try {
-        const br = await runBackfill({ agent: "copilot", paths, now });
-        if (br.ok) {
-          lastBackfill = { ok: true, at: now().toISOString(), parsed: extractBackfillParsed(br), written: extractBackfillWritten(br), skipped: extractBackfillSkipped(br) };
-        } else {
-          lastBackfill = { ok: false, at: now().toISOString(), error: br.lines.join("\n") };
-        }
-      } catch (e) {
-        lastBackfill = { ok: false, at: now().toISOString(), error: getErrorMessage(e) };
-      }
-    }
+  if (startupBackfill !== "none") {
+    lastBackfill = await runStartupBackfill(startupBackfill, paths, now);
+  }
 
+  const runSyncNow = async (): Promise<void> => {
     if (ingestInFlight) {
       return ingestInFlight;
     }
@@ -389,6 +384,65 @@ export function resolveReportServerStatePath(paths: TrackerPaths): string {
   return path.join(paths.homeDir, "server-state.json");
 }
 
+function resolveStartupBackfillMode(
+  startupBackfill: StartupBackfillMode | undefined,
+  autoBackfill: boolean | undefined,
+): StartupBackfillMode {
+  if (startupBackfill) {
+    return startupBackfill;
+  }
+
+  if (autoBackfill === true) {
+    return "copilot";
+  }
+
+  return "none";
+}
+
+async function runStartupBackfill(
+  mode: Exclude<StartupBackfillMode, "none">,
+  paths: TrackerPaths,
+  now: () => Date,
+): Promise<ReportServerBackfillSnapshot> {
+  const agents = mode === "all" ? ["copilot", "codex"] : [mode];
+  let parsed = 0;
+  let written = 0;
+  let skipped = 0;
+  const errors: string[] = [];
+
+  for (const agent of agents) {
+    try {
+      const result = await runBackfill({ agent, paths, now });
+      if (result.ok) {
+        parsed += result.stats.parsedEvents;
+        written += result.stats.writtenEvents;
+        skipped += result.stats.skippedDuplicates;
+        continue;
+      }
+
+      errors.push(`${agent}: ${result.lines.join(" | ")}`);
+    } catch (error) {
+      errors.push(`${agent}: ${getErrorMessage(error)}`);
+    }
+  }
+
+  if (errors.length > 0) {
+    return {
+      ok: false,
+      at: now().toISOString(),
+      error: `startup backfill failed (${mode}): ${errors.join(" ; ")}`,
+    };
+  }
+
+  return {
+    ok: true,
+    at: now().toISOString(),
+    parsed,
+    written,
+    skipped,
+  };
+}
+
 export function resolveReportServerLogPath(paths: TrackerPaths): string {
   return path.join(paths.homeDir, "server.log");
 }
@@ -463,11 +517,6 @@ async function runIngest(
     event_files: result.event_files.length,
   };
 }
-
-function extractBackfillParsed(r: { lines: string[] }): number { return extractBackfillNumber(r, "Parsed events: "); }
-function extractBackfillWritten(r: { lines: string[] }): number { return extractBackfillNumber(r, "Written events: "); }
-function extractBackfillSkipped(r: { lines: string[] }): number { return extractBackfillNumber(r, "Skipped duplicates: "); }
-function extractBackfillNumber(r: { lines: string[] }, prefix: string): number { for (const l of r.lines) { if (l.startsWith(prefix)) { const n = Number(l.slice(prefix.length)); if (Number.isFinite(n)) return n; } } return 0; }
 
 async function handleRequest(options: {
   request: IncomingMessage;

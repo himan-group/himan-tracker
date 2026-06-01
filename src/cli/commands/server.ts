@@ -23,6 +23,7 @@ import {
   resolveReportServerStatePath,
   startReportHttpServer,
   type ReportServerState,
+  type StartupBackfillMode,
 } from "../../server/reportServer.js";
 
 export type ServerCommandResult = {
@@ -36,6 +37,7 @@ export type ServerStartCommandOptions = ServerCommonOptions & {
   open?: boolean;
   openBrowser?: OpenBrowser;
   display?: string;
+  startupBackfill?: string;
 };
 
 export type ServerStopCommandOptions = ServerCommonOptions & {
@@ -50,6 +52,7 @@ export type ServerServeCommandOptions = ServerCommonOptions & {
   interval?: string | number;
   since?: string;
   display?: string;
+  startupBackfill?: string;
   now?: () => Date;
 };
 
@@ -63,6 +66,7 @@ type ParsedServerOptions = {
   intervalSeconds: number;
   since: string;
   display: DashboardDisplayMode;
+  startupBackfill: StartupBackfillMode;
 };
 
 type SpawnReportServerInput = ParsedServerOptions & {
@@ -81,6 +85,7 @@ export async function runServerStart(
     port?: string | number;
     interval?: string | number;
     since?: string;
+    startupBackfill?: string;
   } = {},
 ): Promise<ServerCommandResult> {
   const commandName = "server start";
@@ -124,6 +129,7 @@ export async function runServerStart(
         `Started: ${state.url}`,
         `PID: ${state.pid}`,
         `Ingest interval: ${state.interval_seconds}s`,
+        `Startup backfill: ${parsed.startupBackfill}`,
         `Report range: ${state.since}`,
         `Display: ${state.display}`,
         `State: ${resolveReportServerStateLabel(paths)}`,
@@ -256,6 +262,7 @@ export async function runServerServe(
       intervalSeconds: parsed.intervalSeconds,
       since: parsed.since,
       display: parsed.display,
+      startupBackfill: parsed.startupBackfill,
       now: options.now,
     });
 
@@ -309,6 +316,8 @@ function spawnDetachedReportServer(input: SpawnReportServerInput): { pid: number
         String(input.intervalSeconds),
         "--since",
         input.since,
+        "--startup-backfill",
+        input.startupBackfill,
         "--display",
         input.display,
       ],
@@ -373,12 +382,14 @@ function parseServerOptions(options: {
   interval?: string | number;
   since?: string;
   display?: string;
+  startupBackfill?: string;
 }): ParsedServerOptions {
   const host = options.host?.trim() || DEFAULT_SERVER_HOST;
   const port = parsePort(options.port);
   const intervalSeconds = parseInterval(options.interval);
   const since = options.since ?? DEFAULT_SERVER_SINCE;
   const display = parseDisplay(options.display);
+  const startupBackfill = parseStartupBackfill(options.startupBackfill);
 
   parseSinceRange(since, new Date());
 
@@ -388,6 +399,7 @@ function parseServerOptions(options: {
     intervalSeconds,
     since,
     display,
+    startupBackfill,
   };
 }
 
@@ -422,6 +434,18 @@ function parseDisplay(value: string | undefined): DashboardDisplayMode {
   }
 
   throw new Error("Expected --display to be table or text");
+}
+
+function parseStartupBackfill(value: string | undefined): StartupBackfillMode {
+  if (value === undefined || value === "none") {
+    return "none";
+  }
+
+  if (value === "copilot" || value === "codex" || value === "all") {
+    return value;
+  }
+
+  throw new Error("Expected --startup-backfill to be none, copilot, codex, or all");
 }
 
 async function waitForServerReady(

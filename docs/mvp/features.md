@@ -191,7 +191,7 @@ himan-tracker unused --since 30d
 
 - 解析 Codex hook 或 wrapper payload。
 - 提供 `himan-tracker collect --agent codex` 作为默认非阻塞数据入口。
-- 提供 `himan-tracker setup --agent codex` 安装项目级或全局 Codex hooks。
+- 提供 `himan-tracker setup codex` 安装项目级或全局 Codex hooks。
 - 映射 `UserPromptSubmit`、`PreToolUse`、`PostToolUse`、`Stop`。
 - 输出 normalized events。
 - 提供 Codex fixtures。
@@ -199,7 +199,7 @@ himan-tracker unused --since 30d
 ### 验收标准
 
 - 给定 Codex fixture，可以产出稳定 `turn_summary` 和 `capability_usage`。
-- 用户可以通过 `setup` 将 Codex hooks 安装到当前项目 `.codex/`，或通过 `setup -g` 安装到 `~/.codex`。
+- 用户可以通过 `setup codex` 将 Codex hooks 安装到当前项目 `.codex/`，或通过 `setup codex -g` 安装到 `~/.codex`。
 - Codex collect 默认异步入队并返回 0，采集失败不影响 Codex 流程。
 - 未识别字段不会导致 adapter 崩溃。
 - adapter 不直接访问 SQLite。
