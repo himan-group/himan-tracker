@@ -137,6 +137,7 @@ README 只保留上手路径。完整命令参数、Codex 集成细节、事件�
 ## 文档
 
 - [用户手册](docs/user-guide.md)
+- [产品路线图](docs/roadmap.md)
 - [开发与验证](docs/development.md)
 - [技术设计](docs/technical-design.md)
 - [MVP 功能清单](docs/mvp/features.md)
