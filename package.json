@@ -1,6 +1,6 @@
 {
   "name": "@hi-man/himan-tracker",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Local-first observability and analytics for AI coding agents.",
   "type": "module",
   "license": "Apache-2.0",
@@ -39,7 +39,7 @@
     "version:patch": "npm version patch --no-git-tag-version && pnpm run changelog:release"
   },
   "engines": {
-    "node": ">=20.11"
+    "node": ">=20"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

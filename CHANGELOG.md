@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-06-01
+
+### Changed
+
+- Changed minimum supported Node.js version declaration from `>=20.11` to `>=20`, and aligned project docs/PR workflows with the new baseline.
+
 ## [0.3.1] - 2026-06-01
 
 ### Changed

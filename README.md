@@ -30,7 +30,7 @@
 
 ## 安装
 
-要求 Node.js `>=20.11`。
+要求 Node.js `>=20`。
 
 ```bash
 npm install -g @hi-man/himan-tracker
