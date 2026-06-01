@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
@@ -367,6 +367,36 @@ describe("backfill command", () => {
       assert.match(result.lines.join("\n"), /Written events: 2/);
       assert.equal(events.length, 2);
       assert.equal(events.some((event) => event.capability_type === "skill"), false);
+    } finally {
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("processes copilot --since source once instead of repeating full scans per day", async () => {
+    const homeDir = await mkdtemp(path.join(tmpdir(), "himan-backfill-test-"));
+    const paths = resolveTrackerPaths({ HIMAN_TRACKER_HOME: homeDir });
+    const transcriptDir = path.join(homeDir, "copilot-transcripts");
+    const fixturePath = path.resolve("tests/fixtures/copilot/raw/session.jsonl");
+    const transcriptPath = path.join(transcriptDir, "session.jsonl");
+
+    try {
+      await mkdir(transcriptDir, { recursive: true });
+      await copyFile(fixturePath, transcriptPath);
+
+      const result = await runBackfill({
+        paths,
+        config: createTestConfig(),
+        agent: "copilot",
+        since: "2026-05-29",
+        from: transcriptDir,
+        now: () => new Date("2026-05-31T12:00:00.000Z"),
+      });
+
+      const output = result.lines.join("\n");
+      assert.equal(result.ok, true);
+      assert.match(output, /Range: 2026-05-29 → 2026-05-31 \(3 days\)/);
+      assert.match(output, /Transcript files: 1/);
+      assert.match(output, /Skipped duplicates: 0/);
     } finally {
       await rm(homeDir, { recursive: true, force: true });
     }

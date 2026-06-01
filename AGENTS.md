@@ -35,7 +35,8 @@ CLI smoke commands:
 ```bash
 himan-tracker --help
 himan-tracker doctor
-himan-tracker setup --dry-run
+himan-tracker setup codex --dry-run
+himan-tracker setup copilot --dry-run
 himan-tracker collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict
 himan-tracker collect --agent copilot --from tests/fixtures/copilot/hook-raw/session.json --sync --strict
 himan-tracker backfill codex --date YYYY-MM-DD

@@ -1020,14 +1020,14 @@ himan-tracker collect --agent codex
 ### 8.8 `setup`
 
 ```bash
-himan-tracker setup
-himan-tracker setup --agent codex
-himan-tracker setup -g
+himan-tracker setup codex
+himan-tracker setup copilot
+himan-tracker setup codex -g
 ```
 
 用途：
 
-- `--agent` 默认是 `codex`，当前只支持 `codex`。
+- 通过 `setup codex` 和 `setup copilot` 子命令分别配置 Codex/Copilot hooks。
 - 默认把 Codex hooks 安装到当前项目 `.codex/`。
 - `-g, --global` 把 Codex hooks 安装到全局 `~/.codex`。
 - 写入或合并 `config.toml` 和 `hooks.json`，并生成 `hooks/himan-tracker-collect.sh` helper。

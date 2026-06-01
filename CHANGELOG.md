@@ -4,14 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed Copilot session-store backfill to persist only shell command names (for example `bash`) instead of full command strings, preventing shell arguments from being recorded in capability names.
+- Fixed `backfill copilot --since` to process Copilot data sources once per run instead of repeating full-source scans for each day in the range, so parsed/transcript statistics and duplicate counts are no longer inflated.
+- Fixed report server backfill integration to use shared structured backfill stats instead of parsing CLI text output, and moved backfill execution logic into a shared module so CLI entrypoints remain thin.
+- Fixed setup documentation examples to match current CLI subcommands (`setup codex` / `setup copilot`) and removed outdated `setup --agent ...` / `setup -g` command forms.
+
 ## [0.3.0] - 2026-05-30
 
 ### Added
 
 - Added Copilot hook-based collect via `himan-tracker collect --agent copilot`, supporting real-time event collection from GitHub Copilot hooks (SessionStart, PostToolUse, PostToolUseFailure, Stop, SessionEnd).
 - Added `himan-tracker setup copilot` subcommand to generate `.github/hooks/himan-tracker.json` and a lightweight hook helper script that forwards Copilot hook JSON to the collector.
-- Added `src/adapters/copilot/hookParser.ts` for parsing Copilot hook JSON payloads in both camelCase (Copilot CLI native) and PascalCase/snake_case (VS Code compatible) formats.
-- Added `src/adapters/copilot/sessionStoreBackfill.ts` for reading Copilot CLI's `~/.copilot/session-store.db` SQLite database, providing a faster and more reliable data source than transcript scanning for `backfill copilot`.
+- Added Copilot hook payload parsing support for both camelCase (Copilot CLI native) and PascalCase/snake_case (VS Code compatible) field formats.
+- Added Copilot CLI session-store database (`~/.copilot/session-store.db`) support as a faster and more reliable data source than transcript scanning for `backfill copilot`.
 - Added `copilot` agent support with `himan-tracker backfill copilot` for parsing VS Code Copilot transcript JSONL files into normalized session, turn, and capability usage events.
 - Added `--since <date>` option to `himan-tracker backfill` for backfilling from a date through today.
 - Added automatic Copilot transcript backfill to `himan-tracker server start`, so the dashboard stays in sync without manual backfill runs.

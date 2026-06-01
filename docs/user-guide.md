@@ -52,7 +52,7 @@ capability 类型目前包括：
 ## 推荐流程
 
 1. 运行 `himan-tracker doctor` 初始化本地数据目录。
-2. 在需要采集的项目中运行 `himan-tracker setup` 安装当前项目 Codex hooks，或运行 `himan-tracker setup -g` 安装全局 Codex hooks；对于 Copilot，运行 `himan-tracker setup --agent copilot`。
+2. 在需要采集的项目中运行 `himan-tracker setup codex` 安装当前项目 Codex hooks，或运行 `himan-tracker setup codex -g` 安装全局 Codex hooks；对于 Copilot，运行 `himan-tracker setup copilot`。
 3. Codex hook 会把 `UserPromptSubmit`、`PostToolUse` 和 `Stop` payload 通过 stdin 传给 `himan-tracker collect --agent codex --quiet`；Copilot hook 会把 `SessionStart`、`PostToolUse`、`PostToolUseFailure`、`Stop`、`SessionEnd` payload 传给 `himan-tracker collect --agent copilot --sync --quiet`。
 4. `collect` 立即入队并返回，后台 worker 异步写入 JSONL，并从 Codex `transcript_path` 补齐 turn token、turn duration、MCP tool 调用和可推断的 skill 使用。
 5. 运行 `himan-tracker ingest`，把事件日志导入 SQLite 投影。
@@ -89,10 +89,10 @@ himan-tracker summary --since 7d
 
 ## 与 Copilot 集成
 
-通过 GitHub Copilot 官方 hooks 机制采集。使用 `setup --agent copilot` 在当前项目生成 hooks 配置：
+通过 GitHub Copilot 官方 hooks 机制采集。使用 `setup copilot` 在当前项目生成 hooks 配置：
 
 ```bash
-himan-tracker setup --agent copilot
+himan-tracker setup copilot
 ```
 
 命令会在 `.github/hooks/` 下生成：
@@ -153,30 +153,32 @@ himan-tracker doctor
 
 安装 agent hooks，让 agent 自动把使用元数据投递给 `himan-tracker collect`。
 
-安装到当前项目的 `.codex/`（Codex）或 `.github/hooks/`（Copilot）：
+安装到当前项目：
 
 ```bash
-himan-tracker setup
+himan-tracker setup codex
+himan-tracker setup copilot
 ```
 
-显式指定 agent：
+按 agent 子命令安装：
 
 ```bash
-himan-tracker setup --agent codex
-himan-tracker setup --agent copilot
+himan-tracker setup codex
+himan-tracker setup copilot
 ```
 
 全局安装（仅 Codex，写入 `~/.codex`）：
 
 ```bash
-himan-tracker setup -g
-himan-tracker setup --global
+himan-tracker setup codex -g
+himan-tracker setup codex --global
 ```
 
 预览将要写入的文件：
 
 ```bash
-himan-tracker setup --dry-run
+himan-tracker setup codex --dry-run
+himan-tracker setup copilot --dry-run
 ```
 
 命令会写入或合并这些文件（Codex）：
@@ -195,7 +197,7 @@ himan-tracker setup --dry-run
 ~/.codex/hooks/himan-tracker-collect.sh
 ```
 
-对于 Copilot（`--agent copilot`），写入：
+对于 Copilot（`setup copilot`），写入：
 
 ```text
 <repo>/.github/hooks/himan-tracker.json
@@ -615,7 +617,7 @@ HIMAN_TRACKER_HOME=/custom/path himan-tracker doctor
 
 ### 为什么 `doctor` 显示 Codex hooks 还未配置？
 
-先运行 `himan-tracker setup`。如果想在所有 Codex 项目中启用，运行 `himan-tracker setup -g`，然后重启 Codex 让它重新加载 hooks。
+先运行 `himan-tracker setup codex`。如果想在所有 Codex 项目中启用，运行 `himan-tracker setup codex -g`，然后重启 Codex 让它重新加载 hooks。
 
 ### 为什么 `summary` 显示没有数据？
 

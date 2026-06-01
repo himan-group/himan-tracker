@@ -5,7 +5,7 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 
 import { ingestEvents } from "../aggregator/aggregateEvents.js";
-import { runBackfill } from "../cli/commands/backfill.js";
+import { runBackfill } from "../backfill/runBackfill.js";
 import { createKnownProjectDisplayNameMap } from "../config/knownProjects.js";
 import { ensureTrackerDirectories, type TrackerPaths } from "../config/paths.js";
 import { readOrCreateUserConfig } from "../config/userConfig.js";
@@ -290,7 +290,13 @@ export async function startReportHttpServer(
       try {
         const br = await runBackfill({ agent: "copilot", paths, now });
         if (br.ok) {
-          lastBackfill = { ok: true, at: now().toISOString(), parsed: extractBackfillParsed(br), written: extractBackfillWritten(br), skipped: extractBackfillSkipped(br) };
+          lastBackfill = {
+            ok: true,
+            at: now().toISOString(),
+            parsed: br.stats.parsedEvents,
+            written: br.stats.writtenEvents,
+            skipped: br.stats.skippedDuplicates,
+          };
         } else {
           lastBackfill = { ok: false, at: now().toISOString(), error: br.lines.join("\n") };
         }
@@ -463,11 +469,6 @@ async function runIngest(
     event_files: result.event_files.length,
   };
 }
-
-function extractBackfillParsed(r: { lines: string[] }): number { return extractBackfillNumber(r, "Parsed events: "); }
-function extractBackfillWritten(r: { lines: string[] }): number { return extractBackfillNumber(r, "Written events: "); }
-function extractBackfillSkipped(r: { lines: string[] }): number { return extractBackfillNumber(r, "Skipped duplicates: "); }
-function extractBackfillNumber(r: { lines: string[] }, prefix: string): number { for (const l of r.lines) { if (l.startsWith(prefix)) { const n = Number(l.slice(prefix.length)); if (Number.isFinite(n)) return n; } } return 0; }
 
 async function handleRequest(options: {
   request: IncomingMessage;

@@ -52,7 +52,7 @@
 - `pnpm test`：通过，46 个测试全部通过。
 - `pnpm run build`：通过。
 - `himan-tracker --help`：通过。
-- `himan-tracker setup --dry-run`：通过，可预览项目级 Codex hooks 安装内容且不写入文件。
+- `himan-tracker setup codex --dry-run`：通过，可预览项目级 Codex hooks 安装内容且不写入文件。
 - `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-final-check-95ad7ef himan-tracker doctor`：通过，SQLite 可初始化并应用 `001_initial` migration，未安装 hooks 时显示 `codex hooks` warning。
 - `HIMAN_TRACKER_HOME=/private/tmp/himan-tracker-final-check-95ad7ef himan-tracker ingest --rebuild`：通过，空事件日志可重建 SQLite 投影。
 - `HIMAN_TRACKER_HOME=/tmp/himan-tracker-collect-check himan-tracker collect --agent codex --from tests/fixtures/codex/raw/session.json --sync --strict`：通过，Codex payload 可入队并前台 drain 到日分片 JSONL。
