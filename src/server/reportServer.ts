@@ -141,6 +141,7 @@ type DashboardData = {
   summarySection: DashboardSection;
   tokenTabs: DashboardTab[];
   sections: DashboardSection[];
+  capabilityViewTabs: DashboardTab[];
   capabilityCallTabs: DashboardTab[];
   recentTurnsSection: DashboardSection;
 };
@@ -242,6 +243,21 @@ type DashboardTokenDayRow = {
 const RUNTIME_TOKEN_NOTE =
   "Runtime tokens use observed input/output/total token fields only; himan.yaml static token estimates are excluded.";
 
+const DEFAULT_STRICT_SCORE_THRESHOLD = 80;
+const EFFECTIVE_ATTRIBUTION_SCORE_SQL = `
+coalesce(
+  c.attribution_score,
+  case
+    when c.attribution_confidence = 'exact' then 100
+    when c.capability_type = 'builtin_tool' then 55
+    when c.capability_type = 'shell_command' then 50
+    when c.attribution_confidence = 'estimated' then 60
+    when c.attribution_confidence = 'unknown' then 0
+    else 0
+  end
+)
+`;
+
 type DashboardTokenBucket = {
   key: string;
   label: string;
@@ -256,6 +272,7 @@ type DashboardTokenBucket = {
 
 type DashboardTokenPeriod = "day" | "week" | "month";
 export type DashboardDisplayMode = "table" | "text";
+type DashboardCapabilityView = "raw" | "strict" | "weighted";
 
 type DashboardTurnRow = {
   occurred_at: string;
@@ -697,6 +714,42 @@ function readDashboardData(options: {
           }),
         },
       ],
+      capabilityViewTabs: [
+        {
+          id: "raw",
+          label: "Raw",
+          table: readDashboardCapabilities(db, range, {
+            excludeSystem: false,
+            limit: 25,
+            sort: "tokens",
+            noteLabel: "capabilities",
+            view: "raw",
+          }),
+        },
+        {
+          id: "strict",
+          label: "Strict (>=80)",
+          table: readDashboardCapabilities(db, range, {
+            excludeSystem: false,
+            limit: 25,
+            sort: "tokens",
+            noteLabel: "capabilities",
+            view: "strict",
+            strictScoreThreshold: DEFAULT_STRICT_SCORE_THRESHOLD,
+          }),
+        },
+        {
+          id: "weighted",
+          label: "Weighted",
+          table: readDashboardCapabilities(db, range, {
+            excludeSystem: false,
+            limit: 25,
+            sort: "tokens",
+            noteLabel: "capabilities",
+            view: "weighted",
+          }),
+        },
+      ],
       capabilityCallTabs: [
         {
           id: "skills",
@@ -1114,6 +1167,7 @@ function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode)
     ${renderSection(data.summarySection, display)}
     ${renderTabbedSection("Runtime token usage", "token", data.tokenTabs, display)}
     ${data.sections.map((section) => renderSection(section, display)).join("\n")}
+    ${renderTabbedSection("Capability ROI views", "capability-roi", data.capabilityViewTabs, display)}
     ${renderTabbedSection("Capability calls", "capability-calls", data.capabilityCallTabs, display)}
     ${renderSection(data.recentTurnsSection, display)}
   </main>
@@ -2105,8 +2159,12 @@ function readDashboardCapabilities(
     limit: number;
     sort: "tokens" | "invocations" | "duration" | "failures";
     noteLabel: string;
+    view?: DashboardCapabilityView;
+    strictScoreThreshold?: number;
   },
 ): DashboardTable {
+  const view = filters.view ?? "raw";
+  const strictScoreThreshold = filters.strictScoreThreshold ?? DEFAULT_STRICT_SCORE_THRESHOLD;
   const clauses = ["date(c.occurred_at, 'localtime') between ? and ?"];
   const params: Array<string | number> = [range.startDate, range.endDate];
 
@@ -2115,6 +2173,31 @@ function readDashboardCapabilities(
     clauses.push(condition.sql);
     params.push(...condition.params);
   }
+
+  if (view === "strict") {
+    clauses.push(`${EFFECTIVE_ATTRIBUTION_SCORE_SQL} >= ?`);
+    params.push(strictScoreThreshold);
+  }
+
+  const invocationMetricSql =
+    view === "weighted" ? "sum(weight) as invocation_count" : "count(*) as invocation_count";
+  const totalTokensMetricSql =
+    view === "weighted"
+      ? "case when count(weighted_total_tokens) = 0 then null else sum(weighted_total_tokens) end as total_tokens"
+      : "case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens";
+  const durationCountMetricSql =
+    view === "weighted"
+      ? "sum(case when effective_duration_ms is null then 0 else weight end) as duration_count"
+      : "count(effective_duration_ms) as duration_count";
+  const durationMetricSql =
+    view === "weighted"
+      ? "case when count(weighted_duration_ms) = 0 then null else sum(weighted_duration_ms) end as duration_ms"
+      : `
+        case
+          when count(effective_duration_ms) = 0 then null
+          else sum(effective_duration_ms)
+        end as duration_ms
+      `;
 
   const sortSql = {
     invocations: "invocation_count",
@@ -2134,6 +2217,21 @@ function readDashboardCapabilities(
           c.total_tokens,
           coalesce(c.duration_ms, case when c.capability_type = 'skill' then t.duration_ms end)
             as effective_duration_ms,
+          case
+            when c.total_tokens is null then null
+            else (
+              c.total_tokens * (${EFFECTIVE_ATTRIBUTION_SCORE_SQL} / 100.0)
+            )
+          end as weighted_total_tokens,
+          case
+            when coalesce(c.duration_ms, case when c.capability_type = 'skill' then t.duration_ms end) is null
+              then null
+            else (
+              coalesce(c.duration_ms, case when c.capability_type = 'skill' then t.duration_ms end) *
+              (${EFFECTIVE_ATTRIBUTION_SCORE_SQL} / 100.0)
+            )
+          end as weighted_duration_ms,
+          (${EFFECTIVE_ATTRIBUTION_SCORE_SQL} / 100.0) as weight,
           c.status,
           c.invocation_origin
         from capability_usages c
@@ -2148,13 +2246,10 @@ function readDashboardCapabilities(
           agent,
           capability_type,
           capability_name,
-          count(*) as invocation_count,
-          case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens,
-          count(effective_duration_ms) as duration_count,
-          case
-            when count(effective_duration_ms) = 0 then null
-            else sum(effective_duration_ms)
-          end as duration_ms,
+          ${invocationMetricSql},
+          ${totalTokensMetricSql},
+          ${durationCountMetricSql},
+          ${durationMetricSql},
           min(effective_duration_ms) as min_duration_ms,
           max(effective_duration_ms) as max_duration_ms,
           sum(case when status = 'success' then 1 else 0 end) as success_count,
@@ -2194,7 +2289,7 @@ function readDashboardCapabilities(
       row.agent,
       row.capability_type,
       row.capability_name,
-      String(row.invocation_count),
+      formatDashboardInvocationCount(view, row.invocation_count),
       String(row.explicit_invocation_count),
       String(row.inferred_invocation_count),
       String(row.observed_invocation_count),
@@ -2206,10 +2301,46 @@ function readDashboardCapabilities(
       formatSuccessRate(row.success_count, row.failure_count),
     ]),
     emptyText: "No capability usage found for this range.",
-    note: `Showing ${visibleRows.length} of ${rows.length} ${filters.noteLabel} (${formatDateRange(
+    note: createCapabilitiesNote({
       range,
-    )}).`,
+      view,
+      strictScoreThreshold,
+      visibleCount: visibleRows.length,
+      totalCount: rows.length,
+      noteLabel: filters.noteLabel,
+    }),
   };
+}
+
+function createCapabilitiesNote(options: {
+  range: { startDate: string; endDate: string };
+  view: DashboardCapabilityView;
+  strictScoreThreshold: number;
+  visibleCount: number;
+  totalCount: number;
+  noteLabel: string;
+}): string {
+  const base = `Showing ${options.visibleCount} of ${options.totalCount} ${options.noteLabel} (${formatDateRange(
+    options.range,
+  )})`;
+
+  if (options.view === "strict") {
+    return `${base}, view=strict, score>=${options.strictScoreThreshold}.`;
+  }
+
+  if (options.view === "weighted") {
+    return `${base}, view=weighted (confidence-weighted invocations/tokens/duration).`;
+  }
+
+  return `${base}, view=raw.`;
+}
+
+function formatDashboardInvocationCount(view: DashboardCapabilityView, value: number): string {
+  if (view !== "weighted") {
+    return String(value);
+  }
+
+  return value.toFixed(2).replace(/\.00$/, "");
 }
 
 function readDashboardTokenUsage(

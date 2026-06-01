@@ -103,6 +103,20 @@ describe("server command", () => {
       assert.match(capabilitiesHtml, /Showing 25 of 33 capabilities/);
       assert.match(capabilitiesHtml, /server-capability-23/);
       assert.equal(capabilitiesHtml.includes("server-capability-24"), false);
+      assert.match(html, /Capability ROI views/);
+      assert.match(html, /role="tab"[^>]*>Raw<\/button>/);
+      assert.match(html, /role="tab"[^>]*>Strict \(&gt;=80\)<\/button>/);
+      assert.match(html, /role="tab"[^>]*>Weighted<\/button>/);
+      const capabilityRoiHtml = html.slice(
+        html.indexOf("<h2>Capability ROI views</h2>"),
+        html.indexOf("<h2>Capability calls</h2>"),
+      );
+      assert.match(capabilityRoiHtml, /view=raw/);
+      assert.match(capabilityRoiHtml, /view=strict, score&gt;=80/);
+      assert.match(
+        capabilityRoiHtml,
+        /view=weighted \(confidence-weighted invocations\/tokens\/duration\)/,
+      );
       assert.match(html, /role="tab"[^>]*>Skills<\/button>/);
       assert.match(html, /role="tab"[^>]*>MCP tools<\/button>/);
       assert.match(html, /Showing latest 30 skill calls/);
@@ -120,6 +134,7 @@ describe("server command", () => {
           tableBlocks: Array<{ title: string; table: { rows: string[][]; width?: string } }>;
           table: { rows: string[][] };
         };
+        capabilityViewTabs: Array<{ id: string; table: { rows: string[][]; note?: string } }>;
         capabilityCallTabs: Array<{ id: string; table: { rows: string[][] } }>;
       };
       assert.equal(dashboardJsonResponse.status, 200);
@@ -143,6 +158,13 @@ describe("server command", () => {
         ["compact", "compact", "full"],
       );
       assert.equal(dashboard.summarySection.table.rows.length, 15);
+      assert.deepEqual(
+        dashboard.capabilityViewTabs.map((tab) => tab.id),
+        ["raw", "strict", "weighted"],
+      );
+      assert.match(dashboard.capabilityViewTabs[0]?.table.note ?? "", /view=raw/);
+      assert.match(dashboard.capabilityViewTabs[1]?.table.note ?? "", /view=strict, score>=80/);
+      assert.match(dashboard.capabilityViewTabs[2]?.table.note ?? "", /view=weighted/);
       assert.equal(
         dashboard.capabilityCallTabs
           .find((tab) => tab.id === "mcp-tools")

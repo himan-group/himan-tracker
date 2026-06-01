@@ -307,7 +307,7 @@ himan-tracker archive monthly
 
 ### `server`
 
-启动、停止和查看本地报表 Web server。server 默认只监听 `127.0.0.1`，启动后会立即执行一次增量 `ingest`，之后按固定间隔继续导入 `events/*.jsonl`。页面默认会以 HTML 表格展示总览、一个可切换日/周/月的 runtime token 用量卡片、agent、capability、一个可切换 skill/MCP tool 的调用列表卡片和近期 turn；也可以通过 `--display text` 切换为命令行风格文本块，并提供 `/dashboard.json` 结构化数据端点。
+启动、停止和查看本地报表 Web server。server 默认只监听 `127.0.0.1`，启动后会立即执行一次增量 `ingest`，之后按固定间隔继续导入 `events/*.jsonl`。页面默认会以 HTML 表格展示总览、一个可切换日/周/月的 runtime token 用量卡片、agent、capability、一个可切换 `Raw / Strict (>=80) / Weighted` 的 capability ROI 视图卡片、一个可切换 skill/MCP tool 的调用列表卡片和近期 turn；也可以通过 `--display text` 切换为命令行风格文本块，并提供 `/dashboard.json` 结构化数据端点。
 
 ```bash
 himan-tracker server start
