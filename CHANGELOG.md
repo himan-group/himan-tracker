@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed system capability filtering to treat `write_stdin` (including `functions.write_stdin`) as a built-in tool, so `summary --exclude-system`, `capabilities --exclude-system`, and dashboard Top capabilities no longer show it.
+
 ## [0.3.2] - 2026-06-01
 
 ### Changed

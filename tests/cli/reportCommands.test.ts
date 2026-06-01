@@ -63,6 +63,7 @@ describe("report commands", () => {
       assert.match(userCapabilitySummaryOutput, /github\.create_pull_request/);
       assert.equal(userCapabilitySummaryOutput.includes("apply_patch"), false);
       assert.equal(userCapabilitySummaryOutput.includes("Bash"), false);
+      assert.equal(userCapabilitySummaryOutput.includes("write_stdin"), false);
 
       const invalidSummary = await runSummary({
         paths,
@@ -130,6 +131,7 @@ describe("report commands", () => {
       assert.match(userCapabilitiesOutput, /github\.create_pull_request/);
       assert.equal(userCapabilitiesOutput.includes("apply_patch"), false);
       assert.equal(userCapabilitiesOutput.includes("Bash"), false);
+      assert.equal(userCapabilitiesOutput.includes("write_stdin"), false);
 
       const mcpEvents = await runCapabilityEvents({
         paths,
@@ -511,6 +513,27 @@ function createFixtureEvents(): NormalizedEvent[] {
       status: "success",
       capability_type: "unknown",
       capability_name: "Bash",
+      duration_ms: null,
+      input_tokens: null,
+      output_tokens: null,
+      total_tokens: null,
+      adopted: "unknown",
+      attribution_confidence: "unknown",
+      invocation_origin: "observed",
+    },
+    {
+      schema_version: "1.0",
+      event_id: "evt_capability_builtin_legacy_002",
+      event_type: "capability_usage",
+      occurred_at: "2026-05-12T12:00:04.500Z",
+      agent: "codex",
+      source: "fixture",
+      session_id: "s_001",
+      turn_id: "t_001",
+      repo_hash: "repo_hash_001",
+      status: "success",
+      capability_type: "unknown",
+      capability_name: "write_stdin",
       duration_ms: null,
       input_tokens: null,
       output_tokens: null,

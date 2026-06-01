@@ -66,6 +66,16 @@ describe("classifyCapability", () => {
         confidence: "estimated",
       },
     );
+    assert.deepEqual(
+      classifyCapability({
+        capability_name: "write_stdin",
+      }),
+      {
+        type: "builtin_tool",
+        name: "write_stdin",
+        confidence: "estimated",
+      },
+    );
   });
 
   it("falls back to unknown for unrecognized capabilities", () => {
