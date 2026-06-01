@@ -204,9 +204,27 @@ describe("backfill command", () => {
       const repeatedRawEvents = await readFile(eventPath, "utf8");
 
       assert.equal(second.ok, true);
+      assert.match(second.lines.join("\n"), /Parsed events: 0/);
       assert.match(second.lines.join("\n"), /Written events: 0/);
-      assert.match(second.lines.join("\n"), /Skipped duplicates: 6/);
+      assert.match(second.lines.join("\n"), /Skipped duplicates: 0/);
+      assert.match(second.lines.join("\n"), /Sources skipped by cursor: 1/);
       assert.equal(repeatedRawEvents.trimEnd().split("\n").length, 6);
+
+      const forced = await runBackfill({
+        paths,
+        config: createTestConfig(),
+        date: "2026-05-15",
+        from: transcriptDir,
+        ignoreCursor: true,
+      });
+      const forcedRawEvents = await readFile(eventPath, "utf8");
+
+      assert.equal(forced.ok, true);
+      assert.match(forced.lines.join("\n"), /Parsed events: 6/);
+      assert.match(forced.lines.join("\n"), /Written events: 0/);
+      assert.match(forced.lines.join("\n"), /Skipped duplicates: 6/);
+      assert.match(forced.lines.join("\n"), /Sources skipped by cursor: 0/);
+      assert.equal(forcedRawEvents.trimEnd().split("\n").length, 6);
     } finally {
       await rm(homeDir, { recursive: true, force: true });
     }
@@ -397,6 +415,36 @@ describe("backfill command", () => {
       assert.match(output, /Range: 2026-05-29 → 2026-05-31 \(3 days\)/);
       assert.match(output, /Transcript files: 1/);
       assert.match(output, /Skipped duplicates: 0/);
+
+      const second = await runBackfill({
+        paths,
+        config: createTestConfig(),
+        agent: "copilot",
+        since: "2026-05-29",
+        from: transcriptDir,
+        now: () => new Date("2026-05-31T12:00:00.000Z"),
+      });
+      const secondOutput = second.lines.join("\n");
+      assert.equal(second.ok, true);
+      assert.match(secondOutput, /Parsed events: 0/);
+      assert.match(secondOutput, /Written events: 0/);
+      assert.match(secondOutput, /Sources skipped by cursor: 1/);
+
+      const forced = await runBackfill({
+        paths,
+        config: createTestConfig(),
+        agent: "copilot",
+        since: "2026-05-29",
+        from: transcriptDir,
+        ignoreCursor: true,
+        now: () => new Date("2026-05-31T12:00:00.000Z"),
+      });
+      const forcedOutput = forced.lines.join("\n");
+      assert.equal(forced.ok, true);
+      assert.match(forcedOutput, /Parsed events: 6/);
+      assert.match(forcedOutput, /Written events: 0/);
+      assert.match(forcedOutput, /Skipped duplicates: 6/);
+      assert.match(forcedOutput, /Sources skipped by cursor: 0/);
     } finally {
       await rm(homeDir, { recursive: true, force: true });
     }

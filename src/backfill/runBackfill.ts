@@ -1,5 +1,6 @@
-import { mkdir, readFile, readdir } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { readdirSync, existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -28,6 +29,7 @@ export type BackfillCommandOptions = {
   date?: string;
   since?: string;
   from?: string;
+  ignoreCursor?: boolean;
   paths?: TrackerPaths;
   config?: UserConfig;
   now?: () => Date;
@@ -45,6 +47,7 @@ export type BackfillRunStats = {
   writtenEvents: number;
   skippedDuplicates: number;
   eventFiles: number;
+  skippedSourcesByCursor: number;
 };
 
 type WriteUniqueEventsResult = {
@@ -59,6 +62,27 @@ type ExistingEvents = {
 };
 
 const DUPLICATE_TIMESTAMP_TOLERANCE_MS = 5_000;
+const BACKFILL_CURSOR_SCHEMA_VERSION = "1.0";
+const BACKFILL_CURSOR_FILE = "backfill-cursors.json";
+const COPILOT_SESSION_STORE_PREFIX = "__copilot_db__";
+
+type BackfillCursorRecord = {
+  source_key: string;
+  agent: AgentName;
+  source_path: string;
+  fingerprint: string;
+  updated_at: string;
+};
+
+type BackfillCursorStoreFile = {
+  schema_version: typeof BACKFILL_CURSOR_SCHEMA_VERSION;
+  cursors: BackfillCursorRecord[];
+};
+
+type BackfillCursorStore = {
+  records: Map<string, BackfillCursorRecord>;
+  changed: boolean;
+};
 
 export async function runBackfill(
   options: BackfillCommandOptions = {},
@@ -81,33 +105,40 @@ export async function runBackfill(
         : [resolveCodexTranscriptDir(date)];
 
     await ensureTrackerDirectories(paths);
+    const cursorStore = await readBackfillCursorStore(paths);
     const config = options.config ?? (await readOrCreateUserConfig(paths));
 
     let totalParsed = 0;
     let totalWritten = 0;
     let totalSkipped = 0;
+    let skippedSourcesByCursor = 0;
     const allTranscriptFiles: string[] = [];
     const allEventFiles = new Set<string>();
 
     for (const transcriptDir of transcriptDirs) {
-      const parsed = await parseAgentTranscripts(agent, transcriptDir);
-      await learnKnownProjectsFromAdapterEvents({
+      const writeResult = await parseAndWriteBackfillEvents({
+        agent,
+        transcriptDir,
         paths,
         config,
-        events: parsed.events,
-        persist: options.config === undefined,
+        persistKnownProjects: options.config === undefined,
+        ignoreCursor: options.ignoreCursor ?? false,
+        cursorStore,
+        now,
       });
-      const normalizedEvents = parsed.events.map((event) => normalizeEvent(event, config));
-      const writeResult = await appendUniqueEvents(paths, normalizedEvents);
-
-      totalParsed += parsed.events.length;
+      if (writeResult.skippedByCursor) {
+        skippedSourcesByCursor += 1;
+      }
+      totalParsed += writeResult.parsed;
       totalWritten += writeResult.written;
       totalSkipped += writeResult.skipped;
-      allTranscriptFiles.push(...parsed.transcriptFiles);
+      allTranscriptFiles.push(...writeResult.transcriptFiles);
       for (const f of writeResult.eventFiles) {
         allEventFiles.add(f);
       }
     }
+
+    await writeBackfillCursorStore(paths, cursorStore);
 
     return {
       ok: true,
@@ -121,6 +152,7 @@ export async function runBackfill(
         `Parsed events: ${totalParsed}`,
         `Written events: ${totalWritten}`,
         `Skipped duplicates: ${totalSkipped}`,
+        `Sources skipped by cursor: ${skippedSourcesByCursor}`,
         `Event files: ${allEventFiles.size > 0 ? [...allEventFiles].join(", ") : "none"}`,
       ],
       stats: createBackfillRunStats({
@@ -129,6 +161,7 @@ export async function runBackfill(
         writtenEvents: totalWritten,
         skippedDuplicates: totalSkipped,
         eventFiles: allEventFiles.size,
+        skippedSourcesByCursor,
       }),
     };
   } catch (error) {
@@ -153,11 +186,13 @@ async function runBackfillSince(
   let totalParsed = 0;
   let totalWritten = 0;
   let totalSkipped = 0;
+  let skippedSourcesByCursor = 0;
   const allTranscriptFiles: string[] = [];
   const allEventFiles = new Set<string>();
   const errors: string[] = [];
 
   await ensureTrackerDirectories(paths);
+  const cursorStore = await readBackfillCursorStore(paths);
   const config = options.config ?? (await readOrCreateUserConfig(paths));
 
   // Copilot sources are not partitioned by day, so --since should process them once.
@@ -171,7 +206,13 @@ async function runBackfillSince(
           paths,
           config,
           persistKnownProjects: options.config === undefined,
+          ignoreCursor: options.ignoreCursor ?? false,
+          cursorStore,
+          now,
         });
+        if (writeResult.skippedByCursor) {
+          skippedSourcesByCursor += 1;
+        }
         totalParsed += writeResult.parsed;
         totalWritten += writeResult.written;
         totalSkipped += writeResult.skipped;
@@ -193,7 +234,13 @@ async function runBackfillSince(
           paths,
           config,
           persistKnownProjects: options.config === undefined,
+          ignoreCursor: options.ignoreCursor ?? false,
+          cursorStore,
+          now,
         });
+        if (writeResult.skippedByCursor) {
+          skippedSourcesByCursor += 1;
+        }
         totalParsed += writeResult.parsed;
         totalWritten += writeResult.written;
         totalSkipped += writeResult.skipped;
@@ -207,6 +254,8 @@ async function runBackfillSince(
     }
   }
 
+  await writeBackfillCursorStore(paths, cursorStore);
+
   const lines = [
     "himan-tracker backfill",
     "",
@@ -216,6 +265,7 @@ async function runBackfillSince(
     `Parsed events: ${totalParsed}`,
     `Written events: ${totalWritten}`,
     `Skipped duplicates: ${totalSkipped}`,
+    `Sources skipped by cursor: ${skippedSourcesByCursor}`,
     `Event files: ${allEventFiles.size > 0 ? [...allEventFiles].join(", ") : "none"}`,
   ];
 
@@ -232,6 +282,7 @@ async function runBackfillSince(
       writtenEvents: totalWritten,
       skippedDuplicates: totalSkipped,
       eventFiles: allEventFiles.size,
+      skippedSourcesByCursor,
     }),
   };
 }
@@ -243,6 +294,7 @@ function createBackfillRunStats(input: Partial<BackfillRunStats> = {}): Backfill
     writtenEvents: input.writtenEvents ?? 0,
     skippedDuplicates: input.skippedDuplicates ?? 0,
     eventFiles: input.eventFiles ?? 0,
+    skippedSourcesByCursor: input.skippedSourcesByCursor ?? 0,
   };
 }
 
@@ -252,13 +304,35 @@ async function parseAndWriteBackfillEvents(options: {
   paths: TrackerPaths;
   config: UserConfig;
   persistKnownProjects: boolean;
+  ignoreCursor: boolean;
+  cursorStore: BackfillCursorStore;
+  now: () => Date;
 }): Promise<{
   parsed: number;
   written: number;
   skipped: number;
   transcriptFiles: string[];
   eventFiles: string[];
+  skippedByCursor: boolean;
 }> {
+  const sourceKey = createBackfillSourceKey(options.agent, options.transcriptDir);
+  const sourceFingerprint = await computeSourceFingerprint(options.transcriptDir);
+  const existingCursor = options.cursorStore.records.get(sourceKey);
+  if (
+    !options.ignoreCursor &&
+    existingCursor &&
+    existingCursor.fingerprint === sourceFingerprint
+  ) {
+    return {
+      parsed: 0,
+      written: 0,
+      skipped: 0,
+      transcriptFiles: [],
+      eventFiles: [],
+      skippedByCursor: true,
+    };
+  }
+
   const parsed = await parseAgentTranscripts(options.agent, options.transcriptDir);
   await learnKnownProjectsFromAdapterEvents({
     paths: options.paths,
@@ -269,12 +343,22 @@ async function parseAndWriteBackfillEvents(options: {
   const normalizedEvents = parsed.events.map((event) => normalizeEvent(event, options.config));
   const writeResult = await appendUniqueEvents(options.paths, normalizedEvents);
 
+  options.cursorStore.records.set(sourceKey, {
+    source_key: sourceKey,
+    agent: options.agent,
+    source_path: normalizeSourcePath(options.transcriptDir),
+    fingerprint: sourceFingerprint,
+    updated_at: options.now().toISOString(),
+  });
+  options.cursorStore.changed = true;
+
   return {
     parsed: parsed.events.length,
     written: writeResult.written,
     skipped: writeResult.skipped,
     transcriptFiles: parsed.transcriptFiles,
     eventFiles: writeResult.eventFiles,
+    skippedByCursor: false,
   };
 }
 
@@ -313,7 +397,7 @@ function resolveCodexTranscriptDir(date: string): string {
 function resolveCopilotDataSource(): string[] {
   const sessionStorePath = resolveCopilotSessionStorePath();
   if (existsSync(sessionStorePath)) {
-    return [`__copilot_db__${sessionStorePath}`];
+    return [`${COPILOT_SESSION_STORE_PREFIX}${sessionStorePath}`];
   }
 
   return resolveCopilotTranscriptDirs();
@@ -363,8 +447,8 @@ function readdirSyncSafe(dirPath: string): string[] {
 
 async function parseAgentTranscripts(agent: AgentName, transcriptDir: string) {
   // Handle Copilot session-store DB source (sentinel prefix)
-  if (transcriptDir.startsWith("__copilot_db__")) {
-    const dbPath = transcriptDir.slice("__copilot_db__".length);
+  if (transcriptDir.startsWith(COPILOT_SESSION_STORE_PREFIX)) {
+    const dbPath = transcriptDir.slice(COPILOT_SESSION_STORE_PREFIX.length);
     return parseCopilotSessionStore(dbPath);
   }
 
@@ -507,4 +591,131 @@ function isMissingFileError(error: unknown): boolean {
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function readBackfillCursorStore(paths: TrackerPaths): Promise<BackfillCursorStore> {
+  const storePath = resolveBackfillCursorPath(paths);
+  try {
+    const raw = await readFile(storePath, "utf8");
+    const parsed = JSON.parse(raw) as Partial<BackfillCursorStoreFile>;
+    if (
+      parsed.schema_version !== BACKFILL_CURSOR_SCHEMA_VERSION ||
+      !Array.isArray(parsed.cursors)
+    ) {
+      return { records: new Map(), changed: false };
+    }
+
+    const records = new Map<string, BackfillCursorRecord>();
+    for (const cursor of parsed.cursors) {
+      if (
+        cursor &&
+        typeof cursor.source_key === "string" &&
+        typeof cursor.agent === "string" &&
+        typeof cursor.source_path === "string" &&
+        typeof cursor.fingerprint === "string" &&
+        typeof cursor.updated_at === "string"
+      ) {
+        records.set(cursor.source_key, cursor as BackfillCursorRecord);
+      }
+    }
+
+    return { records, changed: false };
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      return { records: new Map(), changed: false };
+    }
+    return { records: new Map(), changed: false };
+  }
+}
+
+async function writeBackfillCursorStore(paths: TrackerPaths, store: BackfillCursorStore): Promise<void> {
+  if (!store.changed) {
+    return;
+  }
+
+  const file: BackfillCursorStoreFile = {
+    schema_version: BACKFILL_CURSOR_SCHEMA_VERSION,
+    cursors: [...store.records.values()].sort((left, right) =>
+      left.source_key.localeCompare(right.source_key),
+    ),
+  };
+
+  await writeFile(resolveBackfillCursorPath(paths), `${JSON.stringify(file, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  store.changed = false;
+}
+
+function resolveBackfillCursorPath(paths: TrackerPaths): string {
+  return path.join(paths.homeDir, BACKFILL_CURSOR_FILE);
+}
+
+function createBackfillSourceKey(agent: AgentName, sourcePath: string): string {
+  return `${agent}:${normalizeSourcePath(sourcePath)}`;
+}
+
+function normalizeSourcePath(sourcePath: string): string {
+  if (sourcePath.startsWith(COPILOT_SESSION_STORE_PREFIX)) {
+    const dbPath = sourcePath.slice(COPILOT_SESSION_STORE_PREFIX.length);
+    return `${COPILOT_SESSION_STORE_PREFIX}${path.resolve(dbPath)}`;
+  }
+  return path.resolve(sourcePath);
+}
+
+async function computeSourceFingerprint(sourcePath: string): Promise<string> {
+  if (sourcePath.startsWith(COPILOT_SESSION_STORE_PREFIX)) {
+    const dbPath = sourcePath.slice(COPILOT_SESSION_STORE_PREFIX.length);
+    return computeFileFingerprint(path.resolve(dbPath));
+  }
+
+  return computeDirectoryFingerprint(path.resolve(sourcePath));
+}
+
+async function computeFileFingerprint(filePath: string): Promise<string> {
+  try {
+    const fileStat = await stat(filePath);
+    return hashFingerprintParts([
+      "file",
+      filePath,
+      String(fileStat.ino),
+      String(fileStat.size),
+      String(fileStat.mtimeMs),
+    ]);
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      return hashFingerprintParts(["file", filePath, "missing"]);
+    }
+    throw error;
+  }
+}
+
+async function computeDirectoryFingerprint(dirPath: string): Promise<string> {
+  try {
+    const entries = await readdir(dirPath, { withFileTypes: true });
+    const parts: string[] = ["dir", dirPath];
+    const files = entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
+      .map((entry) => entry.name)
+      .sort();
+
+    for (const fileName of files) {
+      const filePath = path.join(dirPath, fileName);
+      const fileStat = await stat(filePath);
+      parts.push(
+        `${fileName}:${String(fileStat.ino)}:${String(fileStat.size)}:${String(fileStat.mtimeMs)}`,
+      );
+    }
+
+    return hashFingerprintParts(parts);
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      return hashFingerprintParts(["dir", dirPath, "missing"]);
+    }
+    throw error;
+  }
+}
+
+function hashFingerprintParts(parts: string[]): string {
+  return createHash("sha256").update(parts.join("\u001f")).digest("hex");
 }

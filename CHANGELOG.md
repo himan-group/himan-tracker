@@ -4,12 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Changed `server start` / `server serve` to support `--startup-backfill none|copilot|codex|all` (default `none`), so backfill can be controlled explicitly at startup.
+- Changed report server sync scheduling to run backfill only during startup (when enabled by `--startup-backfill`) and keep periodic `--interval` runs ingest-only.
+
 ### Fixed
 
 - Fixed Copilot session-store backfill to persist only shell command names (for example `bash`) instead of full command strings, preventing shell arguments from being recorded in capability names.
 - Fixed `backfill copilot --since` to process Copilot data sources once per run instead of repeating full-source scans for each day in the range, so parsed/transcript statistics and duplicate counts are no longer inflated.
 - Fixed report server backfill integration to use shared structured backfill stats instead of parsing CLI text output, and moved backfill execution logic into a shared module so CLI entrypoints remain thin.
 - Fixed setup documentation examples to match current CLI subcommands (`setup codex` / `setup copilot`) and removed outdated `setup --agent ...` / `setup -g` command forms.
+- Fixed repeated backfill scans by adding persisted source fingerprints (`backfill-cursors.json`) for both Codex transcript directories and Copilot sources, allowing unchanged sources to be skipped on subsequent runs.
+- Fixed backfill cursor workflow by adding `--ignore-cursor` to `backfill codex` and `backfill copilot`, allowing forced re-parse when source fingerprints are unchanged.
 
 ## [0.3.0] - 2026-05-30
 

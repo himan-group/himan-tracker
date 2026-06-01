@@ -135,6 +135,7 @@ backfillCommand
   .option("--date <date>", "Transcript date to backfill in YYYY-MM-DD; defaults to today")
   .option("--since <date>", "Backfill from this date through today in YYYY-MM-DD")
   .option("--from <dir>", "Read transcript JSONL files from a specific directory")
+  .option("--ignore-cursor", "Ignore backfill source cursor fingerprints and force a full re-parse")
   .action(async (options: BackfillCommandOptions) => {
     const result = await runBackfill({ ...options, agent: "codex" });
     console.log(result.lines.join("\n"));
@@ -147,6 +148,7 @@ backfillCommand
   .option("--date <date>", "Transcript date to backfill in YYYY-MM-DD; defaults to today")
   .option("--since <date>", "Backfill from this date through today in YYYY-MM-DD")
   .option("--from <dir>", "Read transcript JSONL files from a specific directory")
+  .option("--ignore-cursor", "Ignore backfill source cursor fingerprints and force a full re-parse")
   .action(async (options: BackfillCommandOptions) => {
     const result = await runBackfill({ ...options, agent: "copilot" });
     console.log(result.lines.join("\n"));
@@ -157,6 +159,7 @@ type BackfillCommandOptions = {
   date?: string;
   since?: string;
   from?: string;
+  ignoreCursor?: boolean;
 };
 
 const archiveCommand = program
@@ -188,6 +191,14 @@ serverCommand
   .option("--port <port>", "Port to bind; use 0 for a random free port", "5127")
   .option("--interval <seconds>", "Seconds between background ingest runs", "300")
   .option("--since <period>", "Report date range such as 7d, 4w, or 1m", "7d")
+  .addOption(
+    new Option(
+      "--startup-backfill <mode>",
+      "Run one startup backfill before periodic ingest: none, copilot, codex, or all",
+    )
+      .choices(["none", "copilot", "codex", "all"])
+      .default("none"),
+  )
   .addOption(
     new Option("--display <mode>", "Dashboard report display mode")
       .choices(["table", "text"])
@@ -226,6 +237,14 @@ serverCommand
   .option("--interval <seconds>", "Seconds between background ingest runs", "300")
   .option("--since <period>", "Report date range such as 7d, 4w, or 1m", "7d")
   .addOption(
+    new Option(
+      "--startup-backfill <mode>",
+      "Run one startup backfill before periodic ingest: none, copilot, codex, or all",
+    )
+      .choices(["none", "copilot", "codex", "all"])
+      .default("none"),
+  )
+  .addOption(
     new Option("--display <mode>", "Dashboard report display mode")
       .choices(["table", "text"])
       .default("table"),
@@ -243,6 +262,7 @@ type ServerStartCommandOptions = {
   port?: string;
   interval?: string;
   since?: string;
+  startupBackfill?: string;
   display?: string;
   open?: boolean;
 };

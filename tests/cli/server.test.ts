@@ -53,8 +53,7 @@ describe("server command", () => {
       intervalSeconds: 60,
       since: "7d",
       display: "table",
-      autoBackfill: false,
-      autoBackfill: false,
+      startupBackfill: "none",
       now: () => now,
     });
 
@@ -251,8 +250,7 @@ describe("server command", () => {
       intervalSeconds: 60,
       since: "7d",
       display: "table",
-      autoBackfill: false,
-      autoBackfill: false,
+      startupBackfill: "none",
       now: () => now,
     });
 
@@ -322,8 +320,7 @@ describe("server command", () => {
       intervalSeconds: 60,
       since: "7d",
       display: "table",
-      autoBackfill: false,
-      autoBackfill: false,
+      startupBackfill: "none",
       now: () => now,
     });
 
@@ -366,8 +363,7 @@ describe("server command", () => {
       intervalSeconds: 60,
       since: "7d",
       display: "text",
-      autoBackfill: false,
-      autoBackfill: false,
+      startupBackfill: "none",
       now: () => now,
     });
 
@@ -414,8 +410,7 @@ describe("server command", () => {
       intervalSeconds: 60,
       since: "7d",
       display: "table",
-      autoBackfill: false,
-      autoBackfill: false,
+      startupBackfill: "none",
       now: () => now,
     });
 
@@ -442,7 +437,7 @@ describe("server command", () => {
     }
   });
 
-  it("passes display mode from server start to the background server", async () => {
+  it("passes display and startup backfill from server start to the background server", async () => {
     const homeDir = await mkdtemp(path.join(tmpdir(), "himan-server-test-"));
     const paths = resolveTrackerPaths({ HIMAN_TRACKER_HOME: homeDir });
 
@@ -450,6 +445,7 @@ describe("server command", () => {
       const result = await runServerStart({
         paths,
         display: "text",
+        startupBackfill: "all",
         waitMs: 500,
         spawnServer: (input) => {
           writeFileSync(
@@ -464,6 +460,7 @@ describe("server command", () => {
                 interval_seconds: input.intervalSeconds,
                 since: input.since,
                 display: input.display,
+                last_backfill: null,
                 last_ingest: null,
               },
               null,
@@ -476,6 +473,7 @@ describe("server command", () => {
 
       assert.equal(result.ok, true);
       assert.match(result.lines.join("\n"), /Display: text/);
+      assert.match(result.lines.join("\n"), /Startup backfill: all/);
     } finally {
       await rm(homeDir, { recursive: true, force: true });
     }
@@ -501,6 +499,10 @@ describe("server command", () => {
       const invalidDisplay = await runServerStart({ paths, display: "grid" });
       assert.equal(invalidDisplay.ok, false);
       assert.match(invalidDisplay.lines.join("\n"), /Expected --display/);
+
+      const invalidStartupBackfill = await runServerStart({ paths, startupBackfill: "weekly" });
+      assert.equal(invalidStartupBackfill.ok, false);
+      assert.match(invalidStartupBackfill.lines.join("\n"), /Expected --startup-backfill/);
     } finally {
       await rm(homeDir, { recursive: true, force: true });
     }

@@ -79,6 +79,8 @@ export type ReportServerState = {
   last_ingest: ReportServerIngestSnapshot | null;
 };
 
+export type StartupBackfillMode = "none" | "copilot" | "codex" | "all";
+
 export type StartReportHttpServerOptions = {
   paths: TrackerPaths;
   host?: string;
@@ -87,6 +89,8 @@ export type StartReportHttpServerOptions = {
   since?: string;
   display?: DashboardDisplayMode;
   now?: () => Date;
+  startupBackfill?: StartupBackfillMode;
+  // Deprecated: kept for compatibility with older internal callers.
   autoBackfill?: boolean;
 };
 
@@ -276,7 +280,7 @@ export async function startReportHttpServer(
   const intervalSeconds = options.intervalSeconds ?? DEFAULT_SERVER_INTERVAL_SECONDS;
   const since = options.since ?? DEFAULT_SERVER_SINCE;
   const display = options.display ?? "table";
-  const autoBackfill = options.autoBackfill ?? true;
+  const startupBackfill = resolveStartupBackfillMode(options.startupBackfill, options.autoBackfill);
   const now = options.now ?? (() => new Date());
   let lastIngest: ReportServerIngestSnapshot | null = null;
   let lastBackfill: ReportServerBackfillSnapshot = null;
@@ -285,26 +289,11 @@ export async function startReportHttpServer(
 
   await ensureTrackerDirectories(paths);
 
-  const runSyncNow = async (): Promise<void> => {
-    if (autoBackfill) {
-      try {
-        const br = await runBackfill({ agent: "copilot", paths, now });
-        if (br.ok) {
-          lastBackfill = {
-            ok: true,
-            at: now().toISOString(),
-            parsed: br.stats.parsedEvents,
-            written: br.stats.writtenEvents,
-            skipped: br.stats.skippedDuplicates,
-          };
-        } else {
-          lastBackfill = { ok: false, at: now().toISOString(), error: br.lines.join("\n") };
-        }
-      } catch (e) {
-        lastBackfill = { ok: false, at: now().toISOString(), error: getErrorMessage(e) };
-      }
-    }
+  if (startupBackfill !== "none") {
+    lastBackfill = await runStartupBackfill(startupBackfill, paths, now);
+  }
 
+  const runSyncNow = async (): Promise<void> => {
     if (ingestInFlight) {
       return ingestInFlight;
     }
@@ -393,6 +382,65 @@ export async function startReportHttpServer(
 
 export function resolveReportServerStatePath(paths: TrackerPaths): string {
   return path.join(paths.homeDir, "server-state.json");
+}
+
+function resolveStartupBackfillMode(
+  startupBackfill: StartupBackfillMode | undefined,
+  autoBackfill: boolean | undefined,
+): StartupBackfillMode {
+  if (startupBackfill) {
+    return startupBackfill;
+  }
+
+  if (autoBackfill === true) {
+    return "copilot";
+  }
+
+  return "none";
+}
+
+async function runStartupBackfill(
+  mode: Exclude<StartupBackfillMode, "none">,
+  paths: TrackerPaths,
+  now: () => Date,
+): Promise<ReportServerBackfillSnapshot> {
+  const agents = mode === "all" ? ["copilot", "codex"] : [mode];
+  let parsed = 0;
+  let written = 0;
+  let skipped = 0;
+  const errors: string[] = [];
+
+  for (const agent of agents) {
+    try {
+      const result = await runBackfill({ agent, paths, now });
+      if (result.ok) {
+        parsed += result.stats.parsedEvents;
+        written += result.stats.writtenEvents;
+        skipped += result.stats.skippedDuplicates;
+        continue;
+      }
+
+      errors.push(`${agent}: ${result.lines.join(" | ")}`);
+    } catch (error) {
+      errors.push(`${agent}: ${getErrorMessage(error)}`);
+    }
+  }
+
+  if (errors.length > 0) {
+    return {
+      ok: false,
+      at: now().toISOString(),
+      error: `startup backfill failed (${mode}): ${errors.join(" ; ")}`,
+    };
+  }
+
+  return {
+    ok: true,
+    at: now().toISOString(),
+    parsed,
+    written,
+    skipped,
+  };
 }
 
 export function resolveReportServerLogPath(paths: TrackerPaths): string {
