@@ -57,6 +57,8 @@ function recomputeDailyAgentStats(db: SqliteDatabase, date: string): void {
 }
 
 function recomputeDailyCapabilityStats(db: SqliteDatabase, date: string): void {
+  const strictAttributionThreshold = 80;
+
   db.prepare("delete from daily_capability_stats where date = ?").run(date);
   db.prepare(
     `
@@ -84,7 +86,11 @@ function recomputeDailyCapabilityStats(db: SqliteDatabase, date: string): void {
       estimated_static_package_load,
       metadata_exact_count,
       metadata_estimated_count,
-      metadata_unknown_count
+      metadata_unknown_count,
+      strict_attribution_count,
+      weighted_invocation_count,
+      weighted_total_tokens,
+      weighted_duration_ms
     )
     select
       ? as date,
@@ -126,7 +132,73 @@ function recomputeDailyCapabilityStats(db: SqliteDatabase, date: string): void {
       end as estimated_static_package_load,
       sum(case when c.static_metadata_confidence = 'exact' then 1 else 0 end) as metadata_exact_count,
       sum(case when c.static_metadata_confidence = 'estimated' then 1 else 0 end) as metadata_estimated_count,
-      sum(case when c.static_metadata_confidence = 'unknown' then 1 else 0 end) as metadata_unknown_count
+      sum(case when c.static_metadata_confidence = 'unknown' then 1 else 0 end) as metadata_unknown_count,
+      sum(
+        case
+          when coalesce(
+            c.attribution_score,
+            case
+              when c.attribution_confidence = 'exact' then 100
+              when c.capability_type = 'builtin_tool' then 55
+              when c.capability_type = 'shell_command' then 50
+              when c.attribution_confidence = 'estimated' then 60
+              when c.attribution_confidence = 'unknown' then 0
+              else 0
+            end
+          ) >= ${strictAttributionThreshold} then 1
+          else 0
+        end
+      ) as strict_attribution_count,
+      sum(
+        coalesce(
+          c.attribution_score,
+          case
+            when c.attribution_confidence = 'exact' then 100
+            when c.capability_type = 'builtin_tool' then 55
+            when c.capability_type = 'shell_command' then 50
+            when c.attribution_confidence = 'estimated' then 60
+            when c.attribution_confidence = 'unknown' then 0
+            else 0
+          end
+        ) / 100.0
+      ) as weighted_invocation_count,
+      case
+        when count(c.total_tokens) = 0 then null
+        else sum(
+          c.total_tokens * (
+            coalesce(
+              c.attribution_score,
+              case
+                when c.attribution_confidence = 'exact' then 100
+                when c.capability_type = 'builtin_tool' then 55
+                when c.capability_type = 'shell_command' then 50
+                when c.attribution_confidence = 'estimated' then 60
+                when c.attribution_confidence = 'unknown' then 0
+                else 0
+              end
+            ) / 100.0
+          )
+        )
+      end as weighted_total_tokens,
+      case
+        when count(coalesce(c.duration_ms, case when c.capability_type = 'skill' then t.duration_ms end)) = 0
+          then null
+        else sum(
+          coalesce(c.duration_ms, case when c.capability_type = 'skill' then t.duration_ms end) * (
+            coalesce(
+              c.attribution_score,
+              case
+                when c.attribution_confidence = 'exact' then 100
+                when c.capability_type = 'builtin_tool' then 55
+                when c.capability_type = 'shell_command' then 50
+                when c.attribution_confidence = 'estimated' then 60
+                when c.attribution_confidence = 'unknown' then 0
+                else 0
+              end
+            ) / 100.0
+          )
+        )
+      end as weighted_duration_ms
     from capability_usages c
     left join turns t
       on c.turn_id = t.id

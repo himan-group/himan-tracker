@@ -111,8 +111,38 @@ describe("normalizeEvent", () => {
       assert.equal(event.adopted, "unknown");
       assert.equal(event.attribution_confidence, "unknown");
       assert.equal(event.invocation_origin, "unknown");
+      assert.equal(event.attribution_basis, undefined);
+      assert.equal(event.attribution_score, undefined);
       assert.equal(event.total_tokens, null);
     });
+
+  it("normalizes capability attribution detail fields when present", () => {
+    const event = normalizeEvent(
+      {
+        event_type: "capability_usage",
+        occurred_at: "2026-05-12T03:45:12.000Z",
+        agent: "codex",
+        source: "codex-hook",
+        session_id: "s_001",
+        turn_id: "t_001",
+        capability_name: "Bash",
+        attribution_confidence: "estimated",
+        invocation_origin: "observed",
+        attribution_basis: "classifier_shell",
+        attribution_score: 120,
+        attribution_reason: "  shell  name   inferred from tool   ",
+        attribution_context_source: "none",
+      },
+      config,
+    );
+
+    assert.equal(event.event_type, "capability_usage");
+    assert.equal(event.capability_type, "builtin_tool");
+    assert.equal(event.attribution_basis, "classifier_shell");
+    assert.equal(event.attribution_score, 50);
+    assert.equal(event.attribution_reason, "shell name inferred from tool");
+    assert.equal(event.attribution_context_source, "none");
+  });
 
   it("uses adapter identity keys to dedupe observed duplicate events", () => {
     const first = normalizeEvent(

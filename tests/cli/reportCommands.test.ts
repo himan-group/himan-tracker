@@ -133,6 +133,59 @@ describe("report commands", () => {
       assert.equal(userCapabilitiesOutput.includes("Bash"), false);
       assert.equal(userCapabilitiesOutput.includes("write_stdin"), false);
 
+      const strictCapabilities = await runCapabilities({
+        paths,
+        since: "30d",
+        sort: "invocations",
+        view: "strict",
+        strictScoreThreshold: 80,
+        agent: "codex",
+        excludeSystem: true,
+        now: () => now,
+      });
+      const strictCapabilitiesOutput = strictCapabilities.lines.join("\n");
+      assert.equal(strictCapabilities.ok, true);
+      assert.match(strictCapabilitiesOutput, /view=strict/);
+      assert.match(strictCapabilitiesOutput, /common-git-commit/);
+      assert.equal(strictCapabilitiesOutput.includes("github.create_pull_request"), false);
+
+      const weightedCapabilities = await runCapabilities({
+        paths,
+        since: "30d",
+        sort: "invocations",
+        view: "weighted",
+        agent: "codex",
+        excludeSystem: true,
+        now: () => now,
+      });
+      const weightedCapabilitiesOutput = weightedCapabilities.lines.join("\n");
+      assert.equal(weightedCapabilities.ok, true);
+      assert.match(weightedCapabilitiesOutput, /view=weighted/);
+      assert.match(weightedCapabilitiesOutput, /common-git-commit/);
+      assert.match(weightedCapabilitiesOutput, /github\.create_pull_request/);
+
+      const invalidStrictThreshold = await runCapabilities({
+        paths,
+        since: "30d",
+        view: "strict",
+        strictScoreThreshold: 120,
+        now: () => now,
+      });
+      assert.equal(invalidStrictThreshold.ok, false);
+      assert.match(
+        invalidStrictThreshold.lines.join("\n"),
+        /Expected --strict-score-threshold to be an integer between 0 and 100/,
+      );
+
+      const invalidView = await runCapabilities({
+        paths,
+        since: "30d",
+        view: "hybrid",
+        now: () => now,
+      });
+      assert.equal(invalidView.ok, false);
+      assert.match(invalidView.lines.join("\n"), /Expected --view to be raw, strict, or weighted/);
+
       const mcpEvents = await runCapabilityEvents({
         paths,
         since: "30d",

@@ -53,6 +53,10 @@ function parsePromptSubmit(
       capability_name: skill,
       attribution_confidence: "exact",
       invocation_origin: "explicit",
+      attribution_basis: "prompt_explicit_skill",
+      attribution_score: 100,
+      attribution_reason: "Skill name explicitly referenced in prompt.",
+      attribution_context_source: "transcript_only",
     };
   });
 }
@@ -85,6 +89,10 @@ function parsePostToolUse(
       status: getStatus(event.status),
       attribution_confidence: "unknown",
       invocation_origin: "observed",
+      attribution_basis: "transcript_tool_name",
+      attribution_score: 40,
+      attribution_reason: "Tool call name observed from hook event.",
+      attribution_context_source: "none",
     },
   ];
 }

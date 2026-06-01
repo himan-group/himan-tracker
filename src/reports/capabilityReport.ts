@@ -11,9 +11,12 @@ import {
 import { createExcludeSystemCapabilityCondition } from "./systemCapabilityFilter.js";
 
 export type CapabilitySort = "invocations" | "tokens" | "duration" | "failures";
+export type CapabilityView = "raw" | "strict" | "weighted";
 
 export type CapabilityReportFilters = {
   sort: CapabilitySort;
+  view?: CapabilityView;
+  strictScoreThreshold?: number;
   agent?: AgentName;
   type?: CapabilityType;
   excludeSystem?: boolean;
@@ -46,13 +49,50 @@ const SORT_SQL: Record<CapabilitySort, string> = {
   failures: "failure_count",
 };
 
+const DEFAULT_STRICT_SCORE_THRESHOLD = 80;
+
+const EFFECTIVE_ATTRIBUTION_SCORE_SQL = `
+coalesce(
+  c.attribution_score,
+  case
+    when c.attribution_confidence = 'exact' then 100
+    when c.capability_type = 'builtin_tool' then 55
+    when c.capability_type = 'shell_command' then 50
+    when c.attribution_confidence = 'estimated' then 60
+    when c.attribution_confidence = 'unknown' then 0
+    else 0
+  end
+)
+`;
+
 export function renderCapabilityReport(
   db: SqliteDatabase,
   range: DateRange,
   filters: CapabilityReportFilters,
 ): string[] {
+  const view = filters.view ?? "raw";
+  const strictScoreThreshold = filters.strictScoreThreshold ?? DEFAULT_STRICT_SCORE_THRESHOLD;
+  const sortSql = resolveSortSql(filters.sort, view);
+  const invocationMetricSql = view === "weighted" ? "sum(weight) as invocation_count" : "count(*) as invocation_count";
+  const totalTokensMetricSql =
+    view === "weighted"
+      ? "case when count(weighted_total_tokens) = 0 then null else sum(weighted_total_tokens) end as total_tokens"
+      : "case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens";
+  const durationCountMetricSql =
+    view === "weighted"
+      ? "sum(case when effective_duration_ms is null then 0 else weight end) as duration_count"
+      : "count(effective_duration_ms) as duration_count";
+  const durationMetricSql =
+    view === "weighted"
+      ? "case when count(weighted_duration_ms) = 0 then null else sum(weighted_duration_ms) end as duration_ms"
+      : `
+      case
+        when count(effective_duration_ms) = 0 then null
+        else sum(effective_duration_ms)
+      end as duration_ms
+      `;
   const clauses = ["date(c.occurred_at, 'localtime') between ? and ?"];
-  const params: string[] = [range.startDate, range.endDate];
+  const params: Array<string | number> = [range.startDate, range.endDate];
 
   if (filters.agent) {
     clauses.push("c.agent = ?");
@@ -70,6 +110,11 @@ export function renderCapabilityReport(
     params.push(...condition.params);
   }
 
+  if (view === "strict") {
+    clauses.push(`${EFFECTIVE_ATTRIBUTION_SCORE_SQL} >= ?`);
+    params.push(strictScoreThreshold);
+  }
+
   const rows = db
     .prepare(
       `
@@ -81,8 +126,24 @@ export function renderCapabilityReport(
           c.total_tokens,
           coalesce(c.duration_ms, case when c.capability_type = 'skill' then t.duration_ms end)
             as effective_duration_ms,
+          case
+            when c.total_tokens is null then null
+            else (
+              c.total_tokens * (${EFFECTIVE_ATTRIBUTION_SCORE_SQL} / 100.0)
+            )
+          end as weighted_total_tokens,
+          case
+            when coalesce(c.duration_ms, case when c.capability_type = 'skill' then t.duration_ms end) is null
+              then null
+            else (
+              coalesce(c.duration_ms, case when c.capability_type = 'skill' then t.duration_ms end) *
+              (${EFFECTIVE_ATTRIBUTION_SCORE_SQL} / 100.0)
+            )
+          end as weighted_duration_ms,
+          (${EFFECTIVE_ATTRIBUTION_SCORE_SQL} / 100.0) as weight,
           c.status,
-          c.invocation_origin
+          c.invocation_origin,
+          ${EFFECTIVE_ATTRIBUTION_SCORE_SQL} as effective_attribution_score
         from capability_usages c
         left join turns t
           on t.id = c.turn_id
@@ -95,13 +156,10 @@ export function renderCapabilityReport(
           agent,
           capability_type,
           capability_name,
-          count(*) as invocation_count,
-          case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens,
-          count(effective_duration_ms) as duration_count,
-          case
-            when count(effective_duration_ms) = 0 then null
-            else sum(effective_duration_ms)
-          end as duration_ms,
+          ${invocationMetricSql},
+          ${totalTokensMetricSql},
+          ${durationCountMetricSql},
+          ${durationMetricSql},
           min(effective_duration_ms) as min_duration_ms,
           max(effective_duration_ms) as max_duration_ms,
           sum(case when status = 'success' then 1 else 0 end) as success_count,
@@ -115,21 +173,21 @@ export function renderCapabilityReport(
       )
       select *
       from capability_stats
-      order by ${SORT_SQL[filters.sort]} desc, invocation_count desc, capability_name asc
+      order by ${sortSql} desc, invocation_count desc, capability_name asc
       `,
     )
     .all(...params) as CapabilityReportRow[];
   const visibleRows = filters.limit === undefined ? rows : rows.slice(0, filters.limit);
   const countLines = filters.showTotal
     ? [
-        `Showing ${visibleRows.length} of ${rows.length} capabilities.`,
+        `Showing ${visibleRows.length} of ${rows.length} capabilities (view=${view}).`,
         "",
       ]
     : [];
 
   if (rows.length === 0) {
     return [
-      `Capabilities (${formatDateRange(range)})`,
+      `Capabilities (${formatDateRange(range)}, view=${view})`,
       "",
       ...countLines,
       "No capability usage found for this range.",
@@ -137,7 +195,7 @@ export function renderCapabilityReport(
   }
 
   return [
-    `Capabilities (${formatDateRange(range)})`,
+    `Capabilities (${formatDateRange(range)}, view=${view})`,
     "",
     ...countLines,
     ...formatTable(
@@ -160,7 +218,7 @@ export function renderCapabilityReport(
         row.agent,
         row.capability_type,
         row.capability_name,
-        String(row.invocation_count),
+        formatInvocationCount(view, row.invocation_count),
         String(row.explicit_invocation_count),
         String(row.inferred_invocation_count),
         String(row.observed_invocation_count),
@@ -181,4 +239,50 @@ export function parseCapabilitySort(sort: string): CapabilitySort {
   }
 
   throw new Error("Expected --sort to be one of invocations, tokens, duration, or failures");
+}
+
+export function parseCapabilityView(view: string): CapabilityView {
+  if (view === "raw" || view === "strict" || view === "weighted") {
+    return view;
+  }
+
+  throw new Error("Expected --view to be raw, strict, or weighted");
+}
+
+export function parseStrictScoreThreshold(value: string | number | undefined): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 100) {
+    throw new Error("Expected --strict-score-threshold to be an integer between 0 and 100");
+  }
+
+  return parsed;
+}
+
+function resolveSortSql(sort: CapabilitySort, view: CapabilityView): string {
+  if (view === "weighted") {
+    if (sort === "invocations") {
+      return "invocation_count";
+    }
+    if (sort === "tokens") {
+      return "coalesce(total_tokens, -1)";
+    }
+    if (sort === "duration") {
+      return "case when duration_count = 0 then -1 else duration_ms * 1.0 / duration_count end";
+    }
+    return "failure_count";
+  }
+
+  return SORT_SQL[sort];
+}
+
+function formatInvocationCount(view: CapabilityView, value: number): string {
+  if (view !== "weighted") {
+    return String(value);
+  }
+
+  return value.toFixed(2).replace(/\.00$/, "");
 }

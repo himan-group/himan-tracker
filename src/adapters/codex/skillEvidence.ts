@@ -1,10 +1,17 @@
 import path from "node:path";
 
 import { readNearestHimanLockSkillNames } from "../himan/lockfile.js";
+import type { CapabilityAttributionContextSource } from "../../types/events.js";
 
 type RawRecord = Record<string, unknown>;
 
 export type HimanLockSkillCache = Map<string, Promise<Set<string> | null>>;
+export type SkillNameAttributionEvidence = {
+  skillName: string;
+  attributionContextSource: CapabilityAttributionContextSource;
+  attributionScore: number;
+  attributionReason: string;
+};
 
 type SkillPathEvidence = {
   skillName: string;
@@ -58,6 +65,14 @@ export async function extractSkillNamesFromToolCall(
   payload: RawRecord,
   himanLockSkillCache: HimanLockSkillCache,
 ): Promise<string[]> {
+  const evidence = await extractSkillEvidenceFromToolCall(payload, himanLockSkillCache);
+  return evidence.map((item) => item.skillName);
+}
+
+export async function extractSkillEvidenceFromToolCall(
+  payload: RawRecord,
+  himanLockSkillCache: HimanLockSkillCache,
+): Promise<SkillNameAttributionEvidence[]> {
   const toolName = getString(payload.name);
   if (!isShellToolName(toolName)) {
     return [];
@@ -69,13 +84,23 @@ export async function extractSkillNamesFromToolCall(
   }
 
   const skills = new Set<string>();
+  const evidenceBySkill = new Map<string, SkillNameAttributionEvidence>();
   for (const evidence of collectSkillPathEvidence(argumentStrings)) {
-    if (await isSkillAllowedByHimanLock(evidence, himanLockSkillCache)) {
-      skills.add(evidence.skillName);
+    const lockMatchState = await getHimanLockMatchState(evidence, himanLockSkillCache);
+    if (lockMatchState === "blocked_by_lock") {
+      continue;
     }
+
+    if (skills.has(evidence.skillName)) {
+      continue;
+    }
+    skills.add(evidence.skillName);
+    evidenceBySkill.set(evidence.skillName, toSkillAttributionEvidence(evidence.skillName, lockMatchState));
   }
 
-  return [...skills];
+  return [...skills]
+    .map((skillName) => evidenceBySkill.get(skillName))
+    .filter((item): item is SkillNameAttributionEvidence => Boolean(item));
 }
 
 function isShellToolName(toolName: string | undefined): boolean {
@@ -214,12 +239,14 @@ function collectFallbackCandidateDirs(argumentStrings: string[]): string[] {
   return [...candidates];
 }
 
-async function isSkillAllowedByHimanLock(
+type HimanLockMatchState = "matched_lock" | "missing_lock" | "blocked_by_lock";
+
+async function getHimanLockMatchState(
   evidence: SkillPathEvidence,
   himanLockSkillCache: HimanLockSkillCache,
-): Promise<boolean> {
+): Promise<HimanLockMatchState> {
   if (evidence.candidateDirs.length === 0) {
-    return true;
+    return "missing_lock";
   }
 
   let foundHimanLock = false;
@@ -231,11 +258,11 @@ async function isSkillAllowedByHimanLock(
 
     foundHimanLock = true;
     if (skills.has(evidence.skillName)) {
-      return true;
+      return "matched_lock";
     }
   }
 
-  return !foundHimanLock;
+  return foundHimanLock ? "blocked_by_lock" : "missing_lock";
 }
 
 function readHimanLockSkills(
@@ -262,6 +289,27 @@ function trimPathCandidate(candidatePath: string): string {
 
 function isLocalAbsolutePath(candidatePath: string): boolean {
   return path.isAbsolute(candidatePath) && !candidatePath.startsWith("//");
+}
+
+function toSkillAttributionEvidence(
+  skillName: string,
+  matchState: HimanLockMatchState,
+): SkillNameAttributionEvidence {
+  if (matchState === "matched_lock") {
+    return {
+      skillName,
+      attributionContextSource: "himan_lock",
+      attributionScore: 80,
+      attributionReason: "Shell skill path matched installed skill in himan.lock.",
+    };
+  }
+
+  return {
+    skillName,
+    attributionContextSource: "transcript_only",
+    attributionScore: 50,
+    attributionReason: "Shell skill path observed without Himan lock confirmation.",
+  };
 }
 
 function getRecord(value: unknown): RawRecord | null {

@@ -1781,6 +1781,14 @@ function formatAlertValue(metric: MetricsInsightAlert["metric"], value: number |
     return formatPercentRatio(value);
   }
 
+  if (metric === "unknown_origin_ratio") {
+    return formatPercentRatio(value);
+  }
+
+  if (metric === "attribution_score_drop") {
+    return value === null || !Number.isFinite(value) ? "n/a" : value.toFixed(1);
+  }
+
   if (metric === "duration_cv" || metric === "tokens_cv") {
     return value === null || !Number.isFinite(value) ? "n/a" : value.toFixed(2);
   }

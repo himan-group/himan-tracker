@@ -316,6 +316,171 @@ create index if not exists idx_ingest_file_cursors_updated_at
   on ingest_file_cursors(updated_at);
 `;
 
+export const CAPABILITY_ATTRIBUTION_DETAILS_MIGRATION_SQL = `
+alter table capability_usages add column attribution_basis text not null default 'unknown';
+alter table capability_usages add column attribution_score integer;
+alter table capability_usages add column attribution_reason text;
+alter table capability_usages add column attribution_context_source text not null default 'none';
+
+update capability_usages
+set attribution_basis = case
+    when invocation_origin = 'explicit' then 'prompt_explicit_skill'
+    when capability_type = 'mcp_tool' and invocation_origin = 'observed' and attribution_confidence = 'exact'
+      then 'transcript_mcp_tool_end'
+    when capability_type = 'builtin_tool' then 'classifier_builtin'
+    when capability_type = 'shell_command' then 'classifier_shell'
+    when invocation_origin = 'inferred' then 'transcript_shell_skill_path'
+    else 'fallback_unknown'
+  end,
+  attribution_score = case
+    when attribution_confidence = 'exact' then 100
+    when invocation_origin = 'inferred' then 60
+    when capability_type = 'builtin_tool' then 55
+    when capability_type = 'shell_command' then 50
+    when attribution_confidence = 'unknown' then 0
+    else null
+  end,
+  attribution_context_source = case
+    when invocation_origin = 'inferred' then 'transcript_only'
+    else 'none'
+  end
+where attribution_basis = 'unknown'
+  and attribution_score is null
+  and attribution_reason is null
+  and attribution_context_source = 'none';
+`;
+
+export const CAPABILITY_USAGE_EVIDENCE_MIGRATION_SQL = `
+create table if not exists capability_usage_evidence (
+  id text primary key,
+  usage_id text not null,
+  evidence_type text not null,
+  confidence text not null,
+  score integer,
+  summary text not null,
+  context_source text not null,
+  occurred_at text not null
+);
+
+create index if not exists idx_capability_usage_evidence_usage
+  on capability_usage_evidence(usage_id);
+
+create index if not exists idx_capability_usage_evidence_occurred_at
+  on capability_usage_evidence(occurred_at);
+`;
+
+export const CAPABILITY_WEIGHTED_STATS_MIGRATION_SQL = `
+alter table daily_capability_stats add column strict_attribution_count integer not null default 0;
+alter table daily_capability_stats add column weighted_invocation_count real not null default 0;
+alter table daily_capability_stats add column weighted_total_tokens real;
+alter table daily_capability_stats add column weighted_duration_ms real;
+
+alter table monthly_capability_stats add column strict_attribution_count integer not null default 0;
+alter table monthly_capability_stats add column weighted_invocation_count real not null default 0;
+alter table monthly_capability_stats add column weighted_total_tokens real;
+alter table monthly_capability_stats add column weighted_duration_ms real;
+
+update daily_capability_stats
+set strict_attribution_count = (
+    select coalesce(sum(
+      case
+        when coalesce(
+          c.attribution_score,
+          case
+            when c.attribution_confidence = 'exact' then 100
+            when c.capability_type = 'builtin_tool' then 55
+            when c.capability_type = 'shell_command' then 50
+            when c.attribution_confidence = 'estimated' then 60
+            when c.attribution_confidence = 'unknown' then 0
+            else 0
+          end
+        ) >= 80 then 1 else 0
+      end
+    ), 0)
+    from capability_usages c
+    where date(c.occurred_at, 'localtime') = daily_capability_stats.date
+      and c.agent = daily_capability_stats.agent
+      and c.capability_type = daily_capability_stats.capability_type
+      and c.capability_name = daily_capability_stats.capability_name
+  ),
+  weighted_invocation_count = (
+    select coalesce(sum(
+      coalesce(
+        c.attribution_score,
+        case
+          when c.attribution_confidence = 'exact' then 100
+          when c.capability_type = 'builtin_tool' then 55
+          when c.capability_type = 'shell_command' then 50
+          when c.attribution_confidence = 'estimated' then 60
+          when c.attribution_confidence = 'unknown' then 0
+          else 0
+        end
+      ) / 100.0
+    ), 0)
+    from capability_usages c
+    where date(c.occurred_at, 'localtime') = daily_capability_stats.date
+      and c.agent = daily_capability_stats.agent
+      and c.capability_type = daily_capability_stats.capability_type
+      and c.capability_name = daily_capability_stats.capability_name
+  ),
+  weighted_total_tokens = (
+    select case
+      when count(c.total_tokens) = 0 then null
+      else sum(
+        c.total_tokens * (
+          coalesce(
+            c.attribution_score,
+            case
+              when c.attribution_confidence = 'exact' then 100
+              when c.capability_type = 'builtin_tool' then 55
+              when c.capability_type = 'shell_command' then 50
+              when c.attribution_confidence = 'estimated' then 60
+              when c.attribution_confidence = 'unknown' then 0
+              else 0
+            end
+          ) / 100.0
+        )
+      )
+    end
+    from capability_usages c
+    where date(c.occurred_at, 'localtime') = daily_capability_stats.date
+      and c.agent = daily_capability_stats.agent
+      and c.capability_type = daily_capability_stats.capability_type
+      and c.capability_name = daily_capability_stats.capability_name
+  ),
+  weighted_duration_ms = (
+    select case
+      when count(
+        coalesce(c.duration_ms, case when c.capability_type = 'skill' then t.duration_ms end)
+      ) = 0 then null
+      else sum(
+        coalesce(c.duration_ms, case when c.capability_type = 'skill' then t.duration_ms end) * (
+          coalesce(
+            c.attribution_score,
+            case
+              when c.attribution_confidence = 'exact' then 100
+              when c.capability_type = 'builtin_tool' then 55
+              when c.capability_type = 'shell_command' then 50
+              when c.attribution_confidence = 'estimated' then 60
+              when c.attribution_confidence = 'unknown' then 0
+              else 0
+            end
+          ) / 100.0
+        )
+      )
+    end
+    from capability_usages c
+    left join turns t
+      on c.turn_id = t.id
+      and c.session_id = t.session_id
+      and c.agent = t.agent
+    where date(c.occurred_at, 'localtime') = daily_capability_stats.date
+      and c.agent = daily_capability_stats.agent
+      and c.capability_type = daily_capability_stats.capability_type
+      and c.capability_name = daily_capability_stats.capability_name
+  );
+`;
+
 const MIGRATIONS: Migration[] = [
   {
     version: "001_initial",
@@ -336,6 +501,18 @@ const MIGRATIONS: Migration[] = [
   {
     version: "005_ingest_file_cursors",
     sql: INGEST_FILE_CURSOR_MIGRATION_SQL,
+  },
+  {
+    version: "006_capability_attribution_details",
+    sql: CAPABILITY_ATTRIBUTION_DETAILS_MIGRATION_SQL,
+  },
+  {
+    version: "007_capability_usage_evidence",
+    sql: CAPABILITY_USAGE_EVIDENCE_MIGRATION_SQL,
+  },
+  {
+    version: "008_capability_weighted_stats",
+    sql: CAPABILITY_WEIGHTED_STATS_MIGRATION_SQL,
   },
 ];
 

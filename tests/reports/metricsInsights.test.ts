@@ -367,6 +367,125 @@ describe("readMetricsInsightData", () => {
       await rm(homeDir, { recursive: true, force: true });
     }
   });
+
+  it("raises attribution drift alerts for unknown origin spikes and score drops", async () => {
+    const homeDir = await mkdtemp(path.join(tmpdir(), "himan-metrics-attribution-drift-test-"));
+
+    try {
+      const { db } = initializeTrackerDatabase(path.join(homeDir, "himan.sqlite"));
+      try {
+        insertTurn(db, {
+          id: "turn_attr_prev",
+          eventId: "evt_turn_attr_prev",
+          sessionId: "session_attr_prev",
+          occurredAt: "2026-05-14T12:00:00.000Z",
+          repoHash: "repo_attr",
+          durationMs: 1_000,
+          totalTokens: 100,
+        });
+        insertTurn(db, {
+          id: "turn_attr_current",
+          eventId: "evt_turn_attr_current",
+          sessionId: "session_attr_current",
+          occurredAt: "2026-05-15T12:00:00.000Z",
+          repoHash: "repo_attr",
+          durationMs: 1_000,
+          totalTokens: 100,
+        });
+
+        insertCapability(db, {
+          id: "cap_attr_prev_1",
+          sessionId: "session_attr_prev",
+          turnId: "turn_attr_prev",
+          occurredAt: "2026-05-14T12:00:01.000Z",
+          repoHash: "repo_attr",
+          type: "skill",
+          name: "drift-skill",
+          durationMs: 100,
+          totalTokens: 20,
+          status: "success",
+          attributionConfidence: "exact",
+          invocationOrigin: "observed",
+          attributionScore: 95,
+        });
+        insertCapability(db, {
+          id: "cap_attr_prev_2",
+          sessionId: "session_attr_prev",
+          turnId: "turn_attr_prev",
+          occurredAt: "2026-05-14T12:00:02.000Z",
+          repoHash: "repo_attr",
+          type: "skill",
+          name: "drift-skill",
+          durationMs: 120,
+          totalTokens: 22,
+          status: "success",
+          attributionConfidence: "exact",
+          invocationOrigin: "observed",
+          attributionScore: 90,
+        });
+
+        insertCapability(db, {
+          id: "cap_attr_current_1",
+          sessionId: "session_attr_current",
+          turnId: "turn_attr_current",
+          occurredAt: "2026-05-15T12:00:01.000Z",
+          repoHash: "repo_attr",
+          type: "skill",
+          name: "drift-skill",
+          durationMs: 100,
+          totalTokens: 20,
+          status: "success",
+          attributionConfidence: "unknown",
+          invocationOrigin: "unknown",
+          attributionScore: 40,
+        });
+        insertCapability(db, {
+          id: "cap_attr_current_2",
+          sessionId: "session_attr_current",
+          turnId: "turn_attr_current",
+          occurredAt: "2026-05-15T12:00:02.000Z",
+          repoHash: "repo_attr",
+          type: "skill",
+          name: "drift-skill",
+          durationMs: 120,
+          totalTokens: 22,
+          status: "success",
+          attributionConfidence: "unknown",
+          invocationOrigin: "unknown",
+          attributionScore: 45,
+        });
+
+        const data = readMetricsInsightData(db, {
+          now: new Date("2026-05-15T10:00:00.000Z"),
+        });
+        const day = data.periods.find((period) => period.period === "day");
+        assert.ok(day);
+
+        assert.equal(
+          day.alerts.some(
+            (alert) =>
+              alert.scope === "capability" &&
+              alert.subject === "skill:drift-skill" &&
+              alert.metric === "unknown_origin_ratio",
+          ),
+          true,
+        );
+        assert.equal(
+          day.alerts.some(
+            (alert) =>
+              alert.scope === "capability" &&
+              alert.subject === "skill:drift-skill" &&
+              alert.metric === "attribution_score_drop",
+          ),
+          true,
+        );
+      } finally {
+        db.close();
+      }
+    } finally {
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
 });
 
 function insertTurn(
@@ -423,6 +542,9 @@ function insertCapability(
     durationMs: number | null;
     totalTokens: number | null;
     status: string;
+    attributionConfidence?: "exact" | "estimated" | "unknown";
+    invocationOrigin?: "explicit" | "inferred" | "observed" | "unknown";
+    attributionScore?: number | null;
   },
 ): void {
   db.prepare(
@@ -444,9 +566,10 @@ function insertCapability(
       adopted,
       attribution_confidence,
       invocation_origin,
+      attribution_score,
       repo_hash
     )
-    values (?, ?, ?, 'codex', 'fixture', ?, ?, ?, ?, null, null, ?, ?, 'unknown', 'exact', 'observed', ?)
+    values (?, ?, ?, 'codex', 'fixture', ?, ?, ?, ?, null, null, ?, ?, 'unknown', ?, ?, ?, ?)
     `,
   ).run(
     row.id,
@@ -458,6 +581,9 @@ function insertCapability(
     row.durationMs,
     row.totalTokens,
     row.status,
+    row.attributionConfidence ?? "exact",
+    row.invocationOrigin ?? "observed",
+    row.attributionScore ?? null,
     row.repoHash,
   );
 }

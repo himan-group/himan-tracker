@@ -455,6 +455,8 @@ himan-tracker capabilities --since 30d
 himan-tracker capabilities --since 30d --type mcp_tool
 himan-tracker capabilities --since 30d --agent codex
 himan-tracker capabilities --since 30d --sort duration
+himan-tracker capabilities --since 30d --view strict --strict-score-threshold 80
+himan-tracker capabilities --since 30d --view weighted
 himan-tracker capabilities --since 30d --exclude-system
 ```
 
@@ -465,7 +467,15 @@ himan-tracker capabilities --since 30d --exclude-system
 - `duration`
 - `failures`
 
-Codex hooks 不直接提供耗时字段。himan-tracker 会在后台从 Codex transcript 的 `task_complete`、`mcp_tool_call_end` 和 tool end 事件补齐 turn 或 tool duration；Codex 暂无官方结构化 skill 执行事件，因此从显式 `$skill-name` 或读取 `SKILL.md` 的工具调用推断 skill 使用。若能读取当前项目 `himan.lock`，读取 `SKILL.md` 推断出的 skill 会先按 lock 中的 Codex 安装记录过滤。`capabilities` 报表会用 `Explicit`、`Inferred`、`Observed` 和 `Unknown` 列拆分调用来源；报表中的 skill duration 使用该 skill 所在 turn 的耗时作为估算。
+`--view` 支持：
+
+- `raw`：原始口径，保留所有 capability usage。
+- `strict`：严格口径，仅保留归因分数不低于阈值（默认 `80`）的 usage。
+- `weighted`：加权口径，按归因分数对调用次数、runtime token、duration 加权，更适合 ROI 排序。
+
+`--strict-score-threshold` 只在 `--view strict` 时生效，取值范围 `0-100`。
+
+Codex hooks 不直接提供耗时字段。himan-tracker 会在后台从 Codex transcript 的 `task_complete`、`mcp_tool_call_end` 和 tool end 事件补齐 turn 或 tool duration；Codex 暂无官方结构化 skill 执行事件，因此从显式 `$skill-name` 或读取 `SKILL.md` 的工具调用推断 skill 使用。若能读取当前项目 `himan.lock`，读取 `SKILL.md` 推断出的 skill 会先按 lock 中的 Codex 安装记录过滤。对于非 Himan 来源 skill（无 `himan.yaml` / `himan.lock`），流程会 fail-open：继续入库与出报表，但归因分数和置信度会按降级策略处理。`capabilities` 报表会用 `Explicit`、`Inferred`、`Observed` 和 `Unknown` 列拆分调用来源；报表中的 skill duration 使用该 skill 所在 turn 的耗时作为估算。
 
 `capabilities` 报表会用 `Avg duration`、`Min duration` 和 `Max duration` 分开展示已知耗时的平均值、最小值和最大值；`--sort duration` 仍按平均耗时排序。
 
@@ -491,9 +501,10 @@ himan-tracker capability-events --type mcp_tool --name openaiDeveloperDocs.searc
 
 ```bash
 himan-tracker capability-events --type skill --name common-git-commit --agent codex --limit 50
+himan-tracker capability-events --type skill --name common-git-commit --min-score 80
 ```
 
-输出包含调用时间、agent、source、model、turn、耗时、runtime token、状态、采纳状态、调用来源和归因置信度。`Origin` 表示 `explicit`、`inferred`、`observed` 或 `unknown`；`Confidence` 表示 `exact`、`estimated` 或 `unknown`。`Basis` 表示耗时来源：`event` 是 capability 事件自身提供的耗时，`turn` 是使用同一 turn 耗时估算，`n/a` 表示未知。
+输出包含调用时间、agent、source、model、turn、耗时、runtime token、状态、采纳状态、调用来源和归因置信度，以及归因评分与归因依据。`Origin` 表示 `explicit`、`inferred`、`observed` 或 `unknown`；`Confidence` 表示 `exact`、`estimated` 或 `unknown`；`Score` 为 `0-100` 归因分数，`Attr basis` / `Context` 说明归因判定依据。`Basis` 表示耗时来源：`event` 是 capability 事件自身提供的耗时，`turn` 是使用同一 turn 耗时估算，`n/a` 表示未知。
 
 ### `unused`
 

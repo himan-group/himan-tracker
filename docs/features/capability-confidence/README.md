@@ -13,6 +13,7 @@
 - [technical-design.md](./technical-design.md)：feature 级技术方案
 - [himan-integration.md](./himan-integration.md)：与 `@hi-man/himan` 的集成方式、现有可用能力和建议补充项
 - [implementation-record.md](./implementation-record.md)：当前实现记录、阶段拆分、依赖边界和执行注意事项
+- [stage-plan.md](./stage-plan.md)：分阶段实施计划与验收标准
 
 当前方案基于以下事实源：
 

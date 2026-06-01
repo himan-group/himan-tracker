@@ -39,6 +39,9 @@ describe("ingestEvents", () => {
         "003_monthly_archive",
         "004_skill_metadata",
         "005_ingest_file_cursors",
+        "006_capability_attribution_details",
+        "007_capability_usage_evidence",
+        "008_capability_weighted_stats",
       ]);
       assert.deepEqual(first.affected_dates, [toLocalDate(events[0].occurred_at)]);
 
@@ -82,6 +85,9 @@ describe("ingestEvents", () => {
         "003_monthly_archive",
         "004_skill_metadata",
         "005_ingest_file_cursors",
+        "006_capability_attribution_details",
+        "007_capability_usage_evidence",
+        "008_capability_weighted_stats",
       ]);
 
       assertDatabaseStats(sqlitePath, toLocalDate(events[0].occurred_at));
@@ -226,6 +232,17 @@ analysis:
         assert.equal(usage.static_metadata_confidence, "exact");
         assert.equal(usage.total_tokens, null);
 
+        const evidence = db.prepare("select * from capability_usage_evidence").get() as {
+          evidence_type: string;
+          confidence: string;
+          summary: string;
+          context_source: string;
+        };
+        assert.equal(evidence.evidence_type, "unknown");
+        assert.equal(evidence.confidence, "estimated");
+        assert.equal(evidence.summary, "No strong attribution evidence found.");
+        assert.equal(evidence.context_source, "none");
+
         const definition = db.prepare("select * from capability_definitions").get() as {
           capability_name: string;
           version: string;
@@ -250,6 +267,10 @@ analysis:
           estimated_static_package_load: number;
           metadata_exact_count: number;
           metadata_unknown_count: number;
+          strict_attribution_count: number;
+          weighted_invocation_count: number;
+          weighted_total_tokens: number | null;
+          weighted_duration_ms: number | null;
         };
         assert.equal(dailyStats.total_tokens, null);
         assert.equal(dailyStats.static_entry_tokens, 847);
@@ -258,6 +279,10 @@ analysis:
         assert.equal(dailyStats.estimated_static_package_load, 901);
         assert.equal(dailyStats.metadata_exact_count, 1);
         assert.equal(dailyStats.metadata_unknown_count, 0);
+        assert.equal(dailyStats.strict_attribution_count, 0);
+        assert.equal(dailyStats.weighted_invocation_count, 0.6);
+        assert.equal(dailyStats.weighted_total_tokens, null);
+        assert.equal(dailyStats.weighted_duration_ms, null);
       } finally {
         db.close();
       }
@@ -389,6 +414,10 @@ function assertDatabaseStats(sqlitePath: string, expectedDate: string): void {
       metadata_exact_count: number;
       metadata_estimated_count: number;
       metadata_unknown_count: number;
+      strict_attribution_count: number;
+      weighted_invocation_count: number;
+      weighted_total_tokens: number | null;
+      weighted_duration_ms: number | null;
     };
     assert.deepEqual(capabilityStats, {
       date: expectedDate,
@@ -415,7 +444,16 @@ function assertDatabaseStats(sqlitePath: string, expectedDate: string): void {
       metadata_exact_count: 0,
       metadata_estimated_count: 0,
       metadata_unknown_count: 1,
+      strict_attribution_count: 0,
+      weighted_invocation_count: 0.6,
+      weighted_total_tokens: 3,
+      weighted_duration_ms: 120,
     });
+
+    const evidenceCount = db
+      .prepare("select count(*) as count from capability_usage_evidence")
+      .get() as { count: number };
+    assert.equal(evidenceCount.count, 1);
   } finally {
     db.close();
   }

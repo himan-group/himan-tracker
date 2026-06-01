@@ -8,6 +8,7 @@ export type CapabilityEventReportFilters = {
   type: CapabilityType;
   name: string;
   limit: number;
+  minScore?: number;
 };
 
 type CapabilityEventReportRow = {
@@ -23,6 +24,9 @@ type CapabilityEventReportRow = {
   adopted: string;
   attribution_confidence: string;
   invocation_origin: string;
+  attribution_basis: string;
+  attribution_score: number | null;
+  attribution_context_source: string;
 };
 
 export function renderCapabilityEventReport(
@@ -47,6 +51,11 @@ export function renderCapabilityEventReport(
     params.push(filters.agent);
   }
 
+  if (filters.minScore !== undefined) {
+    clauses.push("coalesce(c.attribution_score, 0) >= ?");
+    params.push(filters.minScore);
+  }
+
   params.push(filters.limit);
 
   const rows = db
@@ -68,7 +77,10 @@ export function renderCapabilityEventReport(
         c.status,
         c.adopted,
         c.attribution_confidence,
-        c.invocation_origin
+        c.invocation_origin,
+        c.attribution_basis,
+        c.attribution_score,
+        c.attribution_context_source
       from capability_usages c
       left join turns t
         on t.id = c.turn_id
@@ -97,12 +109,15 @@ export function renderCapabilityEventReport(
         "Model",
         "Turn",
         "Duration",
-        "Basis",
+        "Dur basis",
         "Runtime tokens",
         "Status",
         "Adopted",
         "Origin",
         "Confidence",
+        "Score",
+        "Attr basis",
+        "Context",
       ],
       rows.map((row) => [
         formatLocalDateTime(row.occurred_at),
@@ -117,6 +132,9 @@ export function renderCapabilityEventReport(
         row.adopted,
         row.invocation_origin,
         row.attribution_confidence,
+        row.attribution_score === null ? "n/a" : String(row.attribution_score),
+        row.attribution_basis,
+        row.attribution_context_source,
       ]),
     ),
   ];
@@ -126,6 +144,19 @@ export function parseCapabilityEventLimit(limit: string | number | undefined): n
   const value = typeof limit === "number" ? limit : Number(limit ?? 50);
   if (!Number.isInteger(value) || value <= 0 || value > 200) {
     throw new Error("Expected --limit to be an integer between 1 and 200");
+  }
+
+  return value;
+}
+
+export function parseCapabilityEventMinScore(minScore: string | number | undefined): number | undefined {
+  if (minScore === undefined) {
+    return undefined;
+  }
+
+  const value = typeof minScore === "number" ? minScore : Number(minScore);
+  if (!Number.isInteger(value) || value < 0 || value > 100) {
+    throw new Error("Expected --min-score to be an integer between 0 and 100");
   }
 
   return value;

@@ -14,6 +14,26 @@ export type AttributionConfidence = "exact" | "estimated" | "unknown";
 
 export type CapabilityInvocationOrigin = "explicit" | "inferred" | "observed" | "unknown";
 
+export type CapabilityAttributionBasis =
+  | "prompt_explicit_skill"
+  | "transcript_mcp_tool_end"
+  | "transcript_tool_name"
+  | "transcript_shell_skill_path"
+  | "himan_lock_match"
+  | "himan_manifest_match"
+  | "himan_dependency_match"
+  | "classifier_builtin"
+  | "classifier_shell"
+  | "fallback_unknown"
+  | "unknown";
+
+export type CapabilityAttributionContextSource =
+  | "himan_install_manifest"
+  | "himan_lock"
+  | "himan_metadata"
+  | "transcript_only"
+  | "none";
+
 export type NormalizedEventBase = {
   schema_version: "1.0";
   event_id: string;
@@ -49,6 +69,10 @@ export type CapabilityUsageEvent = NormalizedEventBase &
     adopted: "yes" | "no" | "unknown";
     attribution_confidence: AttributionConfidence;
     invocation_origin: CapabilityInvocationOrigin;
+    attribution_basis?: CapabilityAttributionBasis;
+    attribution_score?: number | null;
+    attribution_reason?: string | null;
+    attribution_context_source?: CapabilityAttributionContextSource;
   };
 
 export type SessionSummaryEvent = NormalizedEventBase & {
@@ -91,6 +115,10 @@ export type AdapterCapabilityUsageEvent = AdapterEventBase &
     adopted?: "yes" | "no" | "unknown";
     attribution_confidence?: AttributionConfidence;
     invocation_origin?: CapabilityInvocationOrigin;
+    attribution_basis?: CapabilityAttributionBasis;
+    attribution_score?: number | null;
+    attribution_reason?: string | null;
+    attribution_context_source?: CapabilityAttributionContextSource;
   };
 
 export type AdapterSessionSummaryEvent = AdapterEventBase & {

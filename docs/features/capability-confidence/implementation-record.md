@@ -243,8 +243,20 @@ missing Himan context
 
 截至当前记录时点：
 
-- 该 feature 仍处于设计阶段
-- 尚未开始代码实现
+- 已完成 Phase 1 基础实现：
+  - capability attribution detail 字段（basis/score/reason/context source）
+  - Codex hook + transcript 的基础归因评分落地
+  - SQLite 迁移 `006_capability_attribution_details`
+  - `capability-events` 新增 score 维度与 `--min-score` 过滤
+- 已完成 Phase 2 核心实现：
+  - `capability_usage_evidence` 持久化表与 ingest 写入
+  - `capabilities --view strict` 与 `--strict-score-threshold` 口径
+  - strict 视图默认阈值 80，支持通过 CLI 覆盖
+- 已完成 Phase 3 核心实现：
+  - `daily_capability_stats` 与 `monthly_capability_stats` 加权字段与聚合
+  - `capabilities --view weighted` 口径
+  - attribution drift 告警（unknown origin ratio、attribution score drop）
+- 非 Himan 来源 skill 在缺少 `himan.lock` 时继续 fail-open，按低分 inferred 归因
 - 全局 `docs/technical-design.md` 未因本 feature 被改动
 - 本 feature 的内容全部收敛在 `docs/features/capability-confidence/`
 
