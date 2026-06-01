@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-06-01
+
 ### Changed
 
 - Changed `server start` / `server serve` to support `--startup-backfill none|copilot|codex|all` (default `none`), so backfill can be controlled explicitly at startup.
