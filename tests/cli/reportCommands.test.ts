@@ -34,6 +34,7 @@ describe("report commands", () => {
       const summary = await runSummary({ paths, since: "7d", now: () => now });
       const summaryOutput = summary.lines.join("\n");
       assert.equal(summary.ok, true);
+      assert.match(summaryOutput, /Projects\s+\|\s+1/);
       assert.match(summaryOutput, /Total runtime tokens\s+\|\s+3\.56M/);
       assert.match(summaryOutput, /Top 5 agents/);
       assert.match(summaryOutput, /Top 10 capabilities/);
@@ -63,6 +64,7 @@ describe("report commands", () => {
       assert.match(userCapabilitySummaryOutput, /github\.create_pull_request/);
       assert.equal(userCapabilitySummaryOutput.includes("apply_patch"), false);
       assert.equal(userCapabilitySummaryOutput.includes("Bash"), false);
+      assert.equal(userCapabilitySummaryOutput.includes("write_stdin"), false);
 
       const invalidSummary = await runSummary({
         paths,
@@ -130,6 +132,60 @@ describe("report commands", () => {
       assert.match(userCapabilitiesOutput, /github\.create_pull_request/);
       assert.equal(userCapabilitiesOutput.includes("apply_patch"), false);
       assert.equal(userCapabilitiesOutput.includes("Bash"), false);
+      assert.equal(userCapabilitiesOutput.includes("write_stdin"), false);
+
+      const strictCapabilities = await runCapabilities({
+        paths,
+        since: "30d",
+        sort: "invocations",
+        view: "strict",
+        strictScoreThreshold: 80,
+        agent: "codex",
+        excludeSystem: true,
+        now: () => now,
+      });
+      const strictCapabilitiesOutput = strictCapabilities.lines.join("\n");
+      assert.equal(strictCapabilities.ok, true);
+      assert.match(strictCapabilitiesOutput, /view=strict/);
+      assert.match(strictCapabilitiesOutput, /common-git-commit/);
+      assert.equal(strictCapabilitiesOutput.includes("github.create_pull_request"), false);
+
+      const weightedCapabilities = await runCapabilities({
+        paths,
+        since: "30d",
+        sort: "invocations",
+        view: "weighted",
+        agent: "codex",
+        excludeSystem: true,
+        now: () => now,
+      });
+      const weightedCapabilitiesOutput = weightedCapabilities.lines.join("\n");
+      assert.equal(weightedCapabilities.ok, true);
+      assert.match(weightedCapabilitiesOutput, /view=weighted/);
+      assert.match(weightedCapabilitiesOutput, /common-git-commit/);
+      assert.match(weightedCapabilitiesOutput, /github\.create_pull_request/);
+
+      const invalidStrictThreshold = await runCapabilities({
+        paths,
+        since: "30d",
+        view: "strict",
+        strictScoreThreshold: 120,
+        now: () => now,
+      });
+      assert.equal(invalidStrictThreshold.ok, false);
+      assert.match(
+        invalidStrictThreshold.lines.join("\n"),
+        /Expected --strict-score-threshold to be an integer between 0 and 100/,
+      );
+
+      const invalidView = await runCapabilities({
+        paths,
+        since: "30d",
+        view: "hybrid",
+        now: () => now,
+      });
+      assert.equal(invalidView.ok, false);
+      assert.match(invalidView.lines.join("\n"), /Expected --view to be raw, strict, or weighted/);
 
       const mcpEvents = await runCapabilityEvents({
         paths,
@@ -511,6 +567,27 @@ function createFixtureEvents(): NormalizedEvent[] {
       status: "success",
       capability_type: "unknown",
       capability_name: "Bash",
+      duration_ms: null,
+      input_tokens: null,
+      output_tokens: null,
+      total_tokens: null,
+      adopted: "unknown",
+      attribution_confidence: "unknown",
+      invocation_origin: "observed",
+    },
+    {
+      schema_version: "1.0",
+      event_id: "evt_capability_builtin_legacy_002",
+      event_type: "capability_usage",
+      occurred_at: "2026-05-12T12:00:04.500Z",
+      agent: "codex",
+      source: "fixture",
+      session_id: "s_001",
+      turn_id: "t_001",
+      repo_hash: "repo_hash_001",
+      status: "success",
+      capability_type: "unknown",
+      capability_name: "write_stdin",
       duration_ms: null,
       input_tokens: null,
       output_tokens: null,

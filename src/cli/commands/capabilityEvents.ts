@@ -1,6 +1,7 @@
 import { parseSinceRange } from "../../reports/dateRange.js";
 import {
   parseCapabilityEventLimit,
+  parseCapabilityEventMinScore,
   renderCapabilityEventReport,
 } from "../../reports/capabilityEventReport.js";
 import type { AgentName, CapabilityType } from "../../types/events.js";
@@ -17,6 +18,7 @@ export type CapabilityEventsCommandOptions = ReportCommandBaseOptions & {
   name?: string;
   agent?: string;
   limit?: string | number;
+  minScore?: string | number;
   now?: () => Date;
 };
 
@@ -29,8 +31,9 @@ export async function runCapabilityEvents(
     const name = parseRequiredCapabilityName(options.name);
     const agent = parseAgent(options.agent);
     const limit = parseCapabilityEventLimit(options.limit);
+    const minScore = parseCapabilityEventMinScore(options.minScore);
     const lines = await withReportContext(options.paths, ({ db }) =>
-      renderCapabilityEventReport(db, range, { agent, type, name, limit }),
+      renderCapabilityEventReport(db, range, { agent, type, name, limit, minScore }),
     );
 
     return { ok: true, lines };

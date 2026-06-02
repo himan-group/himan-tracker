@@ -364,8 +364,13 @@ program
   .description("Show capability usage for a date range")
   .option("--since <period>", "Date range such as 7d, 4w, or 1m", "30d")
   .option("--sort <field>", "Sort by invocations, tokens, duration, or failures", "tokens")
+  .option("--view <view>", "Attribution view: raw or strict", "raw")
   .option("--type <type>", "Filter by capability type")
   .option("--agent <agent>", "Filter by agent")
+  .option(
+    "--strict-score-threshold <score>",
+    "Strict view attribution score threshold, between 0 and 100",
+  )
   .option("--exclude-system", "Exclude built-in system capabilities")
   .action(async (options: CapabilitiesCommandOptions) => {
     const result = await runCapabilities(options);
@@ -376,8 +381,10 @@ program
 type CapabilitiesCommandOptions = {
   since?: string;
   sort?: string;
+  view?: string;
   type?: string;
   agent?: string;
+  strictScoreThreshold?: string;
   excludeSystem?: boolean;
 };
 
@@ -388,6 +395,7 @@ program
   .requiredOption("--type <type>", "Capability type to inspect")
   .requiredOption("--name <name>", "Capability name to inspect")
   .option("--agent <agent>", "Filter by agent")
+  .option("--min-score <score>", "Filter attribution score, between 0 and 100")
   .option("--limit <count>", "Maximum events to show, between 1 and 200", "50")
   .action(async (options: CapabilityEventsCommandOptions) => {
     const result = await runCapabilityEvents(options);
@@ -400,6 +408,7 @@ type CapabilityEventsCommandOptions = {
   type?: string;
   name?: string;
   agent?: string;
+  minScore?: string;
   limit?: string;
 };
 

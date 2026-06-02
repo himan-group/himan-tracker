@@ -511,6 +511,10 @@ function insertCapabilityUsage(
       adopted,
       attribution_confidence,
       invocation_origin,
+      attribution_basis,
+      attribution_score,
+      attribution_reason,
+      attribution_context_source,
       capability_version,
       capability_content_hash,
       static_entry_tokens,
@@ -518,7 +522,7 @@ function insertCapabilityUsage(
       static_metadata_confidence,
       repo_hash
     )
-    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
   ).run(
     event.event_id,
@@ -537,6 +541,10 @@ function insertCapabilityUsage(
     event.adopted,
     event.attribution_confidence,
     event.invocation_origin,
+    event.attribution_basis ?? "unknown",
+    event.attribution_score ?? null,
+    event.attribution_reason ?? null,
+    event.attribution_context_source ?? "none",
     skillMetadata.version,
     skillMetadata.contentHash,
     skillMetadata.staticEntryTokens,
@@ -544,6 +552,87 @@ function insertCapabilityUsage(
     skillMetadata.confidence,
     event.repo_hash ?? null,
   );
+
+  insertCapabilityUsageEvidence(db, event);
+}
+
+function insertCapabilityUsageEvidence(
+  db: SqliteDatabase,
+  event: CapabilityUsageEvent,
+): void {
+  const evidenceType = event.attribution_basis ?? "unknown";
+  const confidence = event.attribution_confidence;
+  const score = event.attribution_score ?? null;
+  const summary = sanitizeAttributionSummary(
+    event.attribution_reason ?? defaultAttributionSummary(evidenceType),
+  );
+  const contextSource = event.attribution_context_source ?? "none";
+
+  db.prepare(
+    `
+    insert into capability_usage_evidence (
+      id,
+      usage_id,
+      evidence_type,
+      confidence,
+      score,
+      summary,
+      context_source,
+      occurred_at
+    )
+    values (?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+  ).run(
+    `${event.event_id}:0`,
+    event.event_id,
+    evidenceType,
+    confidence,
+    score,
+    summary,
+    contextSource,
+    event.occurred_at,
+  );
+}
+
+function defaultAttributionSummary(basis: string): string {
+  switch (basis) {
+    case "prompt_explicit_skill":
+      return "Skill explicitly referenced in prompt.";
+    case "transcript_mcp_tool_end":
+      return "Structured MCP tool completion observed.";
+    case "transcript_tool_name":
+      return "Tool name observed from runtime event.";
+    case "transcript_shell_skill_path":
+      return "Skill path inferred from shell tool call.";
+    case "himan_lock_match":
+      return "Matched with installed skill in himan.lock.";
+    case "himan_manifest_match":
+      return "Matched with project install manifest.";
+    case "himan_dependency_match":
+      return "Matched with declared dependency mapping.";
+    case "classifier_builtin":
+      return "Classified as built-in tool.";
+    case "classifier_shell":
+      return "Classified as shell command.";
+    case "fallback_unknown":
+    case "unknown":
+    default:
+      return "No strong attribution evidence found.";
+  }
+}
+
+function sanitizeAttributionSummary(summary: string): string {
+  const collapsed = summary.replace(/\s+/g, " ").trim();
+  if (collapsed.length === 0) {
+    return "No strong attribution evidence found.";
+  }
+
+  // Keep evidence summaries safe for local logs/reports by redacting absolute paths.
+  const redactedUnixPaths = collapsed.replace(/(?:^|\s)\/[^\s]+/g, (value) =>
+    value.startsWith("/") ? "<path>" : value.replace(/\/[^\s]+/, " <path>"),
+  );
+  const redacted = redactedUnixPaths.replace(/[A-Za-z]:\\[^\s]+/g, "<path>");
+  return redacted.slice(0, 240);
 }
 
 type SkillMetadataIndex = Map<string, { definition: SkillDefinitionMetadata; ambiguous: boolean }>;

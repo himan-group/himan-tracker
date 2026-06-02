@@ -15,7 +15,9 @@ export type AlertMetric =
   | "invocations"
   | "success_rate"
   | "duration_cv"
-  | "tokens_cv";
+  | "tokens_cv"
+  | "unknown_origin_ratio"
+  | "attribution_score_drop";
 
 export type MetricsInsightAlert = {
   scope: "overall" | "project" | "capability";
@@ -94,6 +96,9 @@ export type CapabilityMetricsRow = {
   invocationGrowthRate: number | null;
   successRate: number | null;
   successRateDelta: number | null;
+  unknownOriginRatio: number | null;
+  attributionScoreAvg: number | null;
+  attributionScoreAvgDelta: number | null;
   durationBasis: DurationBasis;
   duration: DistributionMetrics;
   tokens: DistributionMetrics;
@@ -145,6 +150,8 @@ type CapabilityEventRow = {
   duration_ms: number | null;
   duration_basis: DurationBasis;
   status: string;
+  invocation_origin: string;
+  effective_attribution_score: number;
 };
 
 type CapabilityAggregate = {
@@ -154,6 +161,9 @@ type CapabilityAggregate = {
   invocationCount: number;
   successCount: number;
   failureCount: number;
+  unknownOriginCount: number;
+  attributionScoreSum: number;
+  attributionScoreCount: number;
   eventDurationCount: number;
   turnEstimateDurationCount: number;
   durations: number[];
@@ -176,6 +186,18 @@ const CV_THRESHOLDS: Array<{ severity: AlertSeverity; threshold: number }> = [
   { severity: "critical", threshold: 1.5 },
   { severity: "major", threshold: 1 },
   { severity: "warning", threshold: 0.5 },
+];
+
+const UNKNOWN_ORIGIN_RATIO_THRESHOLDS: Array<{ severity: AlertSeverity; threshold: number }> = [
+  { severity: "critical", threshold: 0.5 },
+  { severity: "major", threshold: 0.35 },
+  { severity: "warning", threshold: 0.2 },
+];
+
+const ATTRIBUTION_SCORE_DROP_THRESHOLDS: Array<{ severity: AlertSeverity; threshold: number }> = [
+  { severity: "critical", threshold: 35 },
+  { severity: "major", threshold: 25 },
+  { severity: "warning", threshold: 15 },
 ];
 
 const OVERALL_HISTORY_LIMIT: Record<MetricsPeriod, number> = {
@@ -424,6 +446,13 @@ function readCapabilityMetrics(
       const previousSuccessRate = previousAggregate
         ? calculateSuccessRate(previousAggregate.successCount, previousAggregate.failureCount)
         : null;
+      const attributionScoreAvg = divideNullable(
+        aggregate.attributionScoreSum,
+        aggregate.attributionScoreCount,
+      );
+      const previousAttributionScoreAvg = previousAggregate
+        ? divideNullable(previousAggregate.attributionScoreSum, previousAggregate.attributionScoreCount)
+        : null;
 
       return {
         agent: aggregate.agent,
@@ -439,6 +468,12 @@ function readCapabilityMetrics(
           successRate === null || previousSuccessRate === null
             ? null
             : successRate - previousSuccessRate,
+        unknownOriginRatio: divideNullable(aggregate.unknownOriginCount, aggregate.invocationCount),
+        attributionScoreAvg,
+        attributionScoreAvgDelta:
+          attributionScoreAvg === null || previousAttributionScoreAvg === null
+            ? null
+            : attributionScoreAvg - previousAttributionScoreAvg,
         durationBasis: resolveDurationBasis(aggregate),
         duration,
         tokens,
@@ -466,7 +501,19 @@ function readCapabilityAggregates(
           when c.capability_type = 'skill' and t.duration_ms is not null then 'turn_estimate'
           else 'none'
         end as duration_basis,
-        c.status
+        c.status,
+        c.invocation_origin,
+        coalesce(
+          c.attribution_score,
+          case
+            when c.attribution_confidence = 'exact' then 100
+            when c.capability_type = 'builtin_tool' then 55
+            when c.capability_type = 'shell_command' then 50
+            when c.attribution_confidence = 'estimated' then 60
+            when c.attribution_confidence = 'unknown' then 0
+            else 0
+          end
+        ) as effective_attribution_score
       from capability_usages c
       left join turns t
         on t.id = c.turn_id
@@ -487,6 +534,9 @@ function readCapabilityAggregates(
       invocationCount: 0,
       successCount: 0,
       failureCount: 0,
+      unknownOriginCount: 0,
+      attributionScoreSum: 0,
+      attributionScoreCount: 0,
       eventDurationCount: 0,
       turnEstimateDurationCount: 0,
       durations: [],
@@ -499,6 +549,11 @@ function readCapabilityAggregates(
     } else if (row.status === "failure") {
       aggregate.failureCount += 1;
     }
+    if (row.invocation_origin === "unknown") {
+      aggregate.unknownOriginCount += 1;
+    }
+    aggregate.attributionScoreSum += row.effective_attribution_score;
+    aggregate.attributionScoreCount += 1;
     if (row.duration_ms !== null) {
       aggregate.durations.push(row.duration_ms);
       if (row.duration_basis === "event") {
@@ -634,6 +689,8 @@ function createCapabilityAlerts(
       change: capability.tokens.growthRate,
     }),
     createSuccessRateAlert(period, subject, capability),
+    createUnknownOriginRatioAlert(period, subject, capability),
+    createAttributionScoreDropAlert(period, subject, capability),
     createCvAlert(period, "duration_cv", subject, capability.duration.cv),
     createCvAlert(period, "tokens_cv", subject, capability.tokens.cv),
   ].filter((alert): alert is MetricsInsightAlert => alert !== null);
@@ -715,6 +772,59 @@ function createCvAlert(
     previous: null,
     change: null,
     message: `${metric} is ${cv.toFixed(2)}`,
+  };
+}
+
+function createUnknownOriginRatioAlert(
+  period: MetricsPeriod,
+  subject: string,
+  capability: CapabilityMetricsRow,
+): MetricsInsightAlert | null {
+  const ratio = capability.unknownOriginRatio;
+  const severity = getThresholdSeverity(ratio ?? 0, UNKNOWN_ORIGIN_RATIO_THRESHOLDS);
+  if (!severity || ratio === null) {
+    return null;
+  }
+
+  return {
+    scope: "capability",
+    period,
+    severity,
+    metric: "unknown_origin_ratio",
+    subject,
+    current: ratio,
+    previous: null,
+    change: null,
+    message: `unknown_origin_ratio is ${formatPercent(ratio)}`,
+  };
+}
+
+function createAttributionScoreDropAlert(
+  period: MetricsPeriod,
+  subject: string,
+  capability: CapabilityMetricsRow,
+): MetricsInsightAlert | null {
+  const delta = capability.attributionScoreAvgDelta;
+  if (delta === null || delta >= 0) {
+    return null;
+  }
+
+  const dropMagnitude = Math.abs(delta);
+  const severity = getThresholdSeverity(dropMagnitude, ATTRIBUTION_SCORE_DROP_THRESHOLDS);
+  if (!severity) {
+    return null;
+  }
+
+  return {
+    scope: "capability",
+    period,
+    severity,
+    metric: "attribution_score_drop",
+    subject,
+    current: capability.attributionScoreAvg,
+    previous: capability.attributionScoreAvg === null ? null : capability.attributionScoreAvg - delta,
+    change: delta,
+    message: `attribution_score dropped ${dropMagnitude.toFixed(1)} points`,
   };
 }
 
@@ -880,6 +990,9 @@ function createEmptyCapabilityAggregate(
     invocationCount: 0,
     successCount: 0,
     failureCount: 0,
+    unknownOriginCount: 0,
+    attributionScoreSum: 0,
+    attributionScoreCount: 0,
     eventDurationCount: 0,
     turnEstimateDurationCount: 0,
     durations: [],

@@ -25,6 +25,10 @@ describe("validateNormalizedEvent", () => {
       total_tokens: null,
         adopted: "unknown",
         attribution_confidence: "unknown",
+        attribution_basis: "fallback_unknown",
+        attribution_score: 0,
+        attribution_reason: "No strong attribution signal.",
+        attribution_context_source: "none",
       });
 
       assert.equal(event.event_type, "capability_usage");

@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-02
+
+### Added
+
+- Added capability attribution confidence reporting surfaces for ROI analysis: `capabilities --view strict|weighted` with `--strict-score-threshold`, `capability-events --min-score`, and attribution score/basis/context columns in capability event details.
+- Added weighted capability aggregation fields in daily/monthly stats (`strict_attribution_count`, `weighted_invocation_count`, `weighted_total_tokens`, `weighted_duration_ms`) and attribution drift alerts (`unknown_origin_ratio`, `attribution_score_drop`) in Metrics.
+- Added an Overview dashboard `Capability ROI views` tab group on `server start` pages, with `Raw`, `Strict (>=80)`, and `Weighted` capability tables sourced from the same attribution-confidence logic.
+- Added `Static tokens` to Overview dashboard capability tables for skill `himan.yaml` package token estimates.
+- Added project counts to Summary reports and Overview dashboard summary metrics.
+
+### Changed
+
+- Updated user guide capability documentation to cover raw/strict/weighted views, strict threshold semantics, score-based capability-event filtering, and fail-open handling for non-Himan skill sources without `himan.yaml`/`himan.lock`.
+
+### Fixed
+
+- Fixed system capability filtering to treat `write_stdin` (including `functions.write_stdin`) as a built-in tool, so `summary --exclude-system`, `capabilities --exclude-system`, and dashboard Top capabilities no longer show it.
+
 ## [0.3.2] - 2026-06-01
 
 ### Changed

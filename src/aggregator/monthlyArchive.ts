@@ -193,6 +193,10 @@ function upsertMonthlyCapabilityStats(
       metadata_exact_count,
       metadata_estimated_count,
       metadata_unknown_count,
+      strict_attribution_count,
+      weighted_invocation_count,
+      weighted_total_tokens,
+      weighted_duration_ms,
       source_start_date,
       source_end_date,
       archived_at
@@ -226,6 +230,16 @@ function upsertMonthlyCapabilityStats(
       sum(metadata_exact_count) as metadata_exact_count,
       sum(metadata_estimated_count) as metadata_estimated_count,
       sum(metadata_unknown_count) as metadata_unknown_count,
+      sum(strict_attribution_count) as strict_attribution_count,
+      sum(weighted_invocation_count) as weighted_invocation_count,
+      case
+        when count(weighted_total_tokens) = 0 then null
+        else sum(weighted_total_tokens)
+      end as weighted_total_tokens,
+      case
+        when count(weighted_duration_ms) = 0 then null
+        else sum(weighted_duration_ms)
+      end as weighted_duration_ms,
       min(date) as source_start_date,
       max(date) as source_end_date,
       ? as archived_at
@@ -251,6 +265,10 @@ function upsertMonthlyCapabilityStats(
       metadata_exact_count = excluded.metadata_exact_count,
       metadata_estimated_count = excluded.metadata_estimated_count,
       metadata_unknown_count = excluded.metadata_unknown_count,
+      strict_attribution_count = excluded.strict_attribution_count,
+      weighted_invocation_count = excluded.weighted_invocation_count,
+      weighted_total_tokens = excluded.weighted_total_tokens,
+      weighted_duration_ms = excluded.weighted_duration_ms,
       source_start_date = excluded.source_start_date,
       source_end_date = excluded.source_end_date,
       archived_at = excluded.archived_at

@@ -5,7 +5,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 
 import {
-  extractSkillNamesFromToolCall,
+  extractSkillEvidenceFromToolCall,
   type HimanLockSkillCache,
 } from "./skillEvidence.js";
 import { classifyCapability } from "../../normalizer/capabilityClassifier.js";
@@ -13,6 +13,7 @@ import { validateNormalizedEvent } from "../../normalizer/eventSchema.js";
 import { createEventId } from "../../normalizer/normalizeEvent.js";
 import type {
   AttributionConfidence,
+  CapabilityAttributionContextSource,
   CapabilityInvocationOrigin,
   CapabilityType,
   CapabilityUsageEvent,
@@ -70,6 +71,10 @@ type TranscriptCapabilityUsage = {
   status: EventStatus;
   attribution_confidence: AttributionConfidence;
   invocation_origin: CapabilityInvocationOrigin;
+  attribution_basis: "transcript_mcp_tool_end" | "transcript_shell_skill_path";
+  attribution_score: number;
+  attribution_reason: string;
+  attribution_context_source: CapabilityAttributionContextSource;
 };
 
 type TranscriptToolCallStart = {
@@ -251,11 +256,11 @@ async function parseTranscriptTurnUsage(options: {
       }
 
       if (shouldCollectTranscriptCapability(currentTurnId, options.turnId)) {
-        for (const skillName of await extractSkillNamesFromToolCall(
+        for (const skillEvidence of await extractSkillEvidenceFromToolCall(
           payload,
           himanLockSkillCache,
         )) {
-          const key = `${currentTurnId ?? ""}\u001f${skillName}`;
+          const key = `${currentTurnId ?? ""}\u001f${skillEvidence.skillName}`;
           if (skillCapabilityKeys.has(key)) {
             continue;
           }
@@ -265,11 +270,15 @@ async function parseTranscriptTurnUsage(options: {
             occurred_at: getString(record.timestamp) ?? options.occurredAt,
             turn_id: currentTurnId,
             capability_type: "skill",
-            capability_name: skillName,
+            capability_name: skillEvidence.skillName,
             duration_ms: null,
             status: "unknown",
             attribution_confidence: "estimated",
             invocation_origin: "inferred",
+            attribution_basis: "transcript_shell_skill_path",
+            attribution_score: skillEvidence.attributionScore,
+            attribution_reason: skillEvidence.attributionReason,
+            attribution_context_source: skillEvidence.attributionContextSource,
           });
         }
       }
@@ -322,6 +331,10 @@ async function parseTranscriptTurnUsage(options: {
           status: getMcpResultStatus(payload.result),
           attribution_confidence: "exact",
           invocation_origin: "observed",
+          attribution_basis: "transcript_mcp_tool_end",
+          attribution_score: 100,
+          attribution_reason: "Structured mcp_tool_call_end event observed in transcript.",
+          attribution_context_source: "transcript_only",
         });
       }
       continue;
@@ -525,6 +538,10 @@ function createTranscriptCapabilityEvent(
     adopted: "unknown",
     attribution_confidence: capability.attribution_confidence,
     invocation_origin: capability.invocation_origin,
+    attribution_basis: capability.attribution_basis,
+    attribution_score: capability.attribution_score,
+    attribution_reason: capability.attribution_reason,
+    attribution_context_source: capability.attribution_context_source,
   };
 
   return validateNormalizedEvent({

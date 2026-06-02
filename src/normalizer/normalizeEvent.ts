@@ -3,6 +3,9 @@ import { createHash } from "node:crypto";
 import type {
   AdapterCapabilityUsageEvent,
   AdapterEvent,
+  CapabilityAttributionBasis,
+  CapabilityAttributionContextSource,
+  CapabilityUsageEvent,
   NormalizedEvent,
   TokenUsage,
 } from "../types/events.js";
@@ -40,6 +43,7 @@ export function normalizeEvent(event: AdapterEvent, config: UserConfig): Normali
       break;
     case "capability_usage":
       const classifiedCapability = classifyCapability(event);
+      const attribution = resolveCapabilityAttribution(event, classifiedCapability.type);
       normalizedEvent = {
         ...base,
         event_type: "capability_usage",
@@ -53,6 +57,7 @@ export function normalizeEvent(event: AdapterEvent, config: UserConfig): Normali
         adopted: event.adopted ?? "unknown",
         attribution_confidence: event.attribution_confidence ?? "unknown",
         invocation_origin: event.invocation_origin ?? "unknown",
+        ...attribution,
         ...normalizeTokenUsage(event),
       };
       break;
@@ -131,4 +136,118 @@ function normalizeCapabilityName(
   }
 
   return trimmedName.split(/\s+/, 1)[0] ?? trimmedName;
+}
+
+type NormalizedCapabilityAttribution = {
+  basis: CapabilityAttributionBasis;
+  score: number | null;
+  reason: string | null;
+  contextSource: CapabilityAttributionContextSource;
+};
+
+type ResolvedCapabilityAttribution = {
+  attribution_basis?: CapabilityAttributionBasis;
+  attribution_score?: number | null;
+  attribution_reason?: string | null;
+  attribution_context_source?: CapabilityAttributionContextSource;
+};
+
+function resolveCapabilityAttribution(
+  event: AdapterCapabilityUsageEvent,
+  classifiedType: CapabilityUsageEvent["capability_type"],
+): ResolvedCapabilityAttribution {
+  if (
+    event.attribution_basis === undefined &&
+    event.attribution_score === undefined &&
+    event.attribution_reason === undefined &&
+    event.attribution_context_source === undefined
+  ) {
+    return {};
+  }
+
+  const normalized = normalizeCapabilityAttribution(event, classifiedType);
+  return {
+    attribution_basis: normalized.basis,
+    attribution_score: normalized.score,
+    attribution_reason: normalized.reason,
+    attribution_context_source: normalized.contextSource,
+  };
+}
+
+function normalizeCapabilityAttribution(
+  event: AdapterCapabilityUsageEvent,
+  classifiedType: CapabilityUsageEvent["capability_type"],
+): NormalizedCapabilityAttribution {
+  const basis = normalizeAttributionBasis(event.attribution_basis, classifiedType);
+  const score = normalizeAttributionScore(event.attribution_score, event, basis);
+  const reason = normalizeAttributionReason(event.attribution_reason);
+  const contextSource = normalizeAttributionContextSource(event.attribution_context_source);
+
+  return { basis, score, reason, contextSource };
+}
+
+function normalizeAttributionBasis(
+  basis: AdapterCapabilityUsageEvent["attribution_basis"],
+  classifiedType: CapabilityUsageEvent["capability_type"],
+): CapabilityAttributionBasis {
+  if (basis) {
+    return basis;
+  }
+
+  if (classifiedType === "builtin_tool") {
+    return "classifier_builtin";
+  }
+  if (classifiedType === "shell_command") {
+    return "classifier_shell";
+  }
+  return "fallback_unknown";
+}
+
+function normalizeAttributionScore(
+  score: AdapterCapabilityUsageEvent["attribution_score"],
+  event: AdapterCapabilityUsageEvent,
+  basis: CapabilityAttributionBasis,
+): number | null {
+  if (typeof score === "number" && Number.isInteger(score) && score >= 0 && score <= 100) {
+    return score;
+  }
+
+  if (event.attribution_confidence === "exact") {
+    return 100;
+  }
+  if (basis === "classifier_builtin") {
+    return 55;
+  }
+  if (basis === "classifier_shell") {
+    return 50;
+  }
+  if (event.attribution_confidence === "estimated") {
+    return 60;
+  }
+  if (event.attribution_confidence === "unknown") {
+    return 0;
+  }
+
+  return null;
+}
+
+function normalizeAttributionReason(
+  reason: AdapterCapabilityUsageEvent["attribution_reason"],
+): string | null {
+  if (!reason) {
+    return null;
+  }
+
+  const sanitized = reason.replace(/\s+/g, " ").trim();
+  if (sanitized.length === 0) {
+    return null;
+  }
+
+  return sanitized.slice(0, 240);
+}
+
+function normalizeAttributionContextSource(
+  source: AdapterCapabilityUsageEvent["attribution_context_source"],
+): CapabilityAttributionContextSource {
+  return source ?? "none";
 }

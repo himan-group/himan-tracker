@@ -15,6 +15,26 @@ const capabilityTypeSchema = z.enum([
 const adoptedSchema = z.enum(["yes", "no", "unknown"]);
 const attributionConfidenceSchema = z.enum(["exact", "estimated", "unknown"]);
 const invocationOriginSchema = z.enum(["explicit", "inferred", "observed", "unknown"]);
+const attributionBasisSchema = z.enum([
+  "prompt_explicit_skill",
+  "transcript_mcp_tool_end",
+  "transcript_tool_name",
+  "transcript_shell_skill_path",
+  "himan_lock_match",
+  "himan_manifest_match",
+  "himan_dependency_match",
+  "classifier_builtin",
+  "classifier_shell",
+  "fallback_unknown",
+  "unknown",
+]);
+const attributionContextSourceSchema = z.enum([
+  "himan_install_manifest",
+  "himan_lock",
+  "himan_metadata",
+  "transcript_only",
+  "none",
+]);
 
 const nullableNonNegativeIntegerSchema = z.number().int().nonnegative().nullable();
 const nullableNonNegativeNumberSchema = z.number().nonnegative().nullable();
@@ -55,6 +75,10 @@ export const capabilityUsageEventSchema = eventBaseSchema
     adopted: adoptedSchema,
     attribution_confidence: attributionConfidenceSchema,
     invocation_origin: invocationOriginSchema.default("unknown"),
+    attribution_basis: attributionBasisSchema.optional(),
+    attribution_score: z.number().int().min(0).max(100).nullable().optional(),
+    attribution_reason: z.string().min(1).max(240).nullable().optional(),
+    attribution_context_source: attributionContextSourceSchema.optional(),
   })
   .merge(tokenUsageSchema);
 

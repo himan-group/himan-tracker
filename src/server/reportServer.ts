@@ -141,6 +141,7 @@ type DashboardData = {
   summarySection: DashboardSection;
   tokenTabs: DashboardTab[];
   sections: DashboardSection[];
+  capabilityViewTabs: DashboardTab[];
   capabilityCallTabs: DashboardTab[];
   recentTurnsSection: DashboardSection;
 };
@@ -165,6 +166,7 @@ type MetricsDashboardSummary = {
 type DashboardCapabilityCallType = "skill" | "mcp_tool";
 
 type DashboardSummary = {
+  project_count: number;
   session_count: number;
   turn_count: number;
   total_tokens: number | null;
@@ -209,6 +211,7 @@ type DashboardCapabilityRow = {
   capability_name: string;
   invocation_count: number;
   total_tokens: number | null;
+  static_package_tokens: number | null;
   duration_ms: number | null;
   duration_count: number;
   min_duration_ms: number | null;
@@ -227,6 +230,7 @@ type DashboardSummaryCapabilityRow = {
   capability_name: string;
   invocation_count: number;
   total_tokens: number | null;
+  static_package_tokens: number | null;
   duration_ms: number | null;
   duration_count: number;
 };
@@ -242,6 +246,21 @@ type DashboardTokenDayRow = {
 const RUNTIME_TOKEN_NOTE =
   "Runtime tokens use observed input/output/total token fields only; himan.yaml static token estimates are excluded.";
 
+const DEFAULT_STRICT_SCORE_THRESHOLD = 80;
+const EFFECTIVE_ATTRIBUTION_SCORE_SQL = `
+coalesce(
+  c.attribution_score,
+  case
+    when c.attribution_confidence = 'exact' then 100
+    when c.capability_type = 'builtin_tool' then 55
+    when c.capability_type = 'shell_command' then 50
+    when c.attribution_confidence = 'estimated' then 60
+    when c.attribution_confidence = 'unknown' then 0
+    else 0
+  end
+)
+`;
+
 type DashboardTokenBucket = {
   key: string;
   label: string;
@@ -256,6 +275,7 @@ type DashboardTokenBucket = {
 
 type DashboardTokenPeriod = "day" | "week" | "month";
 export type DashboardDisplayMode = "table" | "text";
+type DashboardCapabilityView = "raw" | "strict" | "weighted";
 
 type DashboardTurnRow = {
   occurred_at: string;
@@ -697,6 +717,42 @@ function readDashboardData(options: {
           }),
         },
       ],
+      capabilityViewTabs: [
+        {
+          id: "raw",
+          label: "Raw",
+          table: readDashboardCapabilities(db, range, {
+            excludeSystem: false,
+            limit: 25,
+            sort: "tokens",
+            noteLabel: "capabilities",
+            view: "raw",
+          }),
+        },
+        {
+          id: "strict",
+          label: "Strict (>=80)",
+          table: readDashboardCapabilities(db, range, {
+            excludeSystem: false,
+            limit: 25,
+            sort: "tokens",
+            noteLabel: "capabilities",
+            view: "strict",
+            strictScoreThreshold: DEFAULT_STRICT_SCORE_THRESHOLD,
+          }),
+        },
+        {
+          id: "weighted",
+          label: "Weighted",
+          table: readDashboardCapabilities(db, range, {
+            excludeSystem: false,
+            limit: 25,
+            sort: "tokens",
+            noteLabel: "capabilities",
+            view: "weighted",
+          }),
+        },
+      ],
       capabilityCallTabs: [
         {
           id: "skills",
@@ -864,7 +920,7 @@ function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode)
 
     .metrics {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(5, minmax(0, 1fr));
       gap: 12px;
       margin-bottom: 18px;
     }
@@ -1106,6 +1162,7 @@ function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode)
   </header>
   <main>
     <div class="metrics">
+      ${renderMetric("Projects", String(data.summary.project_count))}
       ${renderMetric("Sessions", String(data.summary.session_count))}
       ${renderMetric("Turns", String(data.summary.turn_count))}
       ${renderMetric("Runtime tokens", formatTokenCount(data.summary.total_tokens))}
@@ -1114,6 +1171,7 @@ function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode)
     ${renderSection(data.summarySection, display)}
     ${renderTabbedSection("Runtime token usage", "token", data.tokenTabs, display)}
     ${data.sections.map((section) => renderSection(section, display)).join("\n")}
+    ${renderTabbedSection("Capability ROI views", "capability-roi", data.capabilityViewTabs, display)}
     ${renderTabbedSection("Capability calls", "capability-calls", data.capabilityCallTabs, display)}
     ${renderSection(data.recentTurnsSection, display)}
   </main>
@@ -1781,6 +1839,14 @@ function formatAlertValue(metric: MetricsInsightAlert["metric"], value: number |
     return formatPercentRatio(value);
   }
 
+  if (metric === "unknown_origin_ratio") {
+    return formatPercentRatio(value);
+  }
+
+  if (metric === "attribution_score_drop") {
+    return value === null || !Number.isFinite(value) ? "n/a" : value.toFixed(1);
+  }
+
   if (metric === "duration_cv" || metric === "tokens_cv") {
     return value === null || !Number.isFinite(value) ? "n/a" : value.toFixed(2);
   }
@@ -1977,6 +2043,7 @@ function createDashboardSummaryMetricTable(summary: DashboardSummary): Dashboard
     columns: ["Metric", "Value"],
     width: "compact",
     rows: [
+      ["Projects", String(summary.project_count)],
       ["Sessions", String(summary.session_count)],
       ["Turns", String(summary.turn_count)],
       ["Total runtime tokens", formatTokenCount(summary.total_tokens)],
@@ -2050,6 +2117,7 @@ function readDashboardSummaryCapabilities(
           c.capability_type,
           c.capability_name,
           c.total_tokens,
+          c.static_package_tokens,
           coalesce(c.duration_ms, case when c.capability_type = 'skill' then t.duration_ms end)
             as effective_duration_ms
         from capability_usages c
@@ -2065,6 +2133,7 @@ function readDashboardSummaryCapabilities(
         capability_name,
         count(*) as invocation_count,
         case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens,
+        case when count(static_package_tokens) = 0 then null else max(static_package_tokens) end as static_package_tokens,
         case when count(effective_duration_ms) = 0 then null else sum(effective_duration_ms) end as duration_ms,
         count(effective_duration_ms) as duration_count
       from capability_events
@@ -2076,13 +2145,14 @@ function readDashboardSummaryCapabilities(
     .all(...params) as DashboardSummaryCapabilityRow[];
 
   return {
-    columns: ["Agent", "Type", "Capability", "Invocations", "Runtime tokens", "Duration"],
+    columns: ["Agent", "Type", "Capability", "Invocations", "Runtime tokens", "Static tokens", "Duration"],
     rows: rows.map((row) => [
       row.agent,
       row.capability_type,
       row.capability_name,
       String(row.invocation_count),
       formatTokenCount(row.total_tokens),
+      formatTokenCount(row.static_package_tokens),
       formatAverageDurationMs(row.duration_ms, row.duration_count),
     ]),
     emptyText: "No capability usage found.",
@@ -2097,8 +2167,12 @@ function readDashboardCapabilities(
     limit: number;
     sort: "tokens" | "invocations" | "duration" | "failures";
     noteLabel: string;
+    view?: DashboardCapabilityView;
+    strictScoreThreshold?: number;
   },
 ): DashboardTable {
+  const view = filters.view ?? "raw";
+  const strictScoreThreshold = filters.strictScoreThreshold ?? DEFAULT_STRICT_SCORE_THRESHOLD;
   const clauses = ["date(c.occurred_at, 'localtime') between ? and ?"];
   const params: Array<string | number> = [range.startDate, range.endDate];
 
@@ -2107,6 +2181,31 @@ function readDashboardCapabilities(
     clauses.push(condition.sql);
     params.push(...condition.params);
   }
+
+  if (view === "strict") {
+    clauses.push(`${EFFECTIVE_ATTRIBUTION_SCORE_SQL} >= ?`);
+    params.push(strictScoreThreshold);
+  }
+
+  const invocationMetricSql =
+    view === "weighted" ? "sum(weight) as invocation_count" : "count(*) as invocation_count";
+  const totalTokensMetricSql =
+    view === "weighted"
+      ? "case when count(weighted_total_tokens) = 0 then null else sum(weighted_total_tokens) end as total_tokens"
+      : "case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens";
+  const durationCountMetricSql =
+    view === "weighted"
+      ? "sum(case when effective_duration_ms is null then 0 else weight end) as duration_count"
+      : "count(effective_duration_ms) as duration_count";
+  const durationMetricSql =
+    view === "weighted"
+      ? "case when count(weighted_duration_ms) = 0 then null else sum(weighted_duration_ms) end as duration_ms"
+      : `
+        case
+          when count(effective_duration_ms) = 0 then null
+          else sum(effective_duration_ms)
+        end as duration_ms
+      `;
 
   const sortSql = {
     invocations: "invocation_count",
@@ -2124,8 +2223,24 @@ function readDashboardCapabilities(
           c.capability_type,
           c.capability_name,
           c.total_tokens,
+          c.static_package_tokens,
           coalesce(c.duration_ms, case when c.capability_type = 'skill' then t.duration_ms end)
             as effective_duration_ms,
+          case
+            when c.total_tokens is null then null
+            else (
+              c.total_tokens * (${EFFECTIVE_ATTRIBUTION_SCORE_SQL} / 100.0)
+            )
+          end as weighted_total_tokens,
+          case
+            when coalesce(c.duration_ms, case when c.capability_type = 'skill' then t.duration_ms end) is null
+              then null
+            else (
+              coalesce(c.duration_ms, case when c.capability_type = 'skill' then t.duration_ms end) *
+              (${EFFECTIVE_ATTRIBUTION_SCORE_SQL} / 100.0)
+            )
+          end as weighted_duration_ms,
+          (${EFFECTIVE_ATTRIBUTION_SCORE_SQL} / 100.0) as weight,
           c.status,
           c.invocation_origin
         from capability_usages c
@@ -2140,13 +2255,11 @@ function readDashboardCapabilities(
           agent,
           capability_type,
           capability_name,
-          count(*) as invocation_count,
-          case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens,
-          count(effective_duration_ms) as duration_count,
-          case
-            when count(effective_duration_ms) = 0 then null
-            else sum(effective_duration_ms)
-          end as duration_ms,
+          ${invocationMetricSql},
+          ${totalTokensMetricSql},
+          case when count(static_package_tokens) = 0 then null else max(static_package_tokens) end as static_package_tokens,
+          ${durationCountMetricSql},
+          ${durationMetricSql},
           min(effective_duration_ms) as min_duration_ms,
           max(effective_duration_ms) as max_duration_ms,
           sum(case when status = 'success' then 1 else 0 end) as success_count,
@@ -2177,6 +2290,7 @@ function readDashboardCapabilities(
       "Observed",
       "Unknown",
       "Runtime tokens",
+      "Static tokens",
       "Avg duration",
       "Min duration",
       "Max duration",
@@ -2186,22 +2300,59 @@ function readDashboardCapabilities(
       row.agent,
       row.capability_type,
       row.capability_name,
-      String(row.invocation_count),
+      formatDashboardInvocationCount(view, row.invocation_count),
       String(row.explicit_invocation_count),
       String(row.inferred_invocation_count),
       String(row.observed_invocation_count),
       String(row.unknown_origin_count),
       formatTokenCount(row.total_tokens),
+      formatTokenCount(row.static_package_tokens),
       formatAverageDurationMs(row.duration_ms, row.duration_count),
       formatDurationMs(row.min_duration_ms),
       formatDurationMs(row.max_duration_ms),
       formatSuccessRate(row.success_count, row.failure_count),
     ]),
     emptyText: "No capability usage found for this range.",
-    note: `Showing ${visibleRows.length} of ${rows.length} ${filters.noteLabel} (${formatDateRange(
+    note: createCapabilitiesNote({
       range,
-    )}).`,
+      view,
+      strictScoreThreshold,
+      visibleCount: visibleRows.length,
+      totalCount: rows.length,
+      noteLabel: filters.noteLabel,
+    }),
   };
+}
+
+function createCapabilitiesNote(options: {
+  range: { startDate: string; endDate: string };
+  view: DashboardCapabilityView;
+  strictScoreThreshold: number;
+  visibleCount: number;
+  totalCount: number;
+  noteLabel: string;
+}): string {
+  const base = `Showing ${options.visibleCount} of ${options.totalCount} ${options.noteLabel} (${formatDateRange(
+    options.range,
+  )})`;
+
+  if (options.view === "strict") {
+    return `${base}, view=strict, score>=${options.strictScoreThreshold}.`;
+  }
+
+  if (options.view === "weighted") {
+    return `${base}, view=weighted (confidence-weighted invocations/tokens/duration).`;
+  }
+
+  return `${base}, view=raw.`;
+}
+
+function formatDashboardInvocationCount(view: DashboardCapabilityView, value: number): string {
+  if (view !== "weighted") {
+    return String(value);
+  }
+
+  return value.toFixed(2).replace(/\.00$/, "");
 }
 
 function readDashboardTokenUsage(
@@ -2294,6 +2445,14 @@ function readDashboardSummary(
     .prepare(
       `
       select
+        coalesce(
+          (
+            select count(distinct coalesce(repo_hash, 'unknown'))
+            from turns
+            where date(occurred_at, 'localtime') between ? and ?
+          ),
+          0
+        ) as project_count,
         coalesce(sum(session_count), 0) as session_count,
         coalesce(sum(turn_count), 0) as turn_count,
         case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens,
@@ -2304,7 +2463,8 @@ function readDashboardSummary(
       where date between ? and ?
       `,
     )
-    .get(range.startDate, range.endDate) as {
+    .get(range.startDate, range.endDate, range.startDate, range.endDate) as {
+      project_count: number;
       session_count: number;
       turn_count: number;
       total_tokens: number | null;
@@ -2314,6 +2474,7 @@ function readDashboardSummary(
     };
 
   return {
+    project_count: row.project_count,
     session_count: row.session_count,
     turn_count: row.turn_count,
     total_tokens: row.total_tokens,

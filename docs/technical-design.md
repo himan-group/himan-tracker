@@ -1082,24 +1082,150 @@ himan-tracker doctor
 - hook 配置是否可用。
 - schema version 是否兼容。
 
-### 8.12 Server Dashboard 与 Skill Insights 页面
+### 8.12 Server Dashboard 信息架构
 
-`himan-tracker server` 提供本地 HTTP dashboard。现有 `/` 页面保留为 Overview，展示 agent、token、capability 和 recent turns 的运行时总览。Skill 静态治理指标应提供独立页面，避免和运行时 token 总览混淆。
+`himan-tracker server` 提供本地 HTTP dashboard。页面应按使用场景拆分，避免把运行时总览、趋势监控、ROI 分析、事实下钻和 skill 静态治理混在同一个 Overview 中。
+
+核心定位：
+
+- Overview：快速扫一眼最近整体情况。
+- Projects：按项目、session、turn 下钻，解释一次使用到底发生了什么。
+- Capability ROI：横向比较 capability，发现高成本、低成功率或值得优化的能力。
+- Metrics：按日/周/月观察趋势、增长、波动和告警。
+- Skill Insights：围绕 `himan.yaml` 做 skill 静态治理。
+
+推荐导航：
+
+```text
+Overview | Projects | Capability ROI | Metrics | Skill Insights
+```
 
 建议路由：
 
 ```text
 GET /
 GET /dashboard.json
+GET /projects
+GET /projects.json
+GET /projects/:project_id
+GET /projects/:project_id.json
+GET /sessions/:session_id
+GET /sessions/:session_id.json
+GET /turns/:turn_id
+GET /turns/:turn_id.json
+GET /capability-roi
+GET /capability-roi.json
+GET /capabilities/:type/:name
+GET /capabilities/:type/:name.json
+GET /metrics
+GET /metrics.json
 GET /skills
 GET /skills.json
 GET /healthz
 ```
 
-页面导航：
+#### `/` Overview 页面定位
+
+Overview 只回答“最近整体怎么样”，保留轻量总览，不承载完整分析。
+
+建议内容：
+
+- Summary cards：projects、sessions、turns、runtime tokens、avg latency。
+- Runtime token usage：day / week / month。
+- Top capabilities：轻量 Top N，展示 `Runtime tokens` 和 `Static tokens`，但不展开 ROI 分析。
+- Recent turns：最近 turn 列表，作为进入下钻链路的入口。
+
+#### Project / Session / Turn 下钻链路
+
+下钻链路用于回答“这次使用到底发生了什么”。它是事实浏览路径，不是 ROI 排序页。
+
+推荐层级：
 
 ```text
-Overview | Skill Insights
+/projects
+-> /projects/:project_id
+-> /sessions/:session_id
+-> /turns/:turn_id
+-> /capabilities/:type/:name
+```
+
+`/projects` 列表：
+
+```text
+Project | Sessions | Turns | Runtime tokens | Duration | Top capabilities | Last activity
+```
+
+`/projects/:project_id` 详情：
+
+- 项目 summary cards。
+- Session table。
+- Turn timeline。
+- Project 内 Top capabilities。
+- 指向 capability detail 的链接。
+
+`/sessions/:session_id` 详情：
+
+- Session metadata。
+- Turn list。
+- Runtime token trend。
+- Capability usage timeline。
+
+`/turns/:turn_id` 详情：
+
+- Turn summary。
+- Runtime tokens、duration、status、model。
+- 按发生顺序展示 capability calls。
+- Capability evidence、origin、attribution score 和 basis。
+
+#### `/capability-roi` 页面定位
+
+Capability ROI 页面用于回答“哪些 capability 值得优化”。它做横向比较和排序，不承载完整 project/session/turn 浏览。
+
+建议表格：
+
+```text
+Capability | Type | Projects | Invocations | Runtime tokens | Static tokens | Duration | Success rate | Origin mix | Score
+```
+
+建议筛选：
+
+```text
+Project
+Agent
+Date range
+Capability type
+View: Raw | Strict | Weighted
+Min attribution score
+```
+
+每一行应链接到 `/capabilities/:type/:name`，并在 capability detail 中展示：
+
+- ROI summary。
+- Trend metrics。
+- Projects using it。
+- Recent invocations。
+- Example turns。
+- Static token metadata when `type=skill`。
+
+#### `/metrics` 页面定位
+
+Metrics 页面用于回答“指标是否在变坏或异常”。它保留为趋势监控和告警页面，不与 Capability ROI 合并。
+
+建议内容：
+
+- Overall metrics。
+- Project metrics。
+- Capability metrics。
+- Alerts。
+- Daily / Weekly / Monthly tabs。
+- Growth、delta、CV、attribution drift。
+
+跳转关系：
+
+```text
+/metrics project row -> /projects/:project_id?since=<range>
+/metrics capability row -> /capabilities/:type/:name?since=<range>
+/metrics alert row -> 对应 project 或 capability detail，并保留 period/filter context
 ```
 
 #### `/skills` 页面定位

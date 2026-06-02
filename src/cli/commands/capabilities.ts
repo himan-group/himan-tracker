@@ -1,6 +1,8 @@
 import { parseSinceRange } from "../../reports/dateRange.js";
 import {
   parseCapabilitySort,
+  parseCapabilityView,
+  parseStrictScoreThreshold,
   renderCapabilityReport,
   type CapabilitySort,
 } from "../../reports/capabilityReport.js";
@@ -15,8 +17,10 @@ import {
 export type CapabilitiesCommandOptions = ReportCommandBaseOptions & {
   since?: string;
   sort?: string;
+  view?: string;
   type?: string;
   agent?: string;
+  strictScoreThreshold?: string | number;
   excludeSystem?: boolean;
   now?: () => Date;
 };
@@ -27,11 +31,15 @@ export async function runCapabilities(
   try {
     const range = parseSinceRange(options.since ?? "30d", (options.now ?? (() => new Date()))());
     const sort = parseCapabilitySort(options.sort ?? "tokens");
+    const view = parseCapabilityView(options.view ?? "raw");
+    const strictScoreThreshold = parseStrictScoreThreshold(options.strictScoreThreshold);
     const agent = parseAgent(options.agent);
     const type = parseCapabilityType(options.type);
     const lines = await withReportContext(options.paths, ({ db }) =>
       renderCapabilityReport(db, range, {
         sort: sort as CapabilitySort,
+        view,
+        strictScoreThreshold,
         agent,
         type,
         excludeSystem: options.excludeSystem ?? false,

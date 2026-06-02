@@ -32,7 +32,9 @@ export const BUILTIN_TOOL_NAMES = [
   "web.run",
   "functions.apply_patch",
   "functions.exec_command",
+  "functions.write_stdin",
   "functions.update_plan",
+  "write_stdin",
 ] as const;
 
 const BUILTIN_TOOL_NAME_SET = new Set<string>(BUILTIN_TOOL_NAMES);

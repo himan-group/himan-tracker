@@ -26,6 +26,9 @@ describe("initializeTrackerDatabase", () => {
           "003_monthly_archive",
           "004_skill_metadata",
           "005_ingest_file_cursors",
+          "006_capability_attribution_details",
+          "007_capability_usage_evidence",
+          "008_capability_weighted_stats",
         ]);
 
         const tables = db
@@ -37,6 +40,7 @@ describe("initializeTrackerDatabase", () => {
           "capability_definition_dependencies",
           "capability_definitions",
           "capability_metadata_issues",
+          "capability_usage_evidence",
           "capability_usages",
           "daily_agent_stats",
           "daily_capability_stats",
@@ -152,17 +156,28 @@ describe("initializeTrackerDatabase", () => {
           "003_monthly_archive",
           "004_skill_metadata",
           "005_ingest_file_cursors",
+          "006_capability_attribution_details",
+          "007_capability_usage_evidence",
+          "008_capability_weighted_stats",
         ]);
 
         const capability = db
-          .prepare("select source, invocation_origin from capability_usages")
+          .prepare(
+            "select source, invocation_origin, attribution_basis, attribution_score, attribution_context_source from capability_usages",
+          )
           .get() as {
           source: string;
           invocation_origin: string;
+          attribution_basis: string;
+          attribution_score: number;
+          attribution_context_source: string;
         };
         assert.deepEqual(capability, {
           source: "unknown",
           invocation_origin: "inferred",
+          attribution_basis: "transcript_shell_skill_path",
+          attribution_score: 60,
+          attribution_context_source: "transcript_only",
         });
 
         const stats = db.prepare("select * from daily_capability_stats").get() as {

@@ -363,9 +363,14 @@ describe("collect codex command", () => {
       assert.equal(skill?.source, "codex-transcript");
       assert.equal(skill?.attribution_confidence, "estimated");
       assert.equal(skill?.invocation_origin, "inferred");
+      assert.equal(skill?.attribution_basis, "transcript_shell_skill_path");
+      assert.equal(skill?.attribution_context_source, "transcript_only");
+      assert.equal(skill?.attribution_score, 50);
       assert.equal(mcpTool?.capability_type, "mcp_tool");
       assert.equal(mcpTool?.source, "codex-transcript");
       assert.equal(mcpTool?.invocation_origin, "observed");
+      assert.equal(mcpTool?.attribution_basis, "transcript_mcp_tool_end");
+      assert.equal(mcpTool?.attribution_score, 100);
       assert.equal(mcpTool?.status, "success");
       assert.equal(mcpTool?.duration_ms, 900);
       assert.equal(rawEvents.includes("should not be stored"), false);
@@ -494,6 +499,9 @@ describe("collect codex command", () => {
       assert.equal(skills[0]?.capability_name, "managed-skill");
       assert.equal(skills[0]?.attribution_confidence, "estimated");
       assert.equal(skills[0]?.invocation_origin, "inferred");
+      assert.equal(skills[0]?.attribution_basis, "transcript_shell_skill_path");
+      assert.equal(skills[0]?.attribution_context_source, "himan_lock");
+      assert.equal(skills[0]?.attribution_score, 80);
       assert.equal(rawEvents.includes(projectDir), false);
       assert.equal(rawEvents.includes("SKILL.md"), false);
     } finally {
