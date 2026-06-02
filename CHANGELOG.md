@@ -9,6 +9,8 @@ All notable changes to this project will be documented in this file.
 - Added capability attribution confidence reporting surfaces for ROI analysis: `capabilities --view strict|weighted` with `--strict-score-threshold`, `capability-events --min-score`, and attribution score/basis/context columns in capability event details.
 - Added weighted capability aggregation fields in daily/monthly stats (`strict_attribution_count`, `weighted_invocation_count`, `weighted_total_tokens`, `weighted_duration_ms`) and attribution drift alerts (`unknown_origin_ratio`, `attribution_score_drop`) in Metrics.
 - Added an Overview dashboard `Capability ROI views` tab group on `server start` pages, with `Raw`, `Strict (>=80)`, and `Weighted` capability tables sourced from the same attribution-confidence logic.
+- Added `Static tokens` to Overview dashboard capability tables for skill `himan.yaml` package token estimates.
+- Added project counts to Summary reports and Overview dashboard summary metrics.
 
 ### Changed
 

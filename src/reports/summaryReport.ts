@@ -11,6 +11,7 @@ import { createExcludeSystemCapabilityCondition } from "./systemCapabilityFilter
 
 type SummaryAggregateRow = {
   row_count: number;
+  project_count: number;
   session_count: number;
   turn_count: number;
   total_tokens: number | null;
@@ -55,6 +56,14 @@ export function renderSummaryReport(
       `
       select
         count(*) as row_count,
+        coalesce(
+          (
+            select count(distinct coalesce(repo_hash, 'unknown'))
+            from turns
+            where date(occurred_at, 'localtime') between ? and ?
+          ),
+          0
+        ) as project_count,
         coalesce(sum(session_count), 0) as session_count,
         coalesce(sum(turn_count), 0) as turn_count,
         case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens,
@@ -65,7 +74,7 @@ export function renderSummaryReport(
       where date between ? and ?
       `,
     )
-    .get(range.startDate, range.endDate) as SummaryAggregateRow;
+    .get(range.startDate, range.endDate, range.startDate, range.endDate) as SummaryAggregateRow;
 
   if (summary.row_count === 0) {
     return [
@@ -81,6 +90,7 @@ export function renderSummaryReport(
     ...formatTable(
       ["Metric", "Value"],
       [
+        ["Projects", String(summary.project_count)],
         ["Sessions", String(summary.session_count)],
         ["Turns", String(summary.turn_count)],
         ["Total runtime tokens", formatTokenCount(summary.total_tokens)],

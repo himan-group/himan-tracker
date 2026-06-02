@@ -34,6 +34,7 @@ describe("report commands", () => {
       const summary = await runSummary({ paths, since: "7d", now: () => now });
       const summaryOutput = summary.lines.join("\n");
       assert.equal(summary.ok, true);
+      assert.match(summaryOutput, /Projects\s+\|\s+1/);
       assert.match(summaryOutput, /Total runtime tokens\s+\|\s+3\.56M/);
       assert.match(summaryOutput, /Top 5 agents/);
       assert.match(summaryOutput, /Top 10 capabilities/);

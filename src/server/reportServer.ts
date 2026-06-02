@@ -166,6 +166,7 @@ type MetricsDashboardSummary = {
 type DashboardCapabilityCallType = "skill" | "mcp_tool";
 
 type DashboardSummary = {
+  project_count: number;
   session_count: number;
   turn_count: number;
   total_tokens: number | null;
@@ -210,6 +211,7 @@ type DashboardCapabilityRow = {
   capability_name: string;
   invocation_count: number;
   total_tokens: number | null;
+  static_package_tokens: number | null;
   duration_ms: number | null;
   duration_count: number;
   min_duration_ms: number | null;
@@ -228,6 +230,7 @@ type DashboardSummaryCapabilityRow = {
   capability_name: string;
   invocation_count: number;
   total_tokens: number | null;
+  static_package_tokens: number | null;
   duration_ms: number | null;
   duration_count: number;
 };
@@ -917,7 +920,7 @@ function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode)
 
     .metrics {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(5, minmax(0, 1fr));
       gap: 12px;
       margin-bottom: 18px;
     }
@@ -1159,6 +1162,7 @@ function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode)
   </header>
   <main>
     <div class="metrics">
+      ${renderMetric("Projects", String(data.summary.project_count))}
       ${renderMetric("Sessions", String(data.summary.session_count))}
       ${renderMetric("Turns", String(data.summary.turn_count))}
       ${renderMetric("Runtime tokens", formatTokenCount(data.summary.total_tokens))}
@@ -2039,6 +2043,7 @@ function createDashboardSummaryMetricTable(summary: DashboardSummary): Dashboard
     columns: ["Metric", "Value"],
     width: "compact",
     rows: [
+      ["Projects", String(summary.project_count)],
       ["Sessions", String(summary.session_count)],
       ["Turns", String(summary.turn_count)],
       ["Total runtime tokens", formatTokenCount(summary.total_tokens)],
@@ -2112,6 +2117,7 @@ function readDashboardSummaryCapabilities(
           c.capability_type,
           c.capability_name,
           c.total_tokens,
+          c.static_package_tokens,
           coalesce(c.duration_ms, case when c.capability_type = 'skill' then t.duration_ms end)
             as effective_duration_ms
         from capability_usages c
@@ -2127,6 +2133,7 @@ function readDashboardSummaryCapabilities(
         capability_name,
         count(*) as invocation_count,
         case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens,
+        case when count(static_package_tokens) = 0 then null else max(static_package_tokens) end as static_package_tokens,
         case when count(effective_duration_ms) = 0 then null else sum(effective_duration_ms) end as duration_ms,
         count(effective_duration_ms) as duration_count
       from capability_events
@@ -2138,13 +2145,14 @@ function readDashboardSummaryCapabilities(
     .all(...params) as DashboardSummaryCapabilityRow[];
 
   return {
-    columns: ["Agent", "Type", "Capability", "Invocations", "Runtime tokens", "Duration"],
+    columns: ["Agent", "Type", "Capability", "Invocations", "Runtime tokens", "Static tokens", "Duration"],
     rows: rows.map((row) => [
       row.agent,
       row.capability_type,
       row.capability_name,
       String(row.invocation_count),
       formatTokenCount(row.total_tokens),
+      formatTokenCount(row.static_package_tokens),
       formatAverageDurationMs(row.duration_ms, row.duration_count),
     ]),
     emptyText: "No capability usage found.",
@@ -2215,6 +2223,7 @@ function readDashboardCapabilities(
           c.capability_type,
           c.capability_name,
           c.total_tokens,
+          c.static_package_tokens,
           coalesce(c.duration_ms, case when c.capability_type = 'skill' then t.duration_ms end)
             as effective_duration_ms,
           case
@@ -2248,6 +2257,7 @@ function readDashboardCapabilities(
           capability_name,
           ${invocationMetricSql},
           ${totalTokensMetricSql},
+          case when count(static_package_tokens) = 0 then null else max(static_package_tokens) end as static_package_tokens,
           ${durationCountMetricSql},
           ${durationMetricSql},
           min(effective_duration_ms) as min_duration_ms,
@@ -2280,6 +2290,7 @@ function readDashboardCapabilities(
       "Observed",
       "Unknown",
       "Runtime tokens",
+      "Static tokens",
       "Avg duration",
       "Min duration",
       "Max duration",
@@ -2295,6 +2306,7 @@ function readDashboardCapabilities(
       String(row.observed_invocation_count),
       String(row.unknown_origin_count),
       formatTokenCount(row.total_tokens),
+      formatTokenCount(row.static_package_tokens),
       formatAverageDurationMs(row.duration_ms, row.duration_count),
       formatDurationMs(row.min_duration_ms),
       formatDurationMs(row.max_duration_ms),
@@ -2433,6 +2445,14 @@ function readDashboardSummary(
     .prepare(
       `
       select
+        coalesce(
+          (
+            select count(distinct coalesce(repo_hash, 'unknown'))
+            from turns
+            where date(occurred_at, 'localtime') between ? and ?
+          ),
+          0
+        ) as project_count,
         coalesce(sum(session_count), 0) as session_count,
         coalesce(sum(turn_count), 0) as turn_count,
         case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens,
@@ -2443,7 +2463,8 @@ function readDashboardSummary(
       where date between ? and ?
       `,
     )
-    .get(range.startDate, range.endDate) as {
+    .get(range.startDate, range.endDate, range.startDate, range.endDate) as {
+      project_count: number;
       session_count: number;
       turn_count: number;
       total_tokens: number | null;
@@ -2453,6 +2474,7 @@ function readDashboardSummary(
     };
 
   return {
+    project_count: row.project_count,
     session_count: row.session_count,
     turn_count: row.turn_count,
     total_tokens: row.total_tokens,

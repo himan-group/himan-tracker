@@ -67,6 +67,10 @@ describe("server command", () => {
       assert.match(html, /href="\/" aria-current="page">Overview<\/a>/);
       assert.match(html, /href="\/metrics">Metrics<\/a>/);
       assert.match(html, /Summary/);
+      assert.ok(html.indexOf("Projects") < html.indexOf("Sessions"));
+      assert.ok(html.indexOf("Sessions") < html.indexOf("Turns"));
+      assert.ok(html.indexOf("Turns") < html.indexOf("Runtime tokens"));
+      assert.ok(html.indexOf("Runtime tokens") < html.indexOf("Avg latency"));
       const summaryHtml = html.slice(
         html.indexOf("<h2>Summary</h2>"),
         html.indexOf("<h2>Runtime token usage</h2>"),
@@ -76,14 +80,18 @@ describe("server command", () => {
         /<p class="table-note">Summary \(2026-05-06 to 2026-05-12\)<\/p>/,
       );
       assert.match(summaryHtml, /Total runtime tokens/);
+      assert.match(summaryHtml, /Projects/);
       assert.match(summaryHtml, /Success rate/);
       assert.match(summaryHtml, /<p class="table-note">Top 5 agents<\/p>/);
       assert.match(summaryHtml, /<p class="table-note">Top 15 capabilities<\/p>/);
       assert.match(summaryHtml, /<table>/);
       assert.match(summaryHtml, /<div class="table-scroll is-compact">/);
       assert.equal(summaryHtml.includes('<pre class="cli-output">'), false);
-      assert.match(summaryHtml, /server-capability-15/);
-      assert.equal(summaryHtml.includes("server-capability-16"), false);
+      assert.match(summaryHtml, /Static tokens/);
+      assert.match(summaryHtml, /common-dev-pattern/);
+      assert.match(summaryHtml, /998/);
+      assert.match(summaryHtml, /server-capability-14/);
+      assert.equal(summaryHtml.includes("server-capability-15"), false);
       assert.equal(summaryHtml.includes("apply_patch"), false);
       assert.equal(summaryHtml.includes("Bash"), false);
       assert.match(html, /Runtime token usage/);
@@ -100,9 +108,9 @@ describe("server command", () => {
         html.indexOf("<h2>Capabilities</h2>"),
         html.indexOf("<h2>Capability calls</h2>"),
       );
-      assert.match(capabilitiesHtml, /Showing 25 of 33 capabilities/);
-      assert.match(capabilitiesHtml, /server-capability-23/);
-      assert.equal(capabilitiesHtml.includes("server-capability-24"), false);
+      assert.match(capabilitiesHtml, /Showing 25 of 34 capabilities/);
+      assert.match(capabilitiesHtml, /server-capability-22/);
+      assert.equal(capabilitiesHtml.includes("server-capability-23"), false);
       assert.match(html, /Capability ROI views/);
       assert.match(html, /role="tab"[^>]*>Raw<\/button>/);
       assert.match(html, /role="tab"[^>]*>Strict \(&gt;=80\)<\/button>/);
@@ -119,7 +127,7 @@ describe("server command", () => {
       );
       assert.match(html, /role="tab"[^>]*>Skills<\/button>/);
       assert.match(html, /role="tab"[^>]*>MCP tools<\/button>/);
-      assert.match(html, /Showing latest 30 skill calls/);
+      assert.match(html, /Showing latest 31 skill calls/);
       assert.match(html, /server-capability-24/);
       assert.match(html, /github\.create_pull_request/);
       assert.match(html, /Recent turns/);
@@ -127,7 +135,7 @@ describe("server command", () => {
 
       const dashboardJsonResponse = await fetch(`${instance.url}/dashboard.json`);
       const dashboard = (await dashboardJsonResponse.json()) as {
-        summary: { turn_count: number };
+        summary: { project_count: number; turn_count: number };
         summarySection: {
           cliLines: string[];
           cliBlocks: Array<{ title: string; lines: string[] }>;
@@ -138,6 +146,7 @@ describe("server command", () => {
         capabilityCallTabs: Array<{ id: string; table: { rows: string[][] } }>;
       };
       assert.equal(dashboardJsonResponse.status, 200);
+      assert.equal(dashboard.summary.project_count, 1);
       assert.equal(dashboard.summary.turn_count, 1);
       assert.equal(dashboard.summarySection.cliLines.includes("Top 5 agents"), true);
       assert.equal(dashboard.summarySection.cliLines.includes("Top 15 capabilities"), true);
@@ -151,13 +160,20 @@ describe("server command", () => {
       );
       assert.deepEqual(
         dashboard.summarySection.tableBlocks.map((block) => block.table.rows.length),
-        [5, 1, 15],
+        [6, 1, 15],
       );
       assert.deepEqual(
         dashboard.summarySection.tableBlocks.map((block) => block.table.width ?? "full"),
         ["compact", "compact", "full"],
       );
       assert.equal(dashboard.summarySection.table.rows.length, 15);
+      assert.equal(
+        dashboard.summarySection.tableBlocks
+          .find((block) => block.title === "Top 15 capabilities")
+          ?.table.rows.find((row) => row.includes("common-dev-pattern"))
+          ?.includes("998"),
+        true,
+      );
       assert.deepEqual(
         dashboard.capabilityViewTabs.map((tab) => tab.id),
         ["raw", "strict", "weighted"],
@@ -215,7 +231,7 @@ describe("server command", () => {
       assert.equal(dayMetrics?.overall.turnCount, 1);
       assert.equal(dayMetrics?.overall.totalTokens, 1_234);
       assert.equal(dayMetrics?.projects[0]?.repoHash, "repo_hash_server_001");
-      assert.equal(dayMetrics?.projects[0]?.skillInvocationCount, 30);
+      assert.equal(dayMetrics?.projects[0]?.skillInvocationCount, 31);
       assert.equal(dayMetrics?.projects[0]?.mcpInvocationCount, 1);
       assert.equal(
         dayMetrics?.capabilities.some((capability) => capability.capabilityName === "server-capability-01"),
@@ -588,6 +604,13 @@ function createServerCapabilityEvents(): NormalizedEvent[] {
   );
 
   return [
+    createCapabilityEvent({
+      eventId: "evt_server_skill_static_tokens",
+      occurredAt: "2026-05-12T12:00:59.000Z",
+      type: "skill",
+      name: "common-dev-pattern",
+      totalTokens: 50_000,
+    }),
     createCapabilityEvent({
       eventId: "evt_server_builtin_apply_patch",
       occurredAt: "2026-05-12T12:02:00.000Z",
