@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-02
+
 ### Added
 
 - Added capability attribution confidence reporting surfaces for ROI analysis: `capabilities --view strict|weighted` with `--strict-score-threshold`, `capability-events --min-score`, and attribution score/basis/context columns in capability event details.
