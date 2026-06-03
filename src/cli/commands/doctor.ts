@@ -47,7 +47,7 @@ export async function runDoctor(): Promise<DoctorResult> {
         "agents",
         `codex=${String(config.agents.codex.enabled)}, claude-code=${String(
           config.agents["claude-code"].enabled,
-        )}`,
+        )}, copilot=${String(config.agents.copilot.enabled)}`,
       ),
     );
   } catch (error) {
@@ -77,8 +77,7 @@ export async function runDoctor(): Promise<DoctorResult> {
       formatCheck(
         "ok",
         "sqlite",
-        `${paths.sqlitePath}${
-          appliedMigrations.length > 0 ? ` (applied ${appliedMigrations.join(", ")})` : ""
+        `${paths.sqlitePath}${appliedMigrations.length > 0 ? ` (applied ${appliedMigrations.join(", ")})` : ""
         }`,
       ),
     );
@@ -94,6 +93,17 @@ export async function runDoctor(): Promise<DoctorResult> {
       "codex hooks",
       codexHookStatus.configured
         ? `configured (${codexHookStatus.scopes.join(", ")})`
+        : "not configured yet",
+    ),
+  );
+
+  const copilotHookStatus = await checkCopilotHookSetup();
+  lines.push(
+    formatCheck(
+      copilotHookStatus.configured ? "ok" : "warn",
+      "copilot hooks",
+      copilotHookStatus.configured
+        ? `configured (${copilotHookStatus.scopes.join(", ")})`
         : "not configured yet",
     ),
   );
@@ -128,9 +138,9 @@ async function hasHimanTrackerCodexHooks(codexDir: string): Promise<boolean> {
 
   return Boolean(
     configToml &&
-      hooksJson &&
-      hasCodexHooksFeatureEnabled(configToml) &&
-      hooksJson.includes("himan-tracker-collect.sh"),
+    hooksJson &&
+    hasCodexHooksFeatureEnabled(configToml) &&
+    hooksJson.includes("himan-tracker-collect.sh"),
   );
 }
 
@@ -139,6 +149,44 @@ function hasCodexHooksFeatureEnabled(configToml: string): boolean {
     /(^|\n)\s*hooks\s*=\s*true\s*(\n|$)/.test(configToml) ||
     /(^|\n)\s*codex_hooks\s*=\s*true\s*(\n|$)/.test(configToml)
   );
+}
+
+async function checkCopilotHookSetup(): Promise<{ configured: boolean; scopes: string[] }> {
+  const candidates = [
+    {
+      scope: "global",
+      hooksDir: resolveCopilotGlobalHooksDir(),
+    },
+    { scope: "project", hooksDir: path.join(process.cwd(), ".github", "hooks") },
+  ];
+  const scopes: string[] = [];
+
+  for (const candidate of candidates) {
+    if (await hasHimanTrackerCopilotHooks(candidate.hooksDir)) {
+      scopes.push(candidate.scope);
+    }
+  }
+
+  return {
+    configured: scopes.length > 0,
+    scopes,
+  };
+}
+
+function resolveCopilotGlobalHooksDir(): string {
+  const copilotHome = process.env.COPILOT_HOME?.trim();
+  if (copilotHome && copilotHome.length > 0) {
+    return path.join(copilotHome, "hooks");
+  }
+  return path.join(homedir(), ".copilot", "hooks");
+}
+
+async function hasHimanTrackerCopilotHooks(hooksDir: string): Promise<boolean> {
+  const hooksJson = await readOptionalFile(
+    path.join(hooksDir, "himan-tracker.json"),
+  );
+
+  return Boolean(hooksJson && hooksJson.includes("himan-tracker-collect.sh"));
 }
 
 async function readOptionalFile(filePath: string): Promise<string | null> {
