@@ -127,11 +127,15 @@ describe("server command", () => {
       );
       assert.match(html, /role="tab"[^>]*>Skills<\/button>/);
       assert.match(html, /role="tab"[^>]*>MCP tools<\/button>/);
-      assert.match(html, /Showing latest 31 skill calls/);
       assert.match(html, /server-capability-24/);
       assert.match(html, /github\.create_pull_request/);
-      assert.match(html, /Recent turns/);
-      assert.match(html, /1\.23K/);
+      assert.match(html, /Showing latest 31 skill calls/);
+      assert.match(html, /Overview/);
+      assert.match(html, /role="tab"[^>]*>Projects<\/button>/);
+      assert.match(html, /role="tab"[^>]*>Sessions<\/button>/);
+      assert.match(html, /role="tab"[^>]*>Turns<\/button>/);
+      assert.match(html, /More →/);
+      assert.match(html, /Showing latest \d+ turns/);
 
       const dashboardJsonResponse = await fetch(`${instance.url}/dashboard.json`);
       const dashboard = (await dashboardJsonResponse.json()) as {
@@ -144,6 +148,7 @@ describe("server command", () => {
         };
         capabilityViewTabs: Array<{ id: string; table: { rows: string[][]; note?: string } }>;
         capabilityCallTabs: Array<{ id: string; table: { rows: string[][] } }>;
+        overviewTabs: Array<{ id: string; label: string; table: { rows: string[][]; note?: string } }>;
       };
       assert.equal(dashboardJsonResponse.status, 200);
       assert.equal(dashboard.summary.project_count, 1);

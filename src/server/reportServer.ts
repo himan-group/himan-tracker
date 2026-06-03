@@ -122,6 +122,7 @@ type DashboardTable = {
   emptyText: string;
   note?: string;
   width?: "full" | "compact";
+  moreHref?: string;
 };
 
 type DashboardCliBlock = {
@@ -143,7 +144,7 @@ type DashboardData = {
   sections: DashboardSection[];
   capabilityViewTabs: DashboardTab[];
   capabilityCallTabs: DashboardTab[];
-  recentTurnsSection: DashboardSection;
+  overviewTabs: DashboardTab[];
 };
 
 type MetricsDashboardData = MetricsInsightData & {
@@ -284,6 +285,24 @@ type DashboardTurnRow = {
   id: string;
   duration_ms: number | null;
   total_tokens: number | null;
+  status: string;
+};
+
+type DashboardProjectRow = {
+  repo_hash: string;
+  session_count: number;
+  turn_count: number;
+  total_tokens: number | null;
+  duration_ms: number | null;
+};
+
+type DashboardSessionRow = {
+  id: string;
+  agent: string;
+  started_at: string | null;
+  ended_at: string | null;
+  duration_ms: number | null;
+  turn_count: number;
   status: string;
 };
 
@@ -765,10 +784,23 @@ function readDashboardData(options: {
           table: readDashboardCapabilityCalls(db, range, "mcp_tool"),
         },
       ],
-      recentTurnsSection: {
-        title: "Recent turns",
-        table: readDashboardTurns(db, range, 20),
-      },
+      overviewTabs: [
+        {
+          id: "projects",
+          label: "Projects",
+          table: { ...readDashboardProjects(db, range, 10), moreHref: "/metrics" },
+        },
+        {
+          id: "sessions",
+          label: "Sessions",
+          table: { ...readDashboardSessions(db, range, 10), moreHref: "/metrics" },
+        },
+        {
+          id: "turns",
+          label: "Turns",
+          table: { ...readDashboardTurns(db, range, 10), moreHref: "/metrics" },
+        },
+      ],
     };
   } finally {
     db.close();
@@ -886,6 +918,10 @@ function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode)
       font-size: 14px;
     }
 
+    .status strong {
+      color: ${data.lastIngest?.ok === false ? "var(--danger)" : "var(--accent)"};
+    }
+
     .nav {
       display: flex;
       flex-wrap: wrap;
@@ -908,10 +944,6 @@ function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode)
       background: #eef8f5;
       border-color: rgba(17, 122, 101, 0.35);
       color: var(--accent);
-    }
-
-    .status strong {
-      color: ${data.lastIngest?.ok === false ? "var(--danger)" : "var(--accent)"};
     }
 
     main {
@@ -1063,6 +1095,10 @@ function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode)
 
     .table-note {
       border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
     }
 
     .table-scroll {
@@ -1145,6 +1181,18 @@ function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode)
         grid-template-columns: 1fr;
       }
     }
+
+    .more-link {
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 650;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .more-link:hover {
+      text-decoration: underline;
+    }
   </style>
 </head>
 <body>
@@ -1173,7 +1221,7 @@ function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode)
     ${data.sections.map((section) => renderSection(section, display)).join("\n")}
     ${renderTabbedSection("Capability ROI views", "capability-roi", data.capabilityViewTabs, display)}
     ${renderTabbedSection("Capability calls", "capability-calls", data.capabilityCallTabs, display)}
-    ${renderSection(data.recentTurnsSection, display)}
+    ${renderTabbedSection("Overview", "overview", data.overviewTabs, display)}
   </main>
   <script>
     document.querySelectorAll("[data-tabs]").forEach((root) => {
@@ -1444,6 +1492,10 @@ function renderMetricsHtml(data: MetricsDashboardData, display: DashboardDisplay
 
     .table-note {
       border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
     }
 
     .table-scroll {
@@ -1525,6 +1577,18 @@ function renderMetricsHtml(data: MetricsDashboardData, display: DashboardDisplay
       .metrics {
         grid-template-columns: 1fr;
       }
+    }
+
+    .more-link {
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 650;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .more-link:hover {
+      text-decoration: underline;
     }
   </style>
 </head>
@@ -2437,6 +2501,81 @@ function readDashboardTurns(
   };
 }
 
+function readDashboardProjects(
+  db: ReturnType<typeof initializeTrackerDatabase>["db"],
+  range: { startDate: string; endDate: string },
+  limit: number,
+): DashboardTable {
+  const rows = db
+    .prepare(
+      `
+      select
+        coalesce(repo_hash, 'unknown') as repo_hash,
+        count(distinct session_id) as session_count,
+        count(*) as turn_count,
+        case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens,
+        case when count(duration_ms) = 0 then null else sum(duration_ms) end as duration_ms
+      from turns
+      where date(occurred_at, 'localtime') between ? and ?
+      group by repo_hash
+      order by turn_count desc, repo_hash asc
+      limit ?
+      `,
+    )
+    .all(range.startDate, range.endDate, limit) as DashboardProjectRow[];
+
+  return {
+    columns: ["Project", "Sessions", "Turns", "Runtime tokens", "Avg latency"],
+    rows: rows.map((row) => [
+      row.repo_hash === "unknown" ? "unknown" : row.repo_hash.slice(0, 8),
+      String(row.session_count),
+      String(row.turn_count),
+      formatTokenCount(row.total_tokens),
+      formatAverageDurationMs(row.duration_ms, row.turn_count),
+    ]),
+    emptyText: "No project data found for this range.",
+    note: `Top ${rows.length} projects (${formatDateRange(range)}).`,
+  };
+}
+
+function readDashboardSessions(
+  db: ReturnType<typeof initializeTrackerDatabase>["db"],
+  range: { startDate: string; endDate: string },
+  limit: number,
+): DashboardTable {
+  const rows = db
+    .prepare(
+      `
+      select
+        id,
+        agent,
+        started_at,
+        ended_at,
+        duration_ms,
+        turn_count,
+        status
+      from sessions
+      where date(coalesce(started_at, ended_at, '1970-01-01'), 'localtime') between ? and ?
+      order by coalesce(started_at, ended_at) desc
+      limit ?
+      `,
+    )
+    .all(range.startDate, range.endDate, limit) as DashboardSessionRow[];
+
+  return {
+    columns: ["Session", "Agent", "Turns", "Duration", "Status"],
+    rows: rows.map((row) => [
+      shortenId(row.id),
+      row.agent,
+      String(row.turn_count),
+      formatDurationMs(row.duration_ms),
+      row.status,
+    ]),
+    emptyText: "No sessions found for this range.",
+    note: `Latest ${rows.length} sessions (${formatDateRange(range)}).`,
+  };
+}
+
 function readDashboardSummary(
   db: ReturnType<typeof initializeTrackerDatabase>["db"],
   range: { startDate: string; endDate: string },
@@ -2637,8 +2776,11 @@ function renderTabbedSection(
 }
 
 function renderDashboardContent(table: DashboardTable, display: DashboardDisplayMode): string {
-  const note = table.note
-    ? `<p class="table-note">${escapeHtml(table.note)}</p>`
+  const moreLink = table.moreHref
+    ? ` <a href="${escapeHtml(table.moreHref)}" class="more-link">More \u2192</a>`
+    : "";
+  const note = table.note || moreLink
+    ? `<p class="table-note">${escapeHtml(table.note ?? "")}${moreLink}</p>`
     : "";
   if (table.rows.length === 0) {
     return `${note}<p class="empty-state">${escapeHtml(table.emptyText)}</p>`;
