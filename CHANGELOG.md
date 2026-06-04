@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-06-04
+
 ### Added
 
 - Added `cached_input_tokens` to Codex transcript/enrichment ingestion so newly collected and backfilled turn data can preserve cached input token usage alongside input, output, and total tokens.
