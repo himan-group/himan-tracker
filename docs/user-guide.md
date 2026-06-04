@@ -279,6 +279,22 @@ himan-tracker ingest
 himan-tracker ingest --from ./events.jsonl
 ```
 
+只重建某一天的 SQLite 投影，而不重置整库：
+
+```bash
+himan-tracker ingest --date 2026-06-04
+```
+
+`--date` 会先删除该本地日期对应的 SQLite 投影行，再只从匹配的 `events/YYYY-MM-DD.jsonl` 分片重新导入。适合在 `cleanup --from ... --to ...` 加 `backfill --force` 之后，修复单日脏数据而不必全库 `--rebuild`。`--date` 不能和 `--from` 或 `--rebuild` 一起使用。
+
+只重建某一天里某个 agent 的 SQLite 投影，而不影响同日其他 agent：
+
+```bash
+himan-tracker ingest --date 2026-06-04 --agent codex
+```
+
+`--agent codex|copilot|claude-code` 目前只支持和 `--date` 搭配。它会重放匹配日期分片里该 agent 的 raw event，先删除该 agent 在这一天对应的 SQLite 投影，再只重建该 agent 的投影数据。
+
 重建 SQLite 投影：
 
 ```bash
@@ -286,6 +302,28 @@ himan-tracker ingest --rebuild
 ```
 
 `--rebuild` 会删除并重新生成 `himan.sqlite`、`himan.sqlite-shm` 和 `himan.sqlite-wal`，再从 JSONL 重新导入。
+
+### `rebuild`
+
+把修复单日单 agent 数据的常见三步操作封装成一个命令：先清理该 agent 的 raw event，再强制 backfill，最后局部重建 SQLite 投影。
+
+```bash
+himan-tracker rebuild codex --date 2026-06-04
+```
+
+对于 Copilot：
+
+```bash
+himan-tracker rebuild copilot --date 2026-06-04
+```
+
+执行时会输出阶段进度：
+
+- `[1/3] Cleanup raw events`
+- `[2/3] Backfill raw events`
+- `[3/3] Rebuild SQLite projection`
+
+`rebuild codex` 支持 `--from <dir>` 指定 transcript 目录；`rebuild copilot` 也支持 `--from <dir>` 覆盖默认数据源。内部会固定使用 agent 级 cleanup、强制 backfill（含忽略 cursor）和 `ingest --date ... --agent ...`，适合修复某一天某个 agent 的脏数据。
 
 ### `archive monthly`
 
@@ -359,7 +397,7 @@ server 状态和日志写在 tracker home 下：
 
 ### `cleanup`
 
-清理本地 JSONL 原始日志，保留已经导入 SQLite 的统计结果。这个命令只删除 `events/*.jsonl`、`errors/*.jsonl` 和旧版单文件原始日志，不删除 `himan.sqlite`，也不清理尚未 drain 的 `queue/`。
+清理本地 JSONL 原始日志，保留已经导入 SQLite 的统计结果。默认模式会删除 `events/*.jsonl`、`errors/*.jsonl` 和旧版单文件原始日志，不删除 `himan.sqlite`，也不清理尚未 drain 的 `queue/`。
 
 预览全部可删除的原始日志：
 
@@ -379,6 +417,12 @@ himan-tracker cleanup --all
 himan-tracker cleanup --from 2026-05-01 --to 2026-05-07
 ```
 
+只清理某个 agent 在指定日期区间内的 raw event 记录，而不误删同日其他 agent：
+
+```bash
+himan-tracker cleanup --agent codex --from 2026-06-04 --to 2026-06-04
+```
+
 清理某天之前的日志，不包含当天：
 
 ```bash
@@ -391,7 +435,7 @@ himan-tracker cleanup --before 2026-05-01
 himan-tracker cleanup --older-than 30d
 ```
 
-`--before` 是开区间截止日期，`--from/--to` 是包含边界的日期区间。`--older-than` 支持 `d`、`w`、`m`，按天、周、30 天月计算。清理后现有报表仍可读取 SQLite 中的统计结果；但如果之后运行 `ingest --rebuild`，被删除的原始 JSONL 无法再用于重建历史统计。
+`--before` 是开区间截止日期，`--from/--to` 是包含边界的日期区间。`--older-than` 支持 `d`、`w`、`m`，按天、周、30 天月计算。`--agent codex|copilot|claude-code` 会改成“按记录过滤”模式：只重写匹配的 `events/*.jsonl`，不会碰 `errors/*.jsonl`，也不会在日期范围模式下顺带修改旧版 `events.jsonl`。只有 `cleanup --agent ... --all` 才会连 legacy `events.jsonl` 一起过滤。清理后现有报表仍可读取 SQLite 中的统计结果；但如果之后运行 `ingest --rebuild`，被删除的原始 JSONL 无法再用于重建历史统计。
 
 ### `summary`
 

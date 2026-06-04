@@ -7,10 +7,15 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - Added `cached_input_tokens` to Codex transcript/enrichment ingestion so newly collected and backfilled turn data can preserve cached input token usage alongside input, output, and total tokens.
+- Added `himan-tracker ingest --date YYYY-MM-DD` to rebuild one local-date SQLite projection from the matching `events/YYYY-MM-DD.jsonl` shard without resetting the full database.
+- Added `himan-tracker cleanup --agent codex|copilot|claude-code` to remove only one agent's raw event records from date-sharded JSONL without deleting other agents' events from the same day.
+- Added `himan-tracker ingest --date YYYY-MM-DD --agent codex|copilot|claude-code` to rebuild one agent's SQLite projection from a mixed daily JSONL shard without resetting the full date or database.
+- Added `himan-tracker rebuild codex|copilot --date YYYY-MM-DD` to orchestrate agent-scoped cleanup, forced backfill, and agent/date-scoped ingest with step-by-step progress output.
 
 ### Changed
 
 - Changed Codex `Usage` cost estimation to price cached input tokens separately from regular input tokens using the Codex credit rate card, and surfaced cached-input usage in the Usage tables.
+- Changed Codex transcript backfill to skip empty model-less turns with no observed token usage, and changed the Usage page to hide model-less rows while rendering unknown cost fields as `n/a` instead of `0`.
 
 ## [0.5.2] - 2026-06-04
 

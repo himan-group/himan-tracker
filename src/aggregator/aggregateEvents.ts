@@ -14,6 +14,7 @@ import {
   type SqliteDatabase,
 } from "../storage/sqlite.js";
 import type {
+  AgentName,
   CapabilityUsageEvent,
   NormalizedEvent,
   SessionSummaryEvent,
@@ -27,6 +28,8 @@ export type IngestEventsOptions = {
   eventsDir?: string;
   skillMetadataRoots?: string[];
   rebuild?: boolean;
+  rebuildDates?: string[];
+  rebuildAgent?: AgentName;
   now?: () => Date;
 };
 
@@ -60,6 +63,18 @@ type IngestReadCursor = {
 };
 
 export async function ingestEvents(options: IngestEventsOptions): Promise<IngestEventsResult> {
+  if (options.rebuild && options.rebuildDates && options.rebuildDates.length > 0) {
+    throw new Error("Expected --rebuild and --date to be used separately");
+  }
+
+  if (options.rebuildAgent && (!options.rebuildDates || options.rebuildDates.length === 0)) {
+    throw new Error("Expected --agent to be used together with --date");
+  }
+
+  if (options.rebuild && options.rebuildAgent) {
+    throw new Error("Expected --rebuild and --agent to be used separately");
+  }
+
   if (options.rebuild) {
     await removeSqliteProjection(options.sqlitePath);
   }
@@ -73,7 +88,26 @@ export async function ingestEvents(options: IngestEventsOptions): Promise<Ingest
   const { db, appliedMigrations } = initializeTrackerDatabase(options.sqlitePath);
 
   try {
-    const ingestReadResult = await readIncrementalJsonlEvents(db, eventFiles);
+    if (options.rebuildDates && options.rebuildDates.length > 0 && !options.rebuildAgent) {
+      deleteProjectionForDates(db, options.rebuildDates, eventFiles);
+    }
+
+    const ingestReadResult = options.rebuildAgent
+      ? await readIncrementalJsonlEvents(db, eventFiles, {
+          forceFullRead: true,
+          agentFilter: options.rebuildAgent,
+        })
+      : await readIncrementalJsonlEvents(db, eventFiles);
+
+    let forcedAffectedDates: string[] | undefined;
+    if (options.rebuildAgent) {
+      forcedAffectedDates = deleteProjectionForEvents(
+        db,
+        ingestReadResult.events,
+        eventFiles,
+      );
+    }
+
     const result = insertEvents(
       db,
       ingestReadResult.events,
@@ -81,6 +115,7 @@ export async function ingestEvents(options: IngestEventsOptions): Promise<Ingest
       now,
       skillMetadata.definitions,
       skillMetadata.issues,
+      forcedAffectedDates,
     );
 
     return {
@@ -110,6 +145,9 @@ async function removeSqliteProjection(sqlitePath: string): Promise<void> {
 
 async function resolveEventFiles(options: IngestEventsOptions): Promise<string[]> {
   if (options.eventsPath) {
+    if (options.rebuildDates && options.rebuildDates.length > 0) {
+      throw new Error("Expected --date to be used with the default events directory, not --from");
+    }
     return [options.eventsPath];
   }
 
@@ -120,8 +158,16 @@ async function resolveEventFiles(options: IngestEventsOptions): Promise<string[]
   try {
     const eventsDir = options.eventsDir;
     const entries = await readdir(eventsDir, { withFileTypes: true });
+    const targetDates = new Set(options.rebuildDates ?? []);
     return entries
       .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
+      .filter((entry) => {
+        if (targetDates.size === 0) {
+          return true;
+        }
+
+        return targetDates.has(path.basename(entry.name, ".jsonl"));
+      })
       .map((entry) => path.join(eventsDir, entry.name))
       .sort();
   } catch (error) {
@@ -133,9 +179,101 @@ async function resolveEventFiles(options: IngestEventsOptions): Promise<string[]
   }
 }
 
+function deleteProjectionForDates(
+  db: SqliteDatabase,
+  dates: string[],
+  eventFiles: string[],
+): void {
+  const targetDates = [...new Set(dates)].sort();
+  if (targetDates.length === 0) {
+    return;
+  }
+
+  const sessionIds = new Set<string>();
+  const selectTurnSessions = db.prepare(
+    "select distinct session_id from turns where date(occurred_at, 'localtime') = ?",
+  );
+  const selectCapabilitySessions = db.prepare(
+    "select distinct session_id from capability_usages where date(occurred_at, 'localtime') = ?",
+  );
+  const selectSessionsByEndedAt = db.prepare(
+    "select distinct id from sessions where ended_at is not null and date(ended_at, 'localtime') = ?",
+  );
+  const selectSessionsByStartedAt = db.prepare(
+    "select distinct id from sessions where started_at is not null and date(started_at, 'localtime') = ?",
+  );
+  const deleteEvidenceForDate = db.prepare(
+    `
+    delete from capability_usage_evidence
+    where usage_id in (
+      select id from capability_usages where date(occurred_at, 'localtime') = ?
+    )
+    `,
+  );
+  const deleteCapabilityUsagesForDate = db.prepare(
+    "delete from capability_usages where date(occurred_at, 'localtime') = ?",
+  );
+  const deleteTurnsForDate = db.prepare(
+    "delete from turns where date(occurred_at, 'localtime') = ?",
+  );
+  const deleteSessionSummariesForDate = db.prepare(
+    "delete from ingested_events where event_type = 'session_summary' and date(occurred_at, 'localtime') = ?",
+  );
+  const deleteDailyAgentStatsForDate = db.prepare(
+    "delete from daily_agent_stats where date = ?",
+  );
+  const deleteDailyCapabilityStatsForDate = db.prepare(
+    "delete from daily_capability_stats where date = ?",
+  );
+  const deleteIngestedEventsForDate = db.prepare(
+    "delete from ingested_events where date(occurred_at, 'localtime') = ?",
+  );
+  const deleteSession = db.prepare("delete from sessions where id = ?");
+  const deleteIngestFileCursor = db.prepare("delete from ingest_file_cursors where file_path = ?");
+
+  db.transaction(() => {
+    for (const date of targetDates) {
+      for (const row of selectTurnSessions.all(date) as Array<{ session_id: string }>) {
+        sessionIds.add(row.session_id);
+      }
+      for (const row of selectCapabilitySessions.all(date) as Array<{ session_id: string }>) {
+        sessionIds.add(row.session_id);
+      }
+      for (const row of selectSessionsByEndedAt.all(date) as Array<{ id: string }>) {
+        sessionIds.add(row.id);
+      }
+      for (const row of selectSessionsByStartedAt.all(date) as Array<{ id: string }>) {
+        sessionIds.add(row.id);
+      }
+    }
+
+    for (const date of targetDates) {
+      deleteEvidenceForDate.run(date);
+      deleteCapabilityUsagesForDate.run(date);
+      deleteTurnsForDate.run(date);
+      deleteSessionSummariesForDate.run(date);
+      deleteDailyAgentStatsForDate.run(date);
+      deleteDailyCapabilityStatsForDate.run(date);
+      deleteIngestedEventsForDate.run(date);
+    }
+
+    for (const sessionId of sessionIds) {
+      deleteSession.run(sessionId);
+    }
+
+    for (const filePath of eventFiles) {
+      deleteIngestFileCursor.run(filePath);
+    }
+  })();
+}
+
 async function readIncrementalJsonlEvents(
   db: SqliteDatabase,
   eventsPaths: string[],
+  options: {
+    forceFullRead?: boolean;
+    agentFilter?: AgentName;
+  } = {},
 ): Promise<{ events: NormalizedEvent[]; cursors: IngestReadCursor[] }> {
   const currentCursors = readIngestFileCursors(db);
   const events: NormalizedEvent[] = [];
@@ -155,7 +293,7 @@ async function readIncrementalJsonlEvents(
     const sizeBytes = fileStat.size;
     const mtimeMs = Math.floor(fileStat.mtimeMs);
     const previousCursor = currentCursors.get(eventsPath);
-    const offsetBytes = resolveReadOffset(previousCursor, inode, sizeBytes);
+    const offsetBytes = options.forceFullRead ? 0 : resolveReadOffset(previousCursor, inode, sizeBytes);
     const fileDelta = await readFileDelta(eventsPath, offsetBytes);
 
     for (const [index, line] of fileDelta.lines.entries()) {
@@ -164,7 +302,11 @@ async function readIncrementalJsonlEvents(
       }
 
       try {
-        events.push(validateNormalizedEvent(JSON.parse(line)));
+        const event = validateNormalizedEvent(JSON.parse(line));
+        if (options.agentFilter && event.agent !== options.agentFilter) {
+          continue;
+        }
+        events.push(event);
       } catch (error) {
         throw new Error(
           `Invalid JSONL event at ${eventsPath}:${index + 1}: ${getErrorMessage(error)}`,
@@ -191,6 +333,7 @@ function insertEvents(
   now: () => Date,
   skillDefinitions: SkillDefinitionMetadata[],
   skillIssues: SkillMetadataIssue[],
+  forcedAffectedDates: Iterable<string> = [],
 ): { inserted: number; skipped: number; affectedDates: string[] } {
   const hasIngestedEvent = db.prepare("select event_id from ingested_events where event_id = ?");
   const insertIngestedEvent = db.prepare(
@@ -218,7 +361,7 @@ function insertEvents(
       updated_at = excluded.updated_at
     `,
   );
-  const affectedDates = new Set<string>();
+  const affectedDates = new Set<string>(forcedAffectedDates);
 
   let inserted = 0;
   let skipped = 0;
@@ -266,6 +409,90 @@ function insertEvents(
     skipped,
     affectedDates: [...affectedDates].sort(),
   };
+}
+
+function deleteProjectionForEvents(
+  db: SqliteDatabase,
+  events: NormalizedEvent[],
+  eventFiles: string[],
+): string[] {
+  const targetEventIds = [...new Set(events.map((event) => event.event_id))].sort();
+  const targetSessionIds = [...new Set(events.map((event) => event.session_id))].sort();
+  const targetDates = [...new Set(events.map((event) => toLocalDate(event.occurred_at)))].sort();
+  if (targetEventIds.length === 0) {
+    for (const filePath of eventFiles) {
+      db.prepare("delete from ingest_file_cursors where file_path = ?").run(filePath);
+    }
+    return targetDates;
+  }
+
+  const deleteCapabilityEvidenceByUsageId = db.prepare(
+    "delete from capability_usage_evidence where usage_id = ?",
+  );
+  const deleteCapabilityUsageById = db.prepare("delete from capability_usages where id = ?");
+  const deleteTurnByEventId = db.prepare("delete from turns where event_id = ?");
+  const deleteIngestedEventById = db.prepare("delete from ingested_events where event_id = ?");
+  const deleteIngestFileCursor = db.prepare("delete from ingest_file_cursors where file_path = ?");
+  const deleteSessionById = db.prepare("delete from sessions where id = ?");
+  const sessionHasTurns = db.prepare("select 1 from turns where session_id = ? limit 1");
+  const sessionHasCapabilityUsages = db.prepare(
+    "select 1 from capability_usages where session_id = ? limit 1",
+  );
+  const updateSessionSnapshot = db.prepare(
+    `
+    update sessions
+    set
+      agent = coalesce(
+        (select agent from turns where session_id = sessions.id order by occurred_at asc limit 1),
+        (select agent from capability_usages where session_id = sessions.id order by occurred_at asc limit 1),
+        agent
+      ),
+      started_at = coalesce(
+        (
+          select min(occurred_at)
+          from (
+            select occurred_at from turns where session_id = sessions.id
+            union all
+            select occurred_at from capability_usages where session_id = sessions.id
+          )
+        ),
+        started_at
+      ),
+      turn_count = coalesce((select count(*) from turns where session_id = sessions.id), 0),
+      repo_hash = coalesce(
+        (select repo_hash from turns where session_id = sessions.id and repo_hash is not null order by occurred_at desc limit 1),
+        (select repo_hash from capability_usages where session_id = sessions.id and repo_hash is not null order by occurred_at desc limit 1),
+        repo_hash
+      )
+    where id = ?
+    `,
+  );
+
+  db.transaction(() => {
+    for (const eventId of targetEventIds) {
+      deleteCapabilityEvidenceByUsageId.run(eventId);
+      deleteCapabilityUsageById.run(eventId);
+      deleteTurnByEventId.run(eventId);
+      deleteIngestedEventById.run(eventId);
+    }
+
+    for (const sessionId of targetSessionIds) {
+      const hasTurns = Boolean(sessionHasTurns.get(sessionId));
+      const hasCapabilityUsages = Boolean(sessionHasCapabilityUsages.get(sessionId));
+      if (!hasTurns && !hasCapabilityUsages) {
+        deleteSessionById.run(sessionId);
+        continue;
+      }
+
+      updateSessionSnapshot.run(sessionId);
+    }
+
+    for (const filePath of eventFiles) {
+      deleteIngestFileCursor.run(filePath);
+    }
+  })();
+
+  return targetDates;
 }
 
 function readIngestFileCursors(db: SqliteDatabase): Map<string, IngestFileCursorRow> {
