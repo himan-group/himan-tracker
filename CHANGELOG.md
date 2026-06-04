@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-06-04
+
+### Changed
+
+- Redesigned dashboard and report pages with a cleaner, more compact visual style.
+- Tab navigation is now a compact segmented control instead of pill-shaped buttons.
+- Left-aligned navigation and breadcrumb links so they no longer stretch across the full page width.
+- Billing cycle start day selections now persist to user config and survive server restarts.
+
+### Fixed
+
+- Fixed invisible text on active tab buttons.
+- Changed billing cycle dropdown to start from Monday instead of Sunday.
+
 ## [0.5.1] - 2026-06-04
 
 ### Changed

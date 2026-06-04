@@ -8,7 +8,7 @@ import { ingestEvents } from "../aggregator/aggregateEvents.js";
 import { runBackfill } from "../backfill/runBackfill.js";
 import { createKnownProjectDisplayNameMap } from "../config/knownProjects.js";
 import { ensureTrackerDirectories, type TrackerPaths } from "../config/paths.js";
-import { readOrCreateUserConfig } from "../config/userConfig.js";
+import { readOrCreateUserConfig, writeUserConfig } from "../config/userConfig.js";
 import { formatDateRange, parseSinceRange, todayLocalDate } from "../reports/dateRange.js";
 import {
   formatAverageDurationMs,
@@ -52,6 +52,15 @@ import {
 } from "../reports/usageCost.js";
 import { initializeTrackerDatabase } from "../storage/sqlite.js";
 import type { BillingCycleStartDay } from "../types/config.js";
+import {
+  buildNavLinks,
+  escapeHtml,
+  formatLocalDateTime,
+  getSharedCss,
+  renderIngestStatusHTML,
+  renderPageShell,
+  TAB_SCRIPT,
+} from "./htmlLayout.js";
 
 export const DEFAULT_SERVER_HOST = "127.0.0.1";
 export const DEFAULT_SERVER_PORT = 5127;
@@ -754,12 +763,18 @@ async function handleRequest(options: {
 
   if (url.pathname === "/usage") {
     await options.runSyncNow();
+    const cycleStartDayParam = url.searchParams.get("cycleStartDay");
+    if (cycleStartDayParam) {
+      const config = await readOrCreateUserConfig(options.paths);
+      config.usage.billing_cycle_start_day = parseBillingCycleStartDay(cycleStartDayParam);
+      await writeUserConfig(options.paths, config);
+    }
     const html = await renderUsagePage({
       paths: options.paths,
       display: options.display,
       now: options.now,
       lastIngest: options.getLastIngest(),
-      cycleStartDayParam: url.searchParams.get("cycleStartDay"),
+      cycleStartDayParam,
     });
     writeResponse(options.response, 200, "text/html; charset=utf-8", html);
     return;
@@ -1114,379 +1129,14 @@ function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode)
   const generatedAt = new Date(data.generatedAt);
 
   return `<!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>himan-tracker</title>
   <link rel="icon" type="image/svg+xml" href="${escapeHtml(DASHBOARD_ICON_DATA_URL)}">
-  <meta name="theme-color" content="#117a65">
-  <style>
-    :root {
-      color-scheme: light;
-      --bg: #f7f8fa;
-      --panel: #ffffff;
-      --text: #17202a;
-      --muted: #607080;
-      --line: #d9e1e8;
-      --accent: #117a65;
-      --danger: #b42318;
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }
-
-    header {
-      border-bottom: 1px solid var(--line);
-      background: var(--panel);
-    }
-
-    main,
-    .header-inner {
-      width: min(1180px, calc(100vw - 32px));
-      margin: 0 auto;
-    }
-
-    .header-inner {
-      padding: 22px 0 18px;
-    }
-
-    h1 {
-      margin: 0;
-      font-size: 28px;
-      line-height: 1.15;
-      font-weight: 720;
-    }
-
-    .status {
-      margin-top: 10px;
-      color: var(--muted);
-      font-size: 14px;
-    }
-
-    .status strong {
-      color: ${data.lastIngest?.ok === false ? "var(--danger)" : "var(--accent)"};
-    }
-
-    .nav {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 14px;
-    }
-
-    .nav a {
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      color: var(--muted);
-      font-size: 13px;
-      font-weight: 650;
-      line-height: 1.2;
-      padding: 7px 10px;
-      text-decoration: none;
-    }
-
-    .nav a[aria-current="page"] {
-      background: #eef8f5;
-      border-color: rgba(17, 122, 101, 0.35);
-      color: var(--accent);
-    }
-
-    main {
-      padding: 22px 0 40px;
-    }
-
-    .metrics {
-      display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: 12px;
-      margin-bottom: 18px;
-    }
-
-    .metric,
-    section {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-    }
-
-    .metric {
-      padding: 14px;
-      min-width: 0;
-    }
-
-    .metric-label {
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 650;
-      text-transform: uppercase;
-    }
-
-    .metric-value {
-      margin-top: 8px;
-      font-size: 24px;
-      line-height: 1.1;
-      font-weight: 720;
-      overflow-wrap: anywhere;
-    }
-
-    .metric.is-positive .metric-value,
-    .cell-trend.is-positive {
-      color: #0f766e;
-    }
-
-    .metric.is-negative .metric-value,
-    .cell-trend.is-negative,
-    .severity-badge.is-critical {
-      color: #b42318;
-    }
-
-    .metric.is-warning .metric-value,
-    .severity-badge.is-warning {
-      color: #a15c07;
-    }
-
-    .severity-badge.is-major {
-      color: #c2410c;
-    }
-
-    .severity-badge,
-    .cell-trend {
-      font-weight: 700;
-    }
-
-    .severity-badge {
-      border: 1px solid currentColor;
-      border-radius: 999px;
-      padding: 2px 8px;
-    }
-
-    section {
-      margin-top: 14px;
-      overflow: hidden;
-    }
-
-    section > h2 {
-      margin: 0;
-      padding: 13px 14px;
-      border-bottom: 1px solid var(--line);
-      font-size: 16px;
-      line-height: 1.25;
-    }
-
-    .section-heading {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 14px;
-      padding: 12px 14px;
-      border-bottom: 1px solid var(--line);
-    }
-
-    .section-heading h2 {
-      margin: 0;
-      font-size: 16px;
-      line-height: 1.25;
-    }
-
-    .tabs {
-      display: inline-flex;
-      flex-wrap: wrap;
-      gap: 4px;
-      padding: 3px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: #f4f6f8;
-    }
-
-    .tab {
-      appearance: none;
-      border: 0;
-      border-radius: 6px;
-      background: transparent;
-      color: var(--muted);
-      cursor: pointer;
-      font: inherit;
-      font-size: 13px;
-      font-weight: 650;
-      line-height: 1.2;
-      padding: 7px 10px;
-    }
-
-    .tab:hover,
-    .tab:focus-visible {
-      color: var(--text);
-      outline: 2px solid rgba(17, 122, 101, 0.22);
-      outline-offset: 1px;
-    }
-
-    .tab.is-active {
-      background: var(--panel);
-      color: var(--text);
-      box-shadow: 0 1px 2px rgba(23, 32, 42, 0.08);
-    }
-
-    [hidden] {
-      display: none;
-    }
-
-    .table-note,
-    .empty-state {
-      margin: 0;
-      padding: 12px 14px;
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1.4;
-    }
-
-    .table-note {
-      border-bottom: 1px solid var(--line);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-    }
-
-    .table-meta {
-      border-bottom: 1px solid var(--line);
-    }
-
-    .table-meta .table-note {
-      border-bottom: 0;
-    }
-
-    .pagination {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      padding: 0 14px 12px;
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1.4;
-    }
-
-    .pagination-links {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-    }
-
-    .pagination a {
-      color: var(--accent);
-      text-decoration: none;
-    }
-
-    .pagination a:hover {
-      text-decoration: underline;
-    }
-
-    .pagination [aria-disabled="true"] {
-      color: #9aa7b2;
-    }
-
-    .table-scroll {
-      overflow: auto;
-    }
-
-    .table-scroll.is-compact {
-      display: inline-block;
-      max-width: 100%;
-      min-width: 0;
-      vertical-align: top;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
-    }
-
-    .table-scroll.is-compact table {
-      width: auto;
-    }
-
-    th,
-    td {
-      padding: 9px 12px;
-      border-bottom: 1px solid var(--line);
-      text-align: left;
-      vertical-align: top;
-      white-space: nowrap;
-    }
-
-    th {
-      background: #f8fafb;
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 700;
-      text-transform: uppercase;
-    }
-
-    td {
-      color: #24313d;
-      font-variant-numeric: tabular-nums;
-    }
-
-    tbody tr:last-child td {
-      border-bottom: 0;
-    }
-
-    .cli-output {
-      margin: 0;
-      padding: 14px;
-      overflow: auto;
-      color: #24313d;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-      font-size: 12px;
-      line-height: 1.45;
-      font-variant-numeric: tabular-nums;
-      white-space: pre;
-    }
-
-    @media (max-width: 820px) {
-      .metrics {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-
-      .section-heading {
-        align-items: flex-start;
-        flex-direction: column;
-      }
-    }
-
-    @media (max-width: 520px) {
-      main,
-      .header-inner {
-        width: min(100vw - 20px, 1180px);
-      }
-
-      .metrics {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    .more-link {
-      color: var(--accent);
-      font-size: 13px;
-      font-weight: 650;
-      text-decoration: none;
-      white-space: nowrap;
-    }
-
-    .more-link:hover {
-      text-decoration: underline;
-    }
-  </style>
+  <meta name="theme-color" content="#f7f8fa">
+  <style>${getSharedCss()}</style>
 </head>
 <body>
   <header>
@@ -1519,23 +1169,18 @@ function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode)
   </main>
   <script>
     document.querySelectorAll("[data-tabs]").forEach((root) => {
-      const tabs = [...root.querySelectorAll("[role='tab']")];
+      const buttons = [...root.querySelectorAll("[role='tab']")];
       const panels = [...root.querySelectorAll("[role='tabpanel']")];
-
-      tabs.forEach((tab) => {
-        tab.addEventListener("click", () => {
-          const selectedPanel = tab.getAttribute("aria-controls");
-
-          tabs.forEach((candidate) => {
-            const active = candidate === tab;
-            candidate.classList.toggle("is-active", active);
-            candidate.setAttribute("aria-selected", String(active));
-            candidate.setAttribute("tabindex", active ? "0" : "-1");
+      buttons.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const selectedPanel = btn.getAttribute("aria-controls");
+          buttons.forEach((b) => {
+            const active = b === btn;
+            b.setAttribute("aria-current", active ? "true" : "false");
+            b.classList.toggle("outline", !active);
+            b.setAttribute("tabindex", active ? "0" : "-1");
           });
-
-          panels.forEach((panel) => {
-            panel.hidden = panel.id !== selectedPanel;
-          });
+          panels.forEach((p) => { p.hidden = p.id !== selectedPanel; });
         });
       });
     });
@@ -1548,394 +1193,14 @@ function renderMetricsHtml(data: MetricsDashboardData, display: DashboardDisplay
   const generatedAt = new Date(data.generatedAt);
 
   return `<!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>himan-tracker Metrics</title>
   <link rel="icon" type="image/svg+xml" href="${escapeHtml(DASHBOARD_ICON_DATA_URL)}">
-  <meta name="theme-color" content="#117a65">
-  <style>
-    :root {
-      color-scheme: light;
-      --bg: #f7f8fa;
-      --panel: #ffffff;
-      --text: #17202a;
-      --muted: #607080;
-      --line: #d9e1e8;
-      --accent: #117a65;
-      --danger: #b42318;
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }
-
-    header {
-      border-bottom: 1px solid var(--line);
-      background: var(--panel);
-    }
-
-    main,
-    .header-inner {
-      width: min(1180px, calc(100vw - 32px));
-      margin: 0 auto;
-    }
-
-    .header-inner {
-      padding: 22px 0 18px;
-    }
-
-    h1 {
-      margin: 0;
-      font-size: 28px;
-      line-height: 1.15;
-      font-weight: 720;
-    }
-
-    .status {
-      margin-top: 10px;
-      color: var(--muted);
-      font-size: 14px;
-    }
-
-    .status strong {
-      color: ${data.lastIngest?.ok === false ? "var(--danger)" : "var(--accent)"};
-    }
-
-    .nav {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 14px;
-    }
-
-    .nav a {
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      color: var(--muted);
-      font-size: 13px;
-      font-weight: 650;
-      line-height: 1.2;
-      padding: 7px 10px;
-      text-decoration: none;
-    }
-
-    .nav a[aria-current="page"] {
-      background: #eef8f5;
-      border-color: rgba(17, 122, 101, 0.35);
-      color: var(--accent);
-    }
-
-    main {
-      padding: 22px 0 40px;
-    }
-
-    .metrics {
-      display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: 12px;
-      margin-bottom: 18px;
-    }
-
-    .metric,
-    section {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-    }
-
-    .metric {
-      padding: 14px;
-      min-width: 0;
-    }
-
-    .metric-label {
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 650;
-      text-transform: uppercase;
-    }
-
-    .metric-value {
-      margin-top: 8px;
-      font-size: 24px;
-      line-height: 1.1;
-      font-weight: 720;
-      overflow-wrap: anywhere;
-    }
-
-    .metric.is-positive .metric-value,
-    .cell-trend.is-positive {
-      color: #0f766e;
-    }
-
-    .metric.is-negative .metric-value,
-    .cell-trend.is-negative,
-    .severity-badge.is-critical {
-      color: #b42318;
-    }
-
-    .metric.is-warning .metric-value,
-    .severity-badge.is-warning {
-      color: #a15c07;
-    }
-
-    .severity-badge.is-major {
-      color: #c2410c;
-    }
-
-    .severity-badge,
-    .cell-trend {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      font-weight: 700;
-    }
-
-    .severity-badge {
-      border: 1px solid currentColor;
-      border-radius: 999px;
-      padding: 2px 8px;
-    }
-
-    section {
-      margin-top: 14px;
-      overflow: hidden;
-    }
-
-    section > h2 {
-      margin: 0;
-      padding: 13px 14px;
-      border-bottom: 1px solid var(--line);
-      font-size: 16px;
-      line-height: 1.25;
-    }
-
-    .section-heading {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 14px;
-      padding: 12px 14px;
-      border-bottom: 1px solid var(--line);
-    }
-
-    .section-heading h2 {
-      margin: 0;
-      font-size: 16px;
-      line-height: 1.25;
-    }
-
-    .tabs {
-      display: inline-flex;
-      flex-wrap: wrap;
-      gap: 4px;
-      padding: 3px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: #f4f6f8;
-    }
-
-    .tab {
-      appearance: none;
-      border: 0;
-      border-radius: 6px;
-      background: transparent;
-      color: var(--muted);
-      cursor: pointer;
-      font: inherit;
-      font-size: 13px;
-      font-weight: 650;
-      line-height: 1.2;
-      padding: 7px 10px;
-    }
-
-    .tab:hover,
-    .tab:focus-visible {
-      color: var(--text);
-      outline: 2px solid rgba(17, 122, 101, 0.22);
-      outline-offset: 1px;
-    }
-
-    .tab.is-active {
-      background: var(--panel);
-      color: var(--text);
-      box-shadow: 0 1px 2px rgba(23, 32, 42, 0.08);
-    }
-
-    [hidden] {
-      display: none;
-    }
-
-    .table-note,
-    .empty-state {
-      margin: 0;
-      padding: 12px 14px;
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1.4;
-    }
-
-    .table-note {
-      border-bottom: 1px solid var(--line);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-    }
-
-    .table-meta {
-      border-bottom: 1px solid var(--line);
-    }
-
-    .table-meta .table-note {
-      border-bottom: 0;
-    }
-
-    .pagination {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      padding: 0 14px 12px;
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1.4;
-    }
-
-    .pagination-links {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-    }
-
-    .pagination a {
-      color: var(--accent);
-      text-decoration: none;
-    }
-
-    .pagination a:hover {
-      text-decoration: underline;
-    }
-
-    .pagination [aria-disabled="true"] {
-      color: #9aa7b2;
-    }
-
-    .table-scroll {
-      overflow: auto;
-    }
-
-    .table-scroll.is-compact {
-      display: inline-block;
-      max-width: 100%;
-      min-width: 0;
-      vertical-align: top;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
-    }
-
-    .table-scroll.is-compact table {
-      width: auto;
-    }
-
-    th,
-    td {
-      padding: 9px 12px;
-      border-bottom: 1px solid var(--line);
-      text-align: left;
-      vertical-align: top;
-      white-space: nowrap;
-    }
-
-    th {
-      background: #f8fafb;
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 700;
-      text-transform: uppercase;
-    }
-
-    td {
-      color: #24313d;
-      font-variant-numeric: tabular-nums;
-    }
-
-    tbody tr:last-child td {
-      border-bottom: 0;
-    }
-
-    .cli-output {
-      margin: 0;
-      padding: 14px;
-      overflow: auto;
-      color: #24313d;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-      font-size: 12px;
-      line-height: 1.45;
-      font-variant-numeric: tabular-nums;
-      white-space: pre;
-    }
-
-    .more-link {
-      color: var(--accent);
-      font-size: 13px;
-      font-weight: 650;
-      text-decoration: none;
-      white-space: nowrap;
-    }
-
-    .more-link:hover {
-      text-decoration: underline;
-    }
-
-    @media (max-width: 980px) {
-      .metrics {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-
-      .section-heading {
-        align-items: flex-start;
-        flex-direction: column;
-      }
-    }
-
-    @media (max-width: 520px) {
-      main,
-      .header-inner {
-        width: min(100vw - 20px, 1180px);
-      }
-
-      .metrics {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    .more-link {
-      color: var(--accent);
-      font-size: 13px;
-      font-weight: 650;
-      text-decoration: none;
-      white-space: nowrap;
-    }
-
-    .more-link:hover {
-      text-decoration: underline;
-    }
-  </style>
+  <meta name="theme-color" content="#f7f8fa">
+  <style>${getSharedCss()}</style>
 </head>
 <body>
   <header>
@@ -1972,23 +1237,18 @@ function renderMetricsHtml(data: MetricsDashboardData, display: DashboardDisplay
   </main>
   <script>
     document.querySelectorAll("[data-tabs]").forEach((root) => {
-      const tabs = [...root.querySelectorAll("[role='tab']")];
+      const buttons = [...root.querySelectorAll("[role='tab']")];
       const panels = [...root.querySelectorAll("[role='tabpanel']")];
-
-      tabs.forEach((tab) => {
-        tab.addEventListener("click", () => {
-          const selectedPanel = tab.getAttribute("aria-controls");
-
-          tabs.forEach((candidate) => {
-            const active = candidate === tab;
-            candidate.classList.toggle("is-active", active);
-            candidate.setAttribute("aria-selected", String(active));
-            candidate.setAttribute("tabindex", active ? "0" : "-1");
+      buttons.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const selectedPanel = btn.getAttribute("aria-controls");
+          buttons.forEach((b) => {
+            const active = b === btn;
+            b.setAttribute("aria-current", active ? "true" : "false");
+            b.classList.toggle("outline", !active);
+            b.setAttribute("tabindex", active ? "0" : "-1");
           });
-
-          panels.forEach((panel) => {
-            panel.hidden = panel.id !== selectedPanel;
-          });
+          panels.forEach((p) => { p.hidden = p.id !== selectedPanel; });
         });
       });
     });
@@ -2009,512 +1269,14 @@ function renderUsageHtml(data: UsageDashboardData, display: DashboardDisplayMode
   const heroClass = isOverBaseline ? " usage-hero is-alert" : "";
 
   return `<!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>himan-tracker Usage</title>
   <link rel="icon" type="image/svg+xml" href="${escapeHtml(DASHBOARD_ICON_DATA_URL)}">
-  <meta name="theme-color" content="#117a65">
-  <style>
-    :root {
-      color-scheme: light;
-      --bg: #f7f8fa;
-      --panel: #ffffff;
-      --text: #17202a;
-      --muted: #607080;
-      --line: #d9e1e8;
-      --accent: #117a65;
-      --danger: #b42318;
-      --warning: #a15c07;
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }
-
-    header {
-      border-bottom: 1px solid var(--line);
-      background: var(--panel);
-    }
-
-    main,
-    .header-inner {
-      width: min(1180px, calc(100vw - 32px));
-      margin: 0 auto;
-    }
-
-    .header-inner {
-      padding: 22px 0 18px;
-    }
-
-    h1 {
-      margin: 0;
-      font-size: 28px;
-      line-height: 1.15;
-      font-weight: 720;
-    }
-
-    .status {
-      margin-top: 10px;
-      color: var(--muted);
-      font-size: 14px;
-    }
-
-    .status strong {
-      color: ${data.lastIngest?.ok === false ? "var(--danger)" : "var(--accent)"};
-    }
-
-    .nav {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 14px;
-    }
-
-    .nav a {
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      color: var(--muted);
-      font-size: 13px;
-      font-weight: 650;
-      line-height: 1.2;
-      padding: 7px 10px;
-      text-decoration: none;
-    }
-
-    .nav a[aria-current="page"] {
-      background: #eef8f5;
-      border-color: rgba(17, 122, 101, 0.35);
-      color: var(--accent);
-    }
-
-    main {
-      padding: 22px 0 40px;
-    }
-
-    section {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-    }
-
-    section {
-      margin-top: 14px;
-      overflow: hidden;
-    }
-
-    section:first-of-type {
-      margin-top: 0;
-    }
-
-    section > h2 {
-      margin: 0;
-      padding: 13px 14px;
-      border-bottom: 1px solid var(--line);
-      font-size: 16px;
-      line-height: 1.25;
-    }
-
-    .usage-hero {
-      padding: 18px;
-      margin-bottom: 18px;
-    }
-
-    .usage-hero.is-alert {
-      border-color: rgba(180, 35, 24, 0.24);
-      box-shadow: inset 0 0 0 1px rgba(180, 35, 24, 0.08);
-    }
-
-    .usage-hero-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 12px;
-    }
-
-    .usage-hero-kicker {
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-    }
-
-    .usage-hero-value {
-      margin-top: 8px;
-      font-size: 34px;
-      line-height: 1.05;
-      font-weight: 760;
-      font-variant-numeric: tabular-nums;
-    }
-
-    .usage-hero-subtitle {
-      margin-top: 8px;
-      color: var(--muted);
-      font-size: 14px;
-      line-height: 1.5;
-    }
-
-    .usage-badge {
-      padding: 8px 10px;
-      border-radius: 999px;
-      background: #eef8f5;
-      color: var(--accent);
-      font-size: 12px;
-      font-weight: 700;
-      white-space: nowrap;
-    }
-
-    .usage-alert-badge {
-      margin-top: 12px;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      border-radius: 999px;
-      background: #fff1f1;
-      color: var(--danger);
-      font-size: 13px;
-      font-weight: 700;
-    }
-
-    .usage-progress {
-      margin-top: 18px;
-    }
-
-    .usage-progress-track {
-      position: relative;
-      height: 18px;
-      border-radius: 999px;
-      background: linear-gradient(90deg, #edf3f8 0%, #f5f7fa 100%);
-      border: 1px solid #dbe4eb;
-      overflow: visible;
-    }
-
-    .usage-progress-fill {
-      position: absolute;
-      inset: 0 auto 0 0;
-      max-width: 100%;
-      border-radius: 999px;
-      background: linear-gradient(90deg, #117a65 0%, #19a07f 100%);
-    }
-
-    .usage-progress-marker {
-      position: absolute;
-      top: -7px;
-      bottom: -7px;
-      width: 0;
-      pointer-events: none;
-    }
-
-    .usage-progress-marker::before {
-      content: "";
-      position: absolute;
-      left: 50%;
-      top: 0;
-      bottom: 0;
-      width: 2px;
-      transform: translateX(-50%);
-      border-radius: 999px;
-      background: currentColor;
-      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.92);
-    }
-
-    .usage-progress-marker::after {
-      content: "";
-      position: absolute;
-      left: 50%;
-      top: -2px;
-      width: 10px;
-      height: 10px;
-      transform: translateX(-50%);
-      border-radius: 999px;
-      background: currentColor;
-      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.96);
-    }
-
-    .usage-progress-marker.is-baseline {
-      color: #0f3d62;
-      z-index: 2;
-    }
-
-    .usage-progress-scale {
-      display: flex;
-      justify-content: space-between;
-      margin-top: 8px;
-      color: var(--muted);
-      font-size: 12px;
-      font-variant-numeric: tabular-nums;
-    }
-
-    .usage-legend {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 12px;
-      margin-top: 16px;
-    }
-
-    .usage-legend-item,
-    .usage-summary-item {
-      min-width: 0;
-      border-radius: 10px;
-    }
-
-    .usage-legend-item {
-      padding: 12px 13px;
-      border: 1px solid var(--line);
-      background: #fbfcfd;
-    }
-
-    .usage-legend-item.is-alert,
-    .usage-summary-item.is-alert {
-      border-color: rgba(180, 35, 24, 0.28);
-      background: #fff6f5;
-    }
-
-    .usage-legend-head {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 700;
-      text-transform: uppercase;
-    }
-
-    .usage-legend-dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 999px;
-      flex: none;
-    }
-
-    .usage-legend-dot.is-used {
-      background: #117a65;
-    }
-
-    .usage-legend-dot.is-baseline {
-      background: #0f3d62;
-    }
-
-    .usage-legend-dot.is-total {
-      background: #8f9baa;
-    }
-
-    .usage-legend-value {
-      margin-top: 8px;
-      font-size: 24px;
-      line-height: 1.15;
-      font-weight: 740;
-      font-variant-numeric: tabular-nums;
-      overflow-wrap: anywhere;
-    }
-
-    .usage-legend-subtle,
-    .usage-summary-subtle {
-      margin-top: 6px;
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1.45;
-    }
-
-    .usage-summary-grid {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 12px;
-      margin-top: 16px;
-    }
-
-    .usage-summary-item {
-      padding: 12px 13px;
-      background: #f8fafb;
-    }
-
-    .usage-summary-label {
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 700;
-      text-transform: uppercase;
-    }
-
-    .usage-summary-value {
-      margin-top: 7px;
-      font-size: 20px;
-      line-height: 1.15;
-      font-weight: 720;
-      font-variant-numeric: tabular-nums;
-      overflow-wrap: anywhere;
-    }
-
-    .usage-controls,
-    .usage-note {
-      padding: 14px;
-      color: #24313d;
-    }
-
-    .usage-controls {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: end;
-      gap: 12px 16px;
-      border-bottom: 1px solid var(--line);
-    }
-
-    .usage-control {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-
-    .usage-control label {
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 650;
-      text-transform: uppercase;
-    }
-
-    .usage-control select,
-    .usage-controls button {
-      height: 38px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: #fff;
-      color: var(--text);
-      font: inherit;
-      font-size: 14px;
-      padding: 0 12px;
-    }
-
-    .usage-controls button {
-      background: #117a65;
-      border-color: #117a65;
-      color: #fff;
-      cursor: pointer;
-      font-weight: 650;
-    }
-
-    .usage-note {
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1.55;
-    }
-
-    .table-note,
-    .empty-state {
-      margin: 0;
-      padding: 12px 14px;
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1.4;
-    }
-
-    .table-note {
-      border-bottom: 1px solid var(--line);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-    }
-
-    .table-meta {
-      border-bottom: 1px solid var(--line);
-    }
-
-    .table-meta .table-note {
-      border-bottom: 0;
-    }
-
-    .table-scroll {
-      overflow: auto;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
-    }
-
-    th,
-    td {
-      padding: 9px 12px;
-      border-bottom: 1px solid var(--line);
-      text-align: left;
-      vertical-align: top;
-      white-space: nowrap;
-    }
-
-    th {
-      background: #f8fafb;
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 700;
-      text-transform: uppercase;
-    }
-
-    td {
-      color: #24313d;
-      font-variant-numeric: tabular-nums;
-    }
-
-    tbody tr:last-child td {
-      border-bottom: 0;
-    }
-
-    .cli-output {
-      margin: 0;
-      padding: 14px;
-      overflow: auto;
-      color: #24313d;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-      font-size: 12px;
-      line-height: 1.45;
-      font-variant-numeric: tabular-nums;
-      white-space: pre;
-    }
-
-    @media (max-width: 980px) {
-      .usage-legend,
-      .usage-summary-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-    }
-
-    @media (max-width: 520px) {
-      main,
-      .header-inner {
-        width: min(100vw - 20px, 1180px);
-      }
-
-      .usage-hero {
-        padding: 14px;
-      }
-
-      .usage-hero-head {
-        flex-direction: column;
-      }
-
-      .usage-hero-value {
-        font-size: 30px;
-      }
-
-      .usage-legend,
-      .usage-summary-grid {
-        grid-template-columns: 1fr;
-      }
-
-      .usage-controls {
-        align-items: stretch;
-      }
-    }
-  </style>
+  <meta name="theme-color" content="#f7f8fa">
+  <style>${getSharedCss()}</style>
 </head>
 <body>
   <header>
@@ -2538,8 +1300,8 @@ function renderUsageHtml(data: UsageDashboardData, display: DashboardDisplayMode
           <div class="usage-hero-value">${escapeHtml(formatCredits(data.currentCycle.usedCredits))} / ${escapeHtml(formatCredits(CODEX_WEEKLY_BUDGET_CREDITS))} credits</div>
           <div class="usage-hero-subtitle">Current cycle: ${escapeHtml(data.currentCycle.startDate)} → ${escapeHtml(data.currentCycle.endDate)} · Remaining ${escapeHtml(formatCredits(data.currentCycle.remainingCredits))} credits (${escapeHtml(formatUsd(data.currentCycle.remainingUsd))})</div>
           ${isOverBaseline
-    ? `<div class="usage-alert-badge">Over expected baseline by ${escapeHtml(formatCredits(baselineDelta))} credits</div>`
-    : ""}
+      ? `<div class="usage-alert-badge">Over expected baseline by ${escapeHtml(formatCredits(baselineDelta))} credits</div>`
+      : ""}
         </div>
         <div class="usage-badge">Coverage ${escapeHtml(formatPercent(data.coverageSummary.pricedTokenRatio))}</div>
       </div>
@@ -2600,8 +1362,8 @@ function renderUsageHtml(data: UsageDashboardData, display: DashboardDisplayMode
           <label for="cycleStartDay">Billing cycle starts on</label>
           <select id="cycleStartDay" name="cycleStartDay">
             ${data.availableCycleStartDays.map((day) =>
-              `<option value="${escapeHtml(day)}"${day === data.billingCycleStartDay ? " selected" : ""}>${escapeHtml(formatBillingCycleStartDay(day))}</option>`
-            ).join("")}
+        `<option value="${escapeHtml(day)}"${day === data.billingCycleStartDay ? " selected" : ""}>${escapeHtml(formatBillingCycleStartDay(day))}</option>`
+      ).join("")}
           </select>
         </div>
         <button type="submit">Update</button>
@@ -2954,222 +1716,14 @@ function renderListPageHtml(options: {
   const breadcrumb = `<a href="/">Overview</a> <span class="breadcrumb-sep">›</span> <span class="breadcrumb-current">${escapeHtml(title)}</span>`;
 
   return `<!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(title)} – himan-tracker</title>
   <link rel="icon" type="image/svg+xml" href="${escapeHtml(DASHBOARD_ICON_DATA_URL)}">
-  <meta name="theme-color" content="#117a65">
-  <style>
-    :root {
-      color-scheme: light;
-      --bg: #f7f8fa;
-      --panel: #ffffff;
-      --text: #17202a;
-      --muted: #607080;
-      --line: #d9e1e8;
-      --accent: #117a65;
-      --danger: #b42318;
-    }
-
-    * { box-sizing: border-box; }
-
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }
-
-    header {
-      border-bottom: 1px solid var(--line);
-      background: var(--panel);
-    }
-
-    main,
-    .header-inner {
-      width: min(1180px, calc(100vw - 32px));
-      margin: 0 auto;
-    }
-
-    .header-inner {
-      padding: 22px 0 18px;
-    }
-
-    h1 {
-      margin: 0;
-      font-size: 28px;
-      line-height: 1.15;
-      font-weight: 720;
-    }
-
-    .status {
-      margin-top: 10px;
-      color: var(--muted);
-      font-size: 14px;
-    }
-
-    .status strong {
-      color: var(--accent);
-    }
-
-    .nav {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 14px;
-    }
-
-    .nav a {
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      color: var(--muted);
-      font-size: 13px;
-      font-weight: 650;
-      line-height: 1.2;
-      padding: 7px 10px;
-      text-decoration: none;
-    }
-
-    .nav a[aria-current="page"] {
-      background: #eef8f5;
-      border-color: rgba(17, 122, 101, 0.35);
-      color: var(--accent);
-    }
-
-    main {
-      padding: 22px 0 40px;
-    }
-
-    section {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      overflow: hidden;
-    }
-
-    section > h2 {
-      margin: 0;
-      padding: 13px 14px;
-      border-bottom: 1px solid var(--line);
-      font-size: 16px;
-      line-height: 1.25;
-    }
-
-    .table-note,
-    .empty-state {
-      margin: 0;
-      padding: 12px 14px;
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1.4;
-    }
-
-    .table-note {
-      border-bottom: 1px solid var(--line);
-    }
-
-    .table-meta {
-      border-bottom: 1px solid var(--line);
-    }
-
-    .table-meta .table-note {
-      border-bottom: 0;
-    }
-
-    .pagination {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      padding: 0 14px 12px;
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1.4;
-    }
-
-    .pagination-links {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-    }
-
-    .pagination a {
-      color: var(--accent);
-      text-decoration: none;
-    }
-
-    .pagination a:hover {
-      text-decoration: underline;
-    }
-
-    .pagination [aria-disabled="true"] {
-      color: #9aa7b2;
-    }
-
-    .table-scroll {
-      overflow: auto;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
-    }
-
-    th,
-    td {
-      padding: 9px 12px;
-      border-bottom: 1px solid var(--line);
-      text-align: left;
-      vertical-align: top;
-      white-space: nowrap;
-    }
-
-    th {
-      background: #f8fafb;
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 700;
-      text-transform: uppercase;
-    }
-
-    td {
-      color: #24313d;
-      font-variant-numeric: tabular-nums;
-    }
-
-    tbody tr:last-child td {
-      border-bottom: 0;
-    }
-
-    .breadcrumb {
-      margin-top: 14px;
-      font-size: 14px;
-      color: var(--muted);
-    }
-
-    .breadcrumb a {
-      color: var(--accent);
-      text-decoration: none;
-    }
-
-    .breadcrumb a:hover {
-      text-decoration: underline;
-    }
-
-    .breadcrumb-sep {
-      margin: 0 6px;
-      color: var(--line);
-    }
-
-    .breadcrumb-current {
-      color: var(--text);
-      font-weight: 650;
-    }
-  </style>
+  <meta name="theme-color" content="#f7f8fa">
+  <style>${getSharedCss()}</style>
 </head>
 <body>
   <header>
@@ -4634,13 +3188,11 @@ function renderTabbedSection(
   const tabButtons = tabs
     .map((tab, index) => {
       const active = index === 0;
-      return `<button class="tab${active ? " is-active" : ""}" id="${escapeHtml(
+      return `<button${active ? ' aria-current="true"' : ''} id="${escapeHtml(
         idPrefix,
       )}-tab-${escapeHtml(
         tab.id,
-      )}" role="tab" type="button" aria-selected="${String(
-        active,
-      )}" aria-controls="${escapeHtml(idPrefix)}-panel-${escapeHtml(tab.id)}" tabindex="${active ? "0" : "-1"
+      )}" role="tab" type="button" aria-controls="${escapeHtml(idPrefix)}-panel-${escapeHtml(tab.id)}" tabindex="${active ? "0" : "-1"
         }">${escapeHtml(tab.label)}</button>`;
     })
     .join("");
@@ -4657,7 +3209,7 @@ function renderTabbedSection(
 
   return `<section data-tabs><div class="section-heading"><h2>${escapeHtml(
     title,
-  )}</h2><div class="tabs" role="tablist" aria-label="${escapeHtml(
+  )}</h2><div class="tab-bar" aria-label="${escapeHtml(
     title,
   )}">${tabButtons}</div></div>${panels}</section>`;
 }
@@ -4852,19 +3404,7 @@ function splitCliOutputBlocks(lines: string[]): DashboardCliBlock[] {
 }
 
 function renderIngestStatus(snapshot: ReportServerIngestSnapshot | null): string {
-  if (!snapshot) {
-    return "<strong>Ingest pending</strong>";
-  }
-
-  if (!snapshot.ok) {
-    return `<strong>Ingest failed</strong> at ${escapeHtml(formatLocalDateTime(snapshot.at))}: ${escapeHtml(
-      snapshot.error,
-    )}`;
-  }
-
-  return `<strong>Ingested</strong> at ${escapeHtml(
-    formatLocalDateTime(snapshot.at),
-  )}: ${snapshot.events_inserted} inserted, ${snapshot.events_skipped} skipped`;
+  return renderIngestStatusHTML(snapshot);
 }
 
 function listen(server: Server, port: number, host: string): Promise<void> {
@@ -4948,31 +3488,6 @@ function parseReportServerState(value: unknown, statePath: string): ReportServer
 
 function isDashboardDisplayMode(value: unknown): value is DashboardDisplayMode {
   return value === "table" || value === "text";
-}
-
-function formatLocalDateTime(value: string | Date): string {
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.valueOf())) {
-    return String(value);
-  }
-
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const hour = String(date.getHours()).padStart(2, "0");
-  const minute = String(date.getMinutes()).padStart(2, "0");
-  const second = String(date.getSeconds()).padStart(2, "0");
-
-  return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
 }
 
 function isNodeErrorCode(error: unknown, code: string): boolean {

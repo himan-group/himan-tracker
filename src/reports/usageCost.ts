@@ -78,7 +78,9 @@ const PRICING_BY_MODEL: Record<string, CodexModelPricing> = {
 };
 
 export function listBillingCycleStartDays(): BillingCycleStartDay[] {
-  return [...DAY_NAMES];
+  const days = [...DAY_NAMES];
+  days.push(days.shift()!);
+  return days;
 }
 
 export function parseBillingCycleStartDay(

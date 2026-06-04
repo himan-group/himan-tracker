@@ -1,6 +1,6 @@
 {
   "name": "@hi-man/himan-tracker",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Local-first observability and analytics for AI coding agents.",
   "type": "module",
   "license": "Apache-2.0",
@@ -48,6 +48,7 @@
     "typescript": "^5.8.0"
   },
   "dependencies": {
+    "@picocss/pico": "^2.1.1",
     "better-sqlite3": "^12.9.0",
     "commander": "^14.0.3",
     "zod": "^4.4.3"
