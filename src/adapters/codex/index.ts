@@ -112,6 +112,7 @@ function parseStop(event: RawRecord, options: ParseCodexHookPayloadOptions): Ada
       model: getString(event.model),
       duration_ms: getNumber(event.duration_ms),
       input_tokens: getNumber(event.input_tokens),
+      cached_input_tokens: getNumber(event.cached_input_tokens),
       output_tokens: getNumber(event.output_tokens),
       total_tokens: getNumber(event.total_tokens),
       status: getStatus(event.status),

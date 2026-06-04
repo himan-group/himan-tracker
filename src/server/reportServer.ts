@@ -322,6 +322,7 @@ type UsageDailyAgentStatsRow = {
   model: string;
   turn_count: number;
   input_tokens: number | null;
+  cached_input_tokens: number | null;
   output_tokens: number | null;
   total_tokens: number | null;
 };
@@ -374,6 +375,8 @@ type DashboardTokenBucket = {
   label: string;
   turn_count: number;
   input_tokens: number;
+  cached_input_tokens: number;
+  cached_input_count: number;
   input_count: number;
   output_tokens: number;
   output_count: number;
@@ -1438,6 +1441,7 @@ function readUsageDailyRows(
         model,
         sum(turn_count) as turn_count,
         case when count(input_tokens) = 0 then null else sum(input_tokens) end as input_tokens,
+        case when count(cached_input_tokens) = 0 then null else sum(cached_input_tokens) end as cached_input_tokens,
         case when count(output_tokens) = 0 then null else sum(output_tokens) end as output_tokens,
         case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens
       from daily_agent_stats
@@ -1453,9 +1457,12 @@ function readUsageDailyRows(
     const estimate = estimateCodexCost({
       model: row.model,
       inputTokens: row.input_tokens,
+      cachedInputTokens: row.cached_input_tokens,
       outputTokens: row.output_tokens,
     });
-    const pricedRuntimeTokens = (row.input_tokens ?? 0) + (row.output_tokens ?? 0);
+    const pricedRuntimeTokens =
+      (row.output_tokens ?? 0) +
+      (row.input_tokens !== null && row.cached_input_tokens !== null ? row.input_tokens : 0);
 
     return {
       ...row,
@@ -1571,6 +1578,7 @@ function createUsageCurrentCycleTable(
       ...row,
       turn_count: 0,
       input_tokens: null,
+      cached_input_tokens: null,
       output_tokens: null,
       total_tokens: null,
       estimated_credits: 0,
@@ -1581,6 +1589,10 @@ function createUsageCurrentCycleTable(
     };
     existing.turn_count += row.turn_count;
     existing.input_tokens = sumNullable(existing.input_tokens, row.input_tokens);
+    existing.cached_input_tokens = sumNullable(
+      existing.cached_input_tokens,
+      row.cached_input_tokens,
+    );
     existing.output_tokens = sumNullable(existing.output_tokens, row.output_tokens);
     existing.total_tokens = sumNullable(existing.total_tokens, row.total_tokens);
     existing.estimated_credits += row.estimated_credits;
@@ -1602,6 +1614,7 @@ function createUsageCurrentCycleTable(
       "Days",
       "Turns",
       "Input",
+      "Cached input",
       "Output",
       "Runtime tokens",
       "Credits",
@@ -1614,6 +1627,7 @@ function createUsageCurrentCycleTable(
       String(row.day_count),
       String(row.turn_count),
       formatTokenCount(row.input_tokens),
+      formatTokenCount(row.cached_input_tokens),
       formatTokenCount(row.output_tokens),
       formatTokenCount(row.total_tokens),
       formatCredits(row.estimated_credits),
@@ -1634,6 +1648,7 @@ function createUsageDailyTable(rows: UsageDailyRow[]): DashboardTable {
       "Rate card",
       "Turns",
       "Input",
+      "Cached input",
       "Output",
       "Runtime tokens",
       "Credits",
@@ -1647,6 +1662,7 @@ function createUsageDailyTable(rows: UsageDailyRow[]): DashboardTable {
       row.rate_card_alias_of ? `${row.rate_card_model} via ${row.rate_card_alias_of}` : formatNullableText(row.rate_card_model),
       String(row.turn_count),
       formatTokenCount(row.input_tokens),
+      formatTokenCount(row.cached_input_tokens),
       formatTokenCount(row.output_tokens),
       formatTokenCount(row.total_tokens),
       formatCredits(row.estimated_credits),
@@ -2969,6 +2985,8 @@ function aggregateDashboardTokenRows(
       label: descriptor.label,
       turn_count: 0,
       input_tokens: 0,
+      cached_input_tokens: 0,
+      cached_input_count: 0,
       input_count: 0,
       output_tokens: 0,
       output_count: 0,

@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Added `cached_input_tokens` to Codex transcript/enrichment ingestion so newly collected and backfilled turn data can preserve cached input token usage alongside input, output, and total tokens.
+
+### Changed
+
+- Changed Codex `Usage` cost estimation to price cached input tokens separately from regular input tokens using the Codex credit rate card, and surfaced cached-input usage in the Usage tables.
+
 ## [0.5.2] - 2026-06-04
 
 ### Changed

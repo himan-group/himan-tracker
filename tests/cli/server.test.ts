@@ -772,6 +772,7 @@ function createTurnEvent(): NormalizedEvent {
     model: "gpt-5.1-codex",
     duration_ms: 1_500,
     input_tokens: 1_000,
+    cached_input_tokens: 400,
     output_tokens: 234,
     total_tokens: 1_234,
   };
@@ -783,6 +784,7 @@ function createTokenTurnEvent(options: {
   totalTokens: number;
   durationMs?: number;
   inputTokens?: number | null;
+  cachedInputTokens?: number | null;
   outputTokens?: number | null;
 }): NormalizedEvent {
   return {
@@ -799,6 +801,8 @@ function createTokenTurnEvent(options: {
     model: "gpt-5.1-codex",
     duration_ms: options.durationMs ?? 1_000,
     input_tokens: options.inputTokens ?? null,
+    cached_input_tokens:
+      options.cachedInputTokens ?? (options.inputTokens !== undefined && options.inputTokens !== null ? 0 : null),
     output_tokens: options.outputTokens ?? null,
     total_tokens: options.totalTokens,
   };
@@ -824,6 +828,7 @@ function createPaginatedTurnEvents(count: number): NormalizedEvent[] {
       model: "gpt-5.1-codex",
       duration_ms: 1_000 + position,
       input_tokens: 100,
+      cached_input_tokens: 0,
       output_tokens: 20,
       total_tokens: 120,
     } satisfies NormalizedEvent;

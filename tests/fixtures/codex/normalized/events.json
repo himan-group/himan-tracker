@@ -21,6 +21,7 @@
     "attribution_reason": "Skill name explicitly referenced in prompt.",
     "attribution_context_source": "transcript_only",
     "input_tokens": null,
+    "cached_input_tokens": null,
     "output_tokens": null,
     "total_tokens": null
   },
@@ -46,6 +47,7 @@
     "attribution_reason": "Tool call name observed from hook event.",
     "attribution_context_source": "none",
     "input_tokens": null,
+    "cached_input_tokens": null,
     "output_tokens": null,
     "total_tokens": null
   },
@@ -63,6 +65,7 @@
     "model": "gpt-5.1-codex",
     "duration_ms": 10000,
     "input_tokens": 100,
+    "cached_input_tokens": null,
     "output_tokens": 20,
     "total_tokens": 120
   },

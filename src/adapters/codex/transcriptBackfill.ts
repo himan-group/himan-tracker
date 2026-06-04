@@ -494,6 +494,7 @@ function resolveTurnTokenUsage(turn: TurnState, tokenSnapshots: TokenSnapshot[])
   );
   const baseline = baselineSnapshot?.usage ?? {
     input_tokens: 0,
+    cached_input_tokens: 0,
     output_tokens: 0,
     total_tokens: 0,
   };
@@ -517,6 +518,10 @@ function findLatestSnapshot(
 function subtractTokenUsage(end: TokenUsage, baseline: TokenUsage): TokenUsage {
   return {
     input_tokens: subtractNullable(end.input_tokens, baseline.input_tokens),
+    cached_input_tokens: subtractNullable(
+      end.cached_input_tokens,
+      baseline.cached_input_tokens,
+    ),
     output_tokens: subtractNullable(end.output_tokens, baseline.output_tokens),
     total_tokens: subtractNullable(end.total_tokens, baseline.total_tokens),
   };
@@ -574,14 +579,21 @@ function getTokenUsage(value: RawRecord | null): TokenUsage | null {
   }
 
   const inputTokens = getInteger(value.input_tokens);
+  const cachedInputTokens = getInteger(value.cached_input_tokens);
   const outputTokens = getInteger(value.output_tokens);
   const totalTokens = getInteger(value.total_tokens);
-  if (inputTokens === null && outputTokens === null && totalTokens === null) {
+  if (
+    inputTokens === null &&
+    cachedInputTokens === null &&
+    outputTokens === null &&
+    totalTokens === null
+  ) {
     return null;
   }
 
   return {
     input_tokens: inputTokens,
+    cached_input_tokens: cachedInputTokens,
     output_tokens: outputTokens,
     total_tokens: totalTokens ?? (inputTokens ?? 0) + (outputTokens ?? 0),
   };

@@ -42,23 +42,26 @@ describe("usageCost", () => {
     const estimate = estimateCodexCost({
       model: "gpt-5.3-codex",
       inputTokens: 1_000_000,
+      cachedInputTokens: 250_000,
       outputTokens: 500_000,
     });
 
     assert.equal(estimate.coverage, "full");
-    assert.equal(estimate.estimatedCredits, 218.75);
-    assert.equal(estimate.estimatedUsd, creditsToUsd(218.75));
+    assert.equal(estimate.estimatedCredits, 208.90625);
+    assert.equal(estimate.estimatedUsd, creditsToUsd(208.90625));
   });
 
   it("marks missing token splits as partial or none", () => {
     const partial = estimateCodexCost({
       model: "gpt-5.5",
       inputTokens: 500_000,
+      cachedInputTokens: null,
       outputTokens: null,
     });
     const none = estimateCodexCost({
       model: "gpt-5.5",
       inputTokens: null,
+      cachedInputTokens: null,
       outputTokens: null,
     });
 

@@ -35,6 +35,7 @@ describe("normalizeTokenUsage", () => {
   it("calculates total tokens when input or output is present", () => {
     assert.deepEqual(normalizeTokenUsage({ input_tokens: 12, output_tokens: 3 }), {
       input_tokens: 12,
+      cached_input_tokens: null,
       output_tokens: 3,
       total_tokens: 15,
     });
@@ -43,6 +44,7 @@ describe("normalizeTokenUsage", () => {
   it("preserves null token usage when no token fields are available", () => {
     assert.deepEqual(normalizeTokenUsage({}), {
       input_tokens: null,
+      cached_input_tokens: null,
       output_tokens: null,
       total_tokens: null,
     });
@@ -52,11 +54,13 @@ describe("normalizeTokenUsage", () => {
     assert.deepEqual(
       normalizeTokenUsage({
         input_tokens: 12,
+        cached_input_tokens: 4,
         output_tokens: 3,
         total_tokens: 99,
       }),
       {
         input_tokens: 12,
+        cached_input_tokens: 4,
         output_tokens: 3,
         total_tokens: 99,
       },
@@ -78,6 +82,7 @@ describe("normalizeEvent", () => {
       model: "gpt-5.1-codex",
       duration_ms: 42_000,
       input_tokens: 12_000,
+      cached_input_tokens: 5_000,
       output_tokens: 1_800,
     };
 
@@ -86,6 +91,7 @@ describe("normalizeEvent", () => {
 
     assert.equal(first.event_id, second.event_id);
     assert.equal(first.total_tokens, 13_800);
+    assert.equal(first.cached_input_tokens, 5_000);
     assert.equal(first.repo_hash, hashRepoPath("/Users/example/project", config.local_salt));
     assert.equal("repo_path" in first, false);
   });

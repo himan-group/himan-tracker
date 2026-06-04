@@ -481,6 +481,37 @@ set strict_attribution_count = (
   );
 `;
 
+export const CACHED_INPUT_TOKENS_MIGRATION_SQL = `
+alter table turns add column cached_input_tokens integer;
+alter table capability_usages add column cached_input_tokens integer;
+alter table daily_agent_stats add column cached_input_tokens integer;
+alter table monthly_agent_stats add column cached_input_tokens integer;
+
+update daily_agent_stats
+set cached_input_tokens = (
+  select case
+    when count(t.cached_input_tokens) = 0 then null
+    else sum(t.cached_input_tokens)
+  end
+  from turns t
+  where date(t.occurred_at, 'localtime') = daily_agent_stats.date
+    and t.agent = daily_agent_stats.agent
+    and t.model = daily_agent_stats.model
+);
+
+update monthly_agent_stats
+set cached_input_tokens = (
+  select case
+    when count(d.cached_input_tokens) = 0 then null
+    else sum(d.cached_input_tokens)
+  end
+  from daily_agent_stats d
+  where substr(d.date, 1, 7) = monthly_agent_stats.month
+    and d.agent = monthly_agent_stats.agent
+    and d.model = monthly_agent_stats.model
+);
+`;
+
 const MIGRATIONS: Migration[] = [
   {
     version: "001_initial",
@@ -513,6 +544,10 @@ const MIGRATIONS: Migration[] = [
   {
     version: "008_capability_weighted_stats",
     sql: CAPABILITY_WEIGHTED_STATS_MIGRATION_SQL,
+  },
+  {
+    version: "009_cached_input_tokens",
+    sql: CACHED_INPUT_TOKENS_MIGRATION_SQL,
   },
 ];
 

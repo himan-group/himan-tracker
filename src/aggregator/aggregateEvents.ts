@@ -450,12 +450,13 @@ function upsertTurn(db: SqliteDatabase, event: TurnSummaryEvent): void {
       occurred_at,
       duration_ms,
       input_tokens,
+      cached_input_tokens,
       output_tokens,
       total_tokens,
       status,
       repo_hash
     )
-    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     on conflict(id) do update set
       event_id = excluded.event_id,
       session_id = excluded.session_id,
@@ -464,6 +465,7 @@ function upsertTurn(db: SqliteDatabase, event: TurnSummaryEvent): void {
       occurred_at = excluded.occurred_at,
       duration_ms = excluded.duration_ms,
       input_tokens = excluded.input_tokens,
+      cached_input_tokens = excluded.cached_input_tokens,
       output_tokens = excluded.output_tokens,
       total_tokens = excluded.total_tokens,
       status = excluded.status,
@@ -478,6 +480,7 @@ function upsertTurn(db: SqliteDatabase, event: TurnSummaryEvent): void {
     event.occurred_at,
     event.duration_ms,
     event.input_tokens,
+    event.cached_input_tokens,
     event.output_tokens,
     event.total_tokens,
     event.status,
@@ -505,6 +508,7 @@ function insertCapabilityUsage(
       occurred_at,
       duration_ms,
       input_tokens,
+      cached_input_tokens,
       output_tokens,
       total_tokens,
       status,
@@ -522,7 +526,7 @@ function insertCapabilityUsage(
       static_metadata_confidence,
       repo_hash
     )
-    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
   ).run(
     event.event_id,
@@ -535,6 +539,7 @@ function insertCapabilityUsage(
     event.occurred_at,
     event.duration_ms,
     event.input_tokens,
+    event.cached_input_tokens,
     event.output_tokens,
     event.total_tokens,
     event.status,

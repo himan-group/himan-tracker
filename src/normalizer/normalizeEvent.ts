@@ -77,6 +77,7 @@ export function normalizeEvent(event: AdapterEvent, config: UserConfig): Normali
 
 export function normalizeTokenUsage(tokenUsage: Partial<TokenUsage>): TokenUsage {
   const inputTokens = tokenUsage.input_tokens ?? null;
+  const cachedInputTokens = tokenUsage.cached_input_tokens ?? null;
   const outputTokens = tokenUsage.output_tokens ?? null;
   const totalTokens =
     tokenUsage.total_tokens ??
@@ -84,6 +85,7 @@ export function normalizeTokenUsage(tokenUsage: Partial<TokenUsage>): TokenUsage
 
   return {
     input_tokens: inputTokens,
+    cached_input_tokens: cachedInputTokens,
     output_tokens: outputTokens,
     total_tokens: totalTokens,
   };

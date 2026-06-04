@@ -123,6 +123,7 @@ describe("collect codex command", () => {
               info: {
                 total_token_usage: {
                   input_tokens: 100,
+                  cached_input_tokens: 30,
                   output_tokens: 20,
                   total_tokens: 120,
                 },
@@ -152,6 +153,7 @@ describe("collect codex command", () => {
               info: {
                 total_token_usage: {
                   input_tokens: 100,
+                  cached_input_tokens: 30,
                   output_tokens: 20,
                   total_tokens: 120,
                 },
@@ -166,6 +168,7 @@ describe("collect codex command", () => {
               info: {
                 total_token_usage: {
                   input_tokens: 250,
+                  cached_input_tokens: 80,
                   output_tokens: 70,
                   total_tokens: 320,
                 },
@@ -224,6 +227,7 @@ describe("collect codex command", () => {
       );
 
       assert.equal(turn?.input_tokens, 150);
+      assert.equal(turn?.cached_input_tokens, 50);
       assert.equal(turn?.output_tokens, 50);
       assert.equal(turn?.total_tokens, 200);
       assert.equal(turn?.duration_ms, 9_000);

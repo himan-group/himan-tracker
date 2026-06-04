@@ -54,6 +54,7 @@ const eventBaseSchema = z.object({
 
 const tokenUsageSchema = z.object({
   input_tokens: nullableNonNegativeIntegerSchema,
+  cached_input_tokens: nullableNonNegativeIntegerSchema.optional().default(null),
   output_tokens: nullableNonNegativeIntegerSchema,
   total_tokens: nullableNonNegativeIntegerSchema,
 });

@@ -42,6 +42,7 @@ describe("ingestEvents", () => {
         "006_capability_attribution_details",
         "007_capability_usage_evidence",
         "008_capability_weighted_stats",
+        "009_cached_input_tokens",
       ]);
       assert.deepEqual(first.affected_dates, [toLocalDate(events[0].occurred_at)]);
 
@@ -88,6 +89,7 @@ describe("ingestEvents", () => {
         "006_capability_attribution_details",
         "007_capability_usage_evidence",
         "008_capability_weighted_stats",
+        "009_cached_input_tokens",
       ]);
 
       assertDatabaseStats(sqlitePath, toLocalDate(events[0].occurred_at));
@@ -384,6 +386,7 @@ function assertDatabaseStats(sqlitePath: string, expectedDate: string): void {
       session_count: 1,
       turn_count: 1,
       input_tokens: 10,
+      cached_input_tokens: null,
       output_tokens: 5,
       total_tokens: 15,
       duration_ms: 1_000,

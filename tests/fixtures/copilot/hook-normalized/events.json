@@ -31,6 +31,7 @@
         "attribution_confidence": "exact",
         "invocation_origin": "observed",
         "input_tokens": null,
+        "cached_input_tokens": null,
         "output_tokens": null,
         "total_tokens": null
     },
@@ -52,6 +53,7 @@
         "attribution_confidence": "exact",
         "invocation_origin": "observed",
         "input_tokens": null,
+        "cached_input_tokens": null,
         "output_tokens": null,
         "total_tokens": null
     },
@@ -73,6 +75,7 @@
         "attribution_confidence": "exact",
         "invocation_origin": "observed",
         "input_tokens": null,
+        "cached_input_tokens": null,
         "output_tokens": null,
         "total_tokens": null
     },
@@ -90,6 +93,7 @@
         "model": "claude-sonnet-4.5",
         "duration_ms": 10000,
         "input_tokens": 500,
+        "cached_input_tokens": null,
         "output_tokens": 120,
         "total_tokens": 620
     },
