@@ -11,12 +11,24 @@ export type KnownProject = {
   source: "package_name" | "folder_name";
 };
 
+export type BillingCycleStartDay =
+  | "sunday"
+  | "monday"
+  | "tuesday"
+  | "wednesday"
+  | "thursday"
+  | "friday"
+  | "saturday";
+
 export type UserConfig = {
   schema_version: "1.0";
   privacy: {
     capture_content: boolean;
     hash_repo_path: boolean;
     capture_shell_args: boolean;
+  };
+  usage: {
+    billing_cycle_start_day: BillingCycleStartDay;
   };
   agents: Record<AgentName, { enabled: boolean }>;
   known_capabilities: KnownCapability[];

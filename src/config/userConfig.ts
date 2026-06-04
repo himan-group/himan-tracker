@@ -12,6 +12,9 @@ export function createDefaultUserConfig(): UserConfig {
       hash_repo_path: true,
       capture_shell_args: false,
     },
+    usage: {
+      billing_cycle_start_day: "wednesday",
+    },
     agents: {
       codex: {
         enabled: true,
@@ -41,6 +44,10 @@ export async function readOrCreateUserConfig(paths: TrackerPaths): Promise<UserC
       privacy: {
         ...defaults.privacy,
         ...parsedConfig.privacy,
+      },
+      usage: {
+        ...defaults.usage,
+        ...parsedConfig.usage,
       },
       agents: {
         ...defaults.agents,

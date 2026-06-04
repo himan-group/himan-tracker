@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-06-04
+
+### Changed
+
+- Changed the local report server `Usage` page to replace the top metric cards with a budget progress view, keep only the expected-baseline marker on the progress bar, and highlight cycles that are already over the expected baseline (`75 / 5 × N` workdays).
+
+## [0.5.0] - 2026-06-04
+
+### Added
+
+- Added a local report server `Usage` page (`/usage` and `/usage.json`) for Codex, with daily model-level cost estimates, weekly credit budget tracking, and configurable billing-cycle start day (default Wednesday).
+
 ## [0.4.2] - 2026-06-04
 
 ### Changed
