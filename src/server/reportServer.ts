@@ -122,6 +122,16 @@ type DashboardTable = {
   emptyText: string;
   note?: string;
   width?: "full" | "compact";
+  moreHref?: string;
+  pagination?: DashboardPagination;
+};
+
+type DashboardPagination = {
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  previousHref?: string;
+  nextHref?: string;
 };
 
 type DashboardCliBlock = {
@@ -143,7 +153,7 @@ type DashboardData = {
   sections: DashboardSection[];
   capabilityViewTabs: DashboardTab[];
   capabilityCallTabs: DashboardTab[];
-  recentTurnsSection: DashboardSection;
+  overviewTabs: DashboardTab[];
 };
 
 type MetricsDashboardData = MetricsInsightData & {
@@ -284,6 +294,24 @@ type DashboardTurnRow = {
   id: string;
   duration_ms: number | null;
   total_tokens: number | null;
+  status: string;
+};
+
+type DashboardProjectRow = {
+  repo_hash: string;
+  session_count: number;
+  turn_count: number;
+  total_tokens: number | null;
+  duration_ms: number | null;
+};
+
+type DashboardSessionRow = {
+  id: string;
+  agent: string;
+  started_at: string | null;
+  ended_at: string | null;
+  duration_ms: number | null;
+  turn_count: number;
   status: string;
 };
 
@@ -551,6 +579,8 @@ async function handleRequest(options: {
 }): Promise<void> {
   const method = options.request.method ?? "GET";
   const url = new URL(options.request.url ?? "/", "http://localhost");
+  const page = parseDashboardPageParam(url.searchParams.get("page"));
+  const pageSize = parseDashboardPageSizeParam(url.searchParams.get("pageSize"));
 
   if (method !== "GET") {
     writeResponse(options.response, 405, "text/plain; charset=utf-8", "Method not allowed");
@@ -573,7 +603,7 @@ async function handleRequest(options: {
 
   if (url.pathname === "/dashboard.json") {
     await options.runSyncNow();
-    const data = readDashboardData({
+    const data = await readDashboardData({
       paths: options.paths,
       since: options.since,
       now: options.now,
@@ -616,13 +646,58 @@ async function handleRequest(options: {
     return;
   }
 
+  if (url.pathname === "/projects") {
+    await options.runSyncNow();
+    const html = await renderProjectsHtml({
+      paths: options.paths,
+      since: options.since,
+      page,
+      pageSize,
+      display: options.display,
+      now: options.now,
+      lastIngest: options.getLastIngest(),
+    });
+    writeResponse(options.response, 200, "text/html; charset=utf-8", html);
+    return;
+  }
+
+  if (url.pathname === "/sessions") {
+    await options.runSyncNow();
+    const html = renderSessionsHtml({
+      paths: options.paths,
+      since: options.since,
+      page,
+      pageSize,
+      display: options.display,
+      now: options.now,
+      lastIngest: options.getLastIngest(),
+    });
+    writeResponse(options.response, 200, "text/html; charset=utf-8", html);
+    return;
+  }
+
+  if (url.pathname === "/turns") {
+    await options.runSyncNow();
+    const html = renderTurnsHtml({
+      paths: options.paths,
+      since: options.since,
+      page,
+      pageSize,
+      display: options.display,
+      now: options.now,
+      lastIngest: options.getLastIngest(),
+    });
+    writeResponse(options.response, 200, "text/html; charset=utf-8", html);
+    return;
+  }
+
   if (url.pathname !== "/") {
     writeResponse(options.response, 404, "text/plain; charset=utf-8", "Not found");
     return;
   }
 
   await options.runSyncNow();
-  const html = renderDashboardPage({
+  const html = await renderDashboardPage({
     paths: options.paths,
     since: options.since,
     display: options.display,
@@ -632,14 +707,14 @@ async function handleRequest(options: {
   writeResponse(options.response, 200, "text/html; charset=utf-8", html);
 }
 
-function renderDashboardPage(options: {
+async function renderDashboardPage(options: {
   paths: TrackerPaths;
   since: string;
   display: DashboardDisplayMode;
   now: () => Date;
   lastIngest: ReportServerIngestSnapshot | null;
-}): string {
-  return renderDashboardHtml(readDashboardData(options), options.display);
+}): Promise<string> {
+  return renderDashboardHtml(await readDashboardData(options), options.display);
 }
 
 async function renderMetricsPage(options: {
@@ -651,15 +726,17 @@ async function renderMetricsPage(options: {
   return renderMetricsHtml(await readMetricsDashboardData(options), options.display);
 }
 
-function readDashboardData(options: {
+async function readDashboardData(options: {
   paths: TrackerPaths;
   since: string;
   now: () => Date;
   lastIngest: ReportServerIngestSnapshot | null;
-}): DashboardData {
+}): Promise<DashboardData> {
   const generatedAt = options.now();
   const range = parseSinceRange(options.since, generatedAt);
   const agentDate = todayLocalDate(generatedAt);
+  const config = await readOrCreateUserConfig(options.paths);
+  const projectDisplayNames = createKnownProjectDisplayNameMap(config);
   const { db } = initializeTrackerDatabase(options.paths.sqlitePath);
 
   try {
@@ -765,10 +842,23 @@ function readDashboardData(options: {
           table: readDashboardCapabilityCalls(db, range, "mcp_tool"),
         },
       ],
-      recentTurnsSection: {
-        title: "Recent turns",
-        table: readDashboardTurns(db, range, 20),
-      },
+      overviewTabs: [
+        {
+          id: "projects",
+          label: "Projects",
+          table: { ...readDashboardProjects(db, range, 10, projectDisplayNames), moreHref: "/projects" },
+        },
+        {
+          id: "sessions",
+          label: "Sessions",
+          table: { ...readDashboardSessions(db, range, 10), moreHref: "/sessions" },
+        },
+        {
+          id: "turns",
+          label: "Turns",
+          table: { ...readDashboardTurns(db, range, 10), moreHref: "/turns" },
+        },
+      ],
     };
   } finally {
     db.close();
@@ -886,6 +976,10 @@ function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode)
       font-size: 14px;
     }
 
+    .status strong {
+      color: ${data.lastIngest?.ok === false ? "var(--danger)" : "var(--accent)"};
+    }
+
     .nav {
       display: flex;
       flex-wrap: wrap;
@@ -908,10 +1002,6 @@ function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode)
       background: #eef8f5;
       border-color: rgba(17, 122, 101, 0.35);
       color: var(--accent);
-    }
-
-    .status strong {
-      color: ${data.lastIngest?.ok === false ? "var(--danger)" : "var(--accent)"};
     }
 
     main {
@@ -1063,6 +1153,49 @@ function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode)
 
     .table-note {
       border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .table-meta {
+      border-bottom: 1px solid var(--line);
+    }
+
+    .table-meta .table-note {
+      border-bottom: 0;
+    }
+
+    .pagination {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 0 14px 12px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .pagination-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .pagination a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .pagination a:hover {
+      text-decoration: underline;
+    }
+
+    .pagination [aria-disabled="true"] {
+      color: #9aa7b2;
     }
 
     .table-scroll {
@@ -1145,6 +1278,18 @@ function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode)
         grid-template-columns: 1fr;
       }
     }
+
+    .more-link {
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 650;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .more-link:hover {
+      text-decoration: underline;
+    }
   </style>
 </head>
 <body>
@@ -1173,7 +1318,7 @@ function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode)
     ${data.sections.map((section) => renderSection(section, display)).join("\n")}
     ${renderTabbedSection("Capability ROI views", "capability-roi", data.capabilityViewTabs, display)}
     ${renderTabbedSection("Capability calls", "capability-calls", data.capabilityCallTabs, display)}
-    ${renderSection(data.recentTurnsSection, display)}
+    ${renderTabbedSection("Overview", "overview", data.overviewTabs, display)}
   </main>
   <script>
     document.querySelectorAll("[data-tabs]").forEach((root) => {
@@ -1444,6 +1589,49 @@ function renderMetricsHtml(data: MetricsDashboardData, display: DashboardDisplay
 
     .table-note {
       border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .table-meta {
+      border-bottom: 1px solid var(--line);
+    }
+
+    .table-meta .table-note {
+      border-bottom: 0;
+    }
+
+    .pagination {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 0 14px 12px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .pagination-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .pagination a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .pagination a:hover {
+      text-decoration: underline;
+    }
+
+    .pagination [aria-disabled="true"] {
+      color: #9aa7b2;
     }
 
     .table-scroll {
@@ -1526,6 +1714,18 @@ function renderMetricsHtml(data: MetricsDashboardData, display: DashboardDisplay
         grid-template-columns: 1fr;
       }
     }
+
+    .more-link {
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 650;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .more-link:hover {
+      text-decoration: underline;
+    }
   </style>
 </head>
 <body>
@@ -1585,6 +1785,350 @@ function renderMetricsHtml(data: MetricsDashboardData, display: DashboardDisplay
   </script>
 </body>
 </html>`;
+}
+
+function renderListPageHtml(options: {
+  title: string;
+  table: DashboardTable;
+  ingestStatus: string;
+  generatedAt: string;
+  display: DashboardDisplayMode;
+}): string {
+  const { title, table, ingestStatus, generatedAt, display } = options;
+  const breadcrumb = `<a href="/">Overview</a> <span class="breadcrumb-sep">›</span> <span class="breadcrumb-current">${escapeHtml(title)}</span>`;
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(title)} – himan-tracker</title>
+  <link rel="icon" type="image/svg+xml" href="${escapeHtml(DASHBOARD_ICON_DATA_URL)}">
+  <meta name="theme-color" content="#117a65">
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fa;
+      --panel: #ffffff;
+      --text: #17202a;
+      --muted: #607080;
+      --line: #d9e1e8;
+      --accent: #117a65;
+      --danger: #b42318;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    header {
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    main,
+    .header-inner {
+      width: min(1180px, calc(100vw - 32px));
+      margin: 0 auto;
+    }
+
+    .header-inner {
+      padding: 22px 0 18px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 28px;
+      line-height: 1.15;
+      font-weight: 720;
+    }
+
+    .status {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .status strong {
+      color: var(--accent);
+    }
+
+    .nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .nav a {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 650;
+      line-height: 1.2;
+      padding: 7px 10px;
+      text-decoration: none;
+    }
+
+    .nav a[aria-current="page"] {
+      background: #eef8f5;
+      border-color: rgba(17, 122, 101, 0.35);
+      color: var(--accent);
+    }
+
+    main {
+      padding: 22px 0 40px;
+    }
+
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    section > h2 {
+      margin: 0;
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--line);
+      font-size: 16px;
+      line-height: 1.25;
+    }
+
+    .table-note,
+    .empty-state {
+      margin: 0;
+      padding: 12px 14px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .table-note {
+      border-bottom: 1px solid var(--line);
+    }
+
+    .table-meta {
+      border-bottom: 1px solid var(--line);
+    }
+
+    .table-meta .table-note {
+      border-bottom: 0;
+    }
+
+    .pagination {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 0 14px 12px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .pagination-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .pagination a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .pagination a:hover {
+      text-decoration: underline;
+    }
+
+    .pagination [aria-disabled="true"] {
+      color: #9aa7b2;
+    }
+
+    .table-scroll {
+      overflow: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th,
+    td {
+      padding: 9px 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      white-space: nowrap;
+    }
+
+    th {
+      background: #f8fafb;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    td {
+      color: #24313d;
+      font-variant-numeric: tabular-nums;
+    }
+
+    tbody tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .breadcrumb {
+      margin-top: 14px;
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    .breadcrumb a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .breadcrumb a:hover {
+      text-decoration: underline;
+    }
+
+    .breadcrumb-sep {
+      margin: 0 6px;
+      color: var(--line);
+    }
+
+    .breadcrumb-current {
+      color: var(--text);
+      font-weight: 650;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <h1>${escapeHtml(title)}</h1>
+      <div class="status">${ingestStatus} · Generated ${escapeHtml(generatedAt)}</div>
+      <nav class="breadcrumb" aria-label="Breadcrumb">
+        ${breadcrumb}
+      </nav>
+    </div>
+  </header>
+  <main>
+    <section>
+      <h2>${escapeHtml(title)}</h2>
+      ${renderDashboardContent(table, display)}
+    </section>
+  </main>
+</body>
+</html>`;
+}
+
+async function renderProjectsHtml(options: {
+  paths: TrackerPaths;
+  since: string;
+  page: number;
+  pageSize: number;
+  display: DashboardDisplayMode;
+  now: () => Date;
+  lastIngest: ReportServerIngestSnapshot | null;
+}): Promise<string> {
+  const generatedAt = options.now();
+  const range = parseSinceRange(options.since, generatedAt);
+  const config = await readOrCreateUserConfig(options.paths);
+  const projectDisplayNames = createKnownProjectDisplayNameMap(config);
+  const { db } = initializeTrackerDatabase(options.paths.sqlitePath);
+
+  try {
+    const table = readDashboardProjects(
+      db,
+      range,
+      { page: options.page, pageSize: options.pageSize, basePath: "/projects" },
+      projectDisplayNames,
+    );
+    return renderListPageHtml({
+      title: "Projects",
+      table,
+      ingestStatus: renderIngestStatus(options.lastIngest),
+      generatedAt: formatLocalDateTime(generatedAt),
+      display: options.display,
+    });
+  } finally {
+    db.close();
+  }
+}
+
+function renderSessionsHtml(options: {
+  paths: TrackerPaths;
+  since: string;
+  page: number;
+  pageSize: number;
+  display: DashboardDisplayMode;
+  now: () => Date;
+  lastIngest: ReportServerIngestSnapshot | null;
+}): string {
+  const generatedAt = options.now();
+  const range = parseSinceRange(options.since, generatedAt);
+  const { db } = initializeTrackerDatabase(options.paths.sqlitePath);
+
+  try {
+    const table = readDashboardSessions(db, range, {
+      page: options.page,
+      pageSize: options.pageSize,
+      basePath: "/sessions",
+    });
+    return renderListPageHtml({
+      title: "Sessions",
+      table,
+      ingestStatus: renderIngestStatus(options.lastIngest),
+      generatedAt: formatLocalDateTime(generatedAt),
+      display: options.display,
+    });
+  } finally {
+    db.close();
+  }
+}
+
+function renderTurnsHtml(options: {
+  paths: TrackerPaths;
+  since: string;
+  page: number;
+  pageSize: number;
+  display: DashboardDisplayMode;
+  now: () => Date;
+  lastIngest: ReportServerIngestSnapshot | null;
+}): string {
+  const generatedAt = options.now();
+  const range = parseSinceRange(options.since, generatedAt);
+  const { db } = initializeTrackerDatabase(options.paths.sqlitePath);
+
+  try {
+    const table = readDashboardTurns(db, range, {
+      page: options.page,
+      pageSize: options.pageSize,
+      basePath: "/turns",
+    });
+    return renderListPageHtml({
+      title: "Turns",
+      table,
+      ingestStatus: renderIngestStatus(options.lastIngest),
+      generatedAt: formatLocalDateTime(generatedAt),
+      display: options.display,
+    });
+  } finally {
+    db.close();
+  }
 }
 
 function findMetricsPeriod(
@@ -2400,8 +2944,20 @@ function readDashboardTokenUsage(
 function readDashboardTurns(
   db: ReturnType<typeof initializeTrackerDatabase>["db"],
   range: { startDate: string; endDate: string },
-  limit: number,
+  limit: number | PaginationQuery,
 ): DashboardTable {
+  const paginated = typeof limit !== "number";
+  const pagination = normalizePaginationQuery(limit, "/turns");
+  const offset = getPaginationOffset(pagination);
+  const totalRow = db
+    .prepare(
+      `
+      select count(*) as total_count
+      from turns
+      where date(occurred_at, 'localtime') between ? and ?
+      `,
+    )
+    .get(range.startDate, range.endDate) as { total_count: number };
   const rows = db
     .prepare(
       `
@@ -2416,10 +2972,10 @@ function readDashboardTurns(
       from turns
       where date(occurred_at, 'localtime') between ? and ?
       order by occurred_at desc
-      limit ?
+      limit ? offset ?
       `,
     )
-    .all(range.startDate, range.endDate, limit) as DashboardTurnRow[];
+    .all(range.startDate, range.endDate, pagination.pageSize, offset) as DashboardTurnRow[];
 
   return {
     columns: ["Time", "Agent", "Model", "Turn", "Duration", "Runtime tokens", "Status"],
@@ -2433,8 +2989,214 @@ function readDashboardTurns(
       row.status,
     ]),
     emptyText: "No turn usage found for this range.",
-    note: `Showing latest ${rows.length} turns (${formatDateRange(range)}).`,
+    note: paginated
+      ? formatPaginationNote("turns", pagination.page, pagination.pageSize, totalRow.total_count, range)
+      : `Showing latest ${rows.length} turns (${formatDateRange(range)}).`,
+    pagination: paginated ? createDashboardPagination(pagination, totalRow.total_count) : undefined,
   };
+}
+
+type PaginationQuery = {
+  page: number;
+  pageSize: number;
+  basePath: string;
+};
+
+function readDashboardProjects(
+  db: ReturnType<typeof initializeTrackerDatabase>["db"],
+  range: { startDate: string; endDate: string },
+  limit: number | PaginationQuery,
+  projectDisplayNames: ReadonlyMap<string, string> = new Map(),
+): DashboardTable {
+  const paginated = typeof limit !== "number";
+  const pagination = normalizePaginationQuery(limit, "/projects");
+  const offset = getPaginationOffset(pagination);
+  const totalRow = db
+    .prepare(
+      `
+      select count(*) as total_count
+      from (
+        select 1
+        from turns
+        where date(occurred_at, 'localtime') between ? and ?
+        group by repo_hash
+      )
+      `,
+    )
+    .get(range.startDate, range.endDate) as { total_count: number };
+  const rows = db
+    .prepare(
+      `
+      select
+        coalesce(repo_hash, 'unknown') as repo_hash,
+        count(distinct session_id) as session_count,
+        count(*) as turn_count,
+        case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens,
+        case when count(duration_ms) = 0 then null else sum(duration_ms) end as duration_ms
+      from turns
+      where date(occurred_at, 'localtime') between ? and ?
+      group by repo_hash
+      order by turn_count desc, repo_hash asc
+      limit ? offset ?
+      `,
+    )
+    .all(range.startDate, range.endDate, pagination.pageSize, offset) as DashboardProjectRow[];
+
+  return {
+    columns: ["Project", "Sessions", "Turns", "Runtime tokens", "Avg latency"],
+    rows: rows.map((row) => [
+      repoHashToDisplay(row.repo_hash, projectDisplayNames),
+      String(row.session_count),
+      String(row.turn_count),
+      formatTokenCount(row.total_tokens),
+      formatAverageDurationMs(row.duration_ms, row.turn_count),
+    ]),
+    emptyText: "No project data found for this range.",
+    note: paginated
+      ? formatPaginationNote("projects", pagination.page, pagination.pageSize, totalRow.total_count, range)
+      : `Top ${rows.length} projects (${formatDateRange(range)}).`,
+    pagination: paginated ? createDashboardPagination(pagination, totalRow.total_count) : undefined,
+  };
+}
+
+function repoHashToDisplay(
+  repoHash: string,
+  displayNames: ReadonlyMap<string, string>,
+): string {
+  if (repoHash === "unknown") return "unknown";
+  return displayNames.get(repoHash) ?? repoHash.slice(0, 8);
+}
+
+function readDashboardSessions(
+  db: ReturnType<typeof initializeTrackerDatabase>["db"],
+  range: { startDate: string; endDate: string },
+  limit: number | PaginationQuery,
+): DashboardTable {
+  const paginated = typeof limit !== "number";
+  const pagination = normalizePaginationQuery(limit, "/sessions");
+  const offset = getPaginationOffset(pagination);
+  const totalRow = db
+    .prepare(
+      `
+      select count(*) as total_count
+      from sessions
+      where date(coalesce(started_at, ended_at, '1970-01-01'), 'localtime') between ? and ?
+      `,
+    )
+    .get(range.startDate, range.endDate) as { total_count: number };
+  const rows = db
+    .prepare(
+      `
+      select
+        id,
+        agent,
+        started_at,
+        ended_at,
+        duration_ms,
+        turn_count,
+        status
+      from sessions
+      where date(coalesce(started_at, ended_at, '1970-01-01'), 'localtime') between ? and ?
+      order by coalesce(started_at, ended_at) desc
+      limit ? offset ?
+      `,
+    )
+    .all(range.startDate, range.endDate, pagination.pageSize, offset) as DashboardSessionRow[];
+
+  return {
+    columns: ["Session", "Agent", "Turns", "Duration", "Status"],
+    rows: rows.map((row) => [
+      shortenId(row.id),
+      row.agent,
+      String(row.turn_count),
+      formatDurationMs(row.duration_ms),
+      row.status,
+    ]),
+    emptyText: "No sessions found for this range.",
+    note: paginated
+      ? formatPaginationNote("sessions", pagination.page, pagination.pageSize, totalRow.total_count, range)
+      : `Latest ${rows.length} sessions (${formatDateRange(range)}).`,
+    pagination: paginated ? createDashboardPagination(pagination, totalRow.total_count) : undefined,
+  };
+}
+
+function normalizePaginationQuery(
+  query: number | PaginationQuery,
+  basePath: string,
+): PaginationQuery {
+  if (typeof query === "number") {
+    return { page: 1, pageSize: query, basePath };
+  }
+
+  return query;
+}
+
+function getPaginationOffset(pagination: Pick<PaginationQuery, "page" | "pageSize">): number {
+  return (pagination.page - 1) * pagination.pageSize;
+}
+
+function createDashboardPagination(
+  pagination: PaginationQuery,
+  totalCount: number,
+): DashboardPagination | undefined {
+  if (totalCount <= pagination.pageSize) {
+    return undefined;
+  }
+
+  const previousHref =
+    pagination.page > 1
+      ? createPaginationHref(pagination.basePath, pagination.page - 1, pagination.pageSize)
+      : undefined;
+  const nextHref =
+    getPaginationOffset(pagination) + pagination.pageSize < totalCount
+      ? createPaginationHref(pagination.basePath, pagination.page + 1, pagination.pageSize)
+      : undefined;
+
+  return {
+    page: pagination.page,
+    pageSize: pagination.pageSize,
+    totalCount,
+    previousHref,
+    nextHref,
+  };
+}
+
+function createPaginationHref(basePath: string, page: number, pageSize: number): string {
+  return `${basePath}?page=${page}&pageSize=${pageSize}`;
+}
+
+function formatPaginationNote(
+  label: string,
+  page: number,
+  pageSize: number,
+  totalCount: number,
+  range: { startDate: string; endDate: string },
+): string {
+  if (totalCount === 0) {
+    return `No ${label} found (${formatDateRange(range)}).`;
+  }
+
+  const start = (page - 1) * pageSize + 1;
+  const end = Math.min(page * pageSize, totalCount);
+  return `Showing ${start}-${end} of ${totalCount} ${label} (${formatDateRange(range)}).`;
+}
+
+function parseDashboardPageParam(page: string | null): number {
+  const value = Number(page ?? "1");
+  if (!Number.isInteger(value) || value <= 0) {
+    return 1;
+  }
+
+  return value;
+}
+
+function parseDashboardPageSizeParam(pageSize: string | null): number {
+  const value = Number(pageSize ?? "50");
+  if (!Number.isInteger(value) || value <= 0 || value > 200) {
+    return 50;
+  }
+
+  return value;
 }
 
 function readDashboardSummary(
@@ -2637,9 +3399,10 @@ function renderTabbedSection(
 }
 
 function renderDashboardContent(table: DashboardTable, display: DashboardDisplayMode): string {
-  const note = table.note
-    ? `<p class="table-note">${escapeHtml(table.note)}</p>`
+  const moreLink = table.moreHref
+    ? ` <a href="${escapeHtml(table.moreHref)}" class="more-link">More \u2192</a>`
     : "";
+  const note = renderDashboardTableMeta(table, moreLink);
   if (table.rows.length === 0) {
     return `${note}<p class="empty-state">${escapeHtml(table.emptyText)}</p>`;
   }
@@ -2665,6 +3428,26 @@ function renderDashboardContent(table: DashboardTable, display: DashboardDisplay
   const scrollClass = table.width === "compact" ? "table-scroll is-compact" : "table-scroll";
 
   return `${note}<div class="${scrollClass}"><table><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function renderDashboardTableMeta(table: DashboardTable, moreLink: string): string {
+  if (!table.note && !moreLink && !table.pagination) {
+    return "";
+  }
+
+  const pagination = table.pagination ? renderPaginationControls(table.pagination) : "";
+  return `<div class="table-meta"><p class="table-note">${escapeHtml(table.note ?? "")}${moreLink}</p>${pagination}</div>`;
+}
+
+function renderPaginationControls(pagination: DashboardPagination): string {
+  const previous = pagination.previousHref
+    ? `<a href="${escapeHtml(pagination.previousHref)}" rel="prev">← Previous</a>`
+    : `<span aria-disabled="true">← Previous</span>`;
+  const next = pagination.nextHref
+    ? `<a href="${escapeHtml(pagination.nextHref)}" rel="next">Next →</a>`
+    : `<span aria-disabled="true">Next →</span>`;
+
+  return `<nav class="pagination" aria-label="Pagination"><span>Page ${pagination.page}</span><div class="pagination-links">${previous}${next}</div></nav>`;
 }
 
 function renderDashboardCell(column: string, value: string): string {

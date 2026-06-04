@@ -40,7 +40,7 @@ describe("parseCopilotHookPayload", () => {
             "tests/fixtures/copilot/hook-normalized/events.json",
         )) as NormalizedEvent[];
 
-        const adapterEvents = parseCopilotHookPayload(rawPayload);
+        const adapterEvents = await parseCopilotHookPayload(rawPayload);
         const normalizedEvents = adapterEvents.map((event) =>
             normalizeEvent(event, config),
         );
@@ -48,19 +48,19 @@ describe("parseCopilotHookPayload", () => {
         assert.deepEqual(normalizedEvents, expectedEvents);
     });
 
-    it("returns empty array for non-object input", () => {
-        assert.deepEqual(parseCopilotHookPayload("not json"), []);
-        assert.deepEqual(parseCopilotHookPayload(null), []);
-        assert.deepEqual(parseCopilotHookPayload(42), []);
+    it("returns empty array for non-object input", async () => {
+        assert.deepEqual(await parseCopilotHookPayload("not json"), []);
+        assert.deepEqual(await parseCopilotHookPayload(null), []);
+        assert.deepEqual(await parseCopilotHookPayload(42), []);
     });
 
-    it("returns empty array for empty object", () => {
-        assert.deepEqual(parseCopilotHookPayload({}), []);
+    it("returns empty array for empty object", async () => {
+        assert.deepEqual(await parseCopilotHookPayload({}), []);
     });
 
-    it("returns empty array for object without recognized hook event", () => {
+    it("returns empty array for object without recognized hook event", async () => {
         assert.deepEqual(
-            parseCopilotHookPayload({
+            await parseCopilotHookPayload({
                 hook_event_name: "UnknownEvent",
                 session_id: "s1",
                 timestamp: "2026-05-30T12:00:00.000Z",
@@ -70,9 +70,9 @@ describe("parseCopilotHookPayload", () => {
         );
     });
 
-    it("returns empty array when session_id is missing", () => {
+    it("returns empty array when session_id is missing", async () => {
         assert.deepEqual(
-            parseCopilotHookPayload({
+            await parseCopilotHookPayload({
                 hook_event_name: "SessionStart",
                 timestamp: "2026-05-30T12:00:00.000Z",
                 cwd: "/tmp",
@@ -81,9 +81,9 @@ describe("parseCopilotHookPayload", () => {
         );
     });
 
-    it("returns empty array when timestamp is missing and no observedAt fallback", () => {
+    it("returns empty array when timestamp is missing and no observedAt fallback", async () => {
         assert.deepEqual(
-            parseCopilotHookPayload({
+            await parseCopilotHookPayload({
                 hook_event_name: "SessionStart",
                 session_id: "s1",
                 cwd: "/tmp",
@@ -92,8 +92,8 @@ describe("parseCopilotHookPayload", () => {
         );
     });
 
-    it("uses observedAt fallback when timestamp is missing", () => {
-        const events = parseCopilotHookPayload(
+    it("uses observedAt fallback when timestamp is missing", async () => {
+        const events = await parseCopilotHookPayload(
             {
                 hook_event_name: "SessionStart",
                 session_id: "s1",
@@ -107,8 +107,8 @@ describe("parseCopilotHookPayload", () => {
         assert.equal(events[0].event_type, "session_summary");
     });
 
-    it("supports camelCase event names and fields", () => {
-        const events = parseCopilotHookPayload({
+    it("supports camelCase event names and fields", async () => {
+        const events = await parseCopilotHookPayload({
             hook_event_name: "sessionStart",
             sessionId: "s2",
             timestamp: "2026-05-30T12:00:00.000Z",
@@ -120,8 +120,8 @@ describe("parseCopilotHookPayload", () => {
         assert.equal(events[0].session_id, "s2");
     });
 
-    it("parses PostToolUse with camelCase fields", () => {
-        const events = parseCopilotHookPayload({
+    it("parses PostToolUse with camelCase fields", async () => {
+        const events = await parseCopilotHookPayload({
             hook_event_name: "postToolUse",
             sessionId: "s3",
             timestamp: "2026-05-30T12:00:00.000Z",
@@ -136,8 +136,8 @@ describe("parseCopilotHookPayload", () => {
         assert.equal(events[0].status, "success");
     });
 
-    it("parses PostToolUseFailure with camelCase fields", () => {
-        const events = parseCopilotHookPayload({
+    it("parses PostToolUseFailure with camelCase fields", async () => {
+        const events = await parseCopilotHookPayload({
             hook_event_name: "postToolUseFailure",
             sessionId: "s4",
             timestamp: "2026-05-30T12:00:00.000Z",
@@ -152,8 +152,8 @@ describe("parseCopilotHookPayload", () => {
         assert.equal(events[0].status, "failure");
     });
 
-    it("parses agentStop with embedded session data", () => {
-        const events = parseCopilotHookPayload({
+    it("parses agentStop with embedded session data", async () => {
+        const events = await parseCopilotHookPayload({
             hook_event_name: "agentStop",
             sessionId: "s5",
             timestamp: "2026-05-30T12:00:00.000Z",
@@ -190,7 +190,7 @@ describe("parseCopilotHookPayload", () => {
         assert.equal(sessionEvent?.duration_ms, 20000);
     });
 
-    it("parses SessionEnd with reason mapping", () => {
+    it("parses SessionEnd with reason mapping", async () => {
         const tests: Array<{ reason: string; expectedStatus: string }> = [
             { reason: "complete", expectedStatus: "success" },
             { reason: "error", expectedStatus: "failure" },
@@ -200,7 +200,7 @@ describe("parseCopilotHookPayload", () => {
         ];
 
         for (const { reason, expectedStatus } of tests) {
-            const events = parseCopilotHookPayload({
+            const events = await parseCopilotHookPayload({
                 hook_event_name: "SessionEnd",
                 session_id: "s6",
                 timestamp: "2026-05-30T12:00:00.000Z",
@@ -214,8 +214,8 @@ describe("parseCopilotHookPayload", () => {
         }
     });
 
-    it("handles direct event (non-wrapper) payload", () => {
-        const events = parseCopilotHookPayload({
+    it("handles direct event (non-wrapper) payload", async () => {
+        const events = await parseCopilotHookPayload({
             hook_event_name: "PostToolUse",
             session_id: "s7",
             timestamp: "2026-05-30T12:00:00.000Z",
@@ -229,8 +229,8 @@ describe("parseCopilotHookPayload", () => {
         assert.equal(events[0].capability_name, "edit");
     });
 
-    it("extracts repo_path from cwd field", () => {
-        const events = parseCopilotHookPayload({
+    it("extracts repo_path from cwd field", async () => {
+        const events = await parseCopilotHookPayload({
             hook_event_name: "SessionStart",
             session_id: "s8",
             timestamp: "2026-05-30T12:00:00.000Z",
@@ -241,8 +241,8 @@ describe("parseCopilotHookPayload", () => {
         assert.equal(events[0].repo_path, "/home/user/my-project");
     });
 
-    it("prefers explicit repo_path over cwd", () => {
-        const events = parseCopilotHookPayload({
+    it("prefers explicit repo_path over cwd", async () => {
+        const events = await parseCopilotHookPayload({
             hook_event_name: "SessionStart",
             session_id: "s9",
             timestamp: "2026-05-30T12:00:00.000Z",
@@ -254,8 +254,8 @@ describe("parseCopilotHookPayload", () => {
         assert.equal(events[0].repo_path, "/explicit/path");
     });
 
-    it("filters out unknown hook event types", () => {
-        const events = parseCopilotHookPayload([
+    it("filters out unknown hook event types", async () => {
+        const events = await parseCopilotHookPayload([
             {
                 hook_event_name: "SessionStart",
                 session_id: "s10",

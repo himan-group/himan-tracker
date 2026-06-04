@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const CODEX_HOOK_EVENTS = ["UserPromptSubmit", "PostToolUse", "Stop"] as const;
-const COPILOT_HOOK_EVENTS = ["SessionStart", "PostToolUse", "PostToolUseFailure", "Stop", "SessionEnd"] as const;
+const COPILOT_HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PostToolUse", "PostToolUseFailure", "Stop", "SessionEnd"] as const;
 const HOOK_TIMEOUT_SECONDS = 5;
 
 export type SetupCommandOptions = {

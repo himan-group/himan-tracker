@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-06-04
+
+### Changed
+
+- Changed local report server detail pages `/projects`, `/sessions`, and `/turns` to support `page` and `pageSize` query pagination with previous/next navigation, while keeping the Overview dashboard summary lists unpaginated.
+
+## [0.4.1] - 2026-06-03
+
+### Added
+
+- Added Copilot hook health check in `doctor` command, covering both global (`~/.copilot/hooks/`) and project (`.github/hooks/`) scope.
+- Added `UserPromptSubmit` hook event to Copilot hook configuration for accurate per-turn duration tracking.
+- Added session state tracker for Copilot (`sessionState.ts`) to compute session and turn duration from hook timestamps across independent hook invocations.
+
+### Changed
+
+- `doctor` agents display now includes `copilot` alongside `codex` and `claude-code`.
+- Copilot `parseCopilotHookPayload` is now async to support session state lookups for duration computation.
+- Copilot turn duration is now computed from `UserPromptSubmit` → `Stop` timestamps when available, falling back to session start / previous turn end.
+
 ## [0.4.0] - 2026-06-02
 
 ### Added

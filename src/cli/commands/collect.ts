@@ -6,6 +6,12 @@ import { collectCodexEnrichmentTasks } from "../../adapters/codex/enrichment.js"
 import { parseCodexHookPayload } from "../../adapters/codex/index.js";
 import { parseCopilotHookPayload } from "../../adapters/copilot/index.js";
 import {
+  getSessionStartTime,
+  recordPromptSubmitted,
+  recordSessionStart,
+  recordTurnEndAndGetDuration,
+} from "../../adapters/copilot/sessionState.js";
+import {
   drainQueuedEvents,
   enqueueNormalizedEvents,
   logCollectorError,
@@ -63,7 +69,7 @@ export async function runCollect(
     const payload = parsePayload(rawPayload, source);
     const config = options.config ?? (await readOrCreateUserConfig(paths));
     const observedAt = now().toISOString();
-    const adapterEvents = parseAgentPayload(agent, payload, observedAt);
+    const adapterEvents = await parseAgentPayload(agent, payload, observedAt, paths);
     const enrichments = collectAgentEnrichments(agent, payload, observedAt);
 
     try {
@@ -183,18 +189,29 @@ async function runDrainMode(
   }
 }
 
-function parseAgentPayload(
+async function parseAgentPayload(
   agent: AgentName,
   payload: unknown,
   observedAt: string,
-): AdapterEvent[] {
+  paths: TrackerPaths,
+): Promise<AdapterEvent[]> {
   switch (agent) {
     case "codex":
       return parseCodexHookPayload(payload, { observedAt });
     case "claude-code":
       throw new Error('Agent "claude-code" is not supported by collect yet');
     case "copilot":
-      return parseCopilotHookPayload(payload, { observedAt });
+      return parseCopilotHookPayload(payload, {
+        observedAt,
+        recordSessionStart: (sessionId, startedAt) =>
+          recordSessionStart(paths, sessionId, startedAt),
+        getSessionStartTime: (sessionId) =>
+          getSessionStartTime(paths, sessionId),
+        recordPromptSubmitted: (sessionId, submittedAt) =>
+          recordPromptSubmitted(paths, sessionId, submittedAt),
+        recordTurnEndAndGetDuration: (sessionId, endedAt) =>
+          recordTurnEndAndGetDuration(paths, sessionId, endedAt),
+      });
   }
 }
 

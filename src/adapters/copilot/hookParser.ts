@@ -4,6 +4,17 @@ type RawRecord = Record<string, unknown>;
 
 export type ParseCopilotHookPayloadOptions = {
     observedAt?: string;
+    /** Callback to look up a previously-recorded session start time (ISO string). */
+    getSessionStartTime?: (sessionId: string) => string | null | Promise<string | null>;
+    /** Callback to record a session start time for later duration calculation. */
+    recordSessionStart?: (sessionId: string, startedAt: string) => void | Promise<void>;
+    /** Callback to record a UserPromptSubmit time for accurate turn duration. */
+    recordPromptSubmitted?: (sessionId: string, submittedAt: string) => void | Promise<void>;
+    /**
+     * Callback to record a turn end and get the approximate turn duration (ms).
+     * Uses UserPromptSubmit timestamp when available, falls back to session/previous Stop.
+     */
+    recordTurnEndAndGetDuration?: (sessionId: string, endedAt: string) => number | null | Promise<number | null>;
 };
 
 /**
@@ -13,16 +24,19 @@ export type ParseCopilotHookPayloadOptions = {
  * - camelCase: event names like "sessionStart", fields like "sessionId"
  * - PascalCase / VS Code compatible: event names like "SessionStart", fields like "session_id"
  */
-export function parseCopilotHookPayload(
+export async function parseCopilotHookPayload(
     payload: unknown,
     options: ParseCopilotHookPayloadOptions = {},
-): AdapterEvent[] {
+): Promise<AdapterEvent[]> {
     const rawEvents = getRawEvents(payload);
     if (rawEvents.length === 0) {
         return [];
     }
 
-    return rawEvents.flatMap((event) => parseCopilotHookEvent(event, options));
+    const nested = await Promise.all(
+        rawEvents.map((event) => parseCopilotHookEvent(event, options)),
+    );
+    return nested.flat();
 }
 
 function getRawEvents(payload: unknown): RawRecord[] {
@@ -42,10 +56,10 @@ function getRawEvents(payload: unknown): RawRecord[] {
     return [];
 }
 
-function parseCopilotHookEvent(
+async function parseCopilotHookEvent(
     event: RawRecord,
     options: ParseCopilotHookPayloadOptions,
-): AdapterEvent[] {
+): Promise<AdapterEvent[]> {
     const hook =
         getString(event.hook) ??
         getString(event.hook_event_name) ??
@@ -86,6 +100,11 @@ function parseSessionStart(
         return [];
     }
 
+    // Record session start time so Stop / SessionEnd can compute duration.
+    if (options.recordSessionStart && base.session_id && base.occurred_at) {
+        void options.recordSessionStart(base.session_id, base.occurred_at);
+    }
+
     return [
         {
             ...base,
@@ -108,9 +127,11 @@ function parseUserPromptSubmit(
         return [];
     }
 
-    // User prompt submission does not directly map to a capability usage,
-    // but we record it as a lightweight observation for turn tracking.
-    // The main turn data comes from agentStop.
+    // Record the prompt submission time so Stop can compute accurate turn duration.
+    if (options.recordPromptSubmitted && base.session_id && base.occurred_at) {
+        void options.recordPromptSubmitted(base.session_id, base.occurred_at);
+    }
+
     return [];
 }
 
@@ -184,10 +205,10 @@ function parsePostToolUseFailure(
 
 // ── agentStop / Stop → turn_summary ──
 
-function parseAgentStop(
+async function parseAgentStop(
     event: RawRecord,
     options: ParseCopilotHookPayloadOptions,
-): AdapterEvent[] {
+): Promise<AdapterEvent[]> {
     const base = createBaseEvent(event, options);
     if (!base) {
         return [];
@@ -197,10 +218,20 @@ function parseAgentStop(
     const status: EventStatus =
         stopReason === "end_turn" ? "success" : "unknown";
 
-    const durationMs = getNumber(event.duration_ms) ?? getNumber(event.durationMs) ?? null;
+    // Prefer explicit duration_ms from the hook payload.
+    const explicitDurationMs =
+        getNumber(event.duration_ms) ?? getNumber(event.durationMs) ?? null;
+
+    // Fall back: compute turn duration from the session state tracker
+    // (SessionStart → first Stop, or previous Stop → current Stop).
+    let durationMs = explicitDurationMs;
+    if (durationMs === null && options.recordTurnEndAndGetDuration && base.session_id && base.occurred_at) {
+        durationMs = await options.recordTurnEndAndGetDuration(base.session_id, base.occurred_at);
+    }
+
     const model = getString(event.model) ?? null;
 
-    // Check for embedded session data (similar to Codex Stop hook)
+    // Check for embedded session data (similar to Codex Stop hook).
     const session = getRecord(event.session);
     const sessionEvents: AdapterEvent[] = [];
     if (session) {
@@ -238,10 +269,10 @@ function parseAgentStop(
 
 // ── SessionEnd → session completion mark ──
 
-function parseSessionEnd(
+async function parseSessionEnd(
     event: RawRecord,
     options: ParseCopilotHookPayloadOptions,
-): AdapterEvent[] {
+): Promise<AdapterEvent[]> {
     const base = createBaseEvent(event, options);
     if (!base) {
         return [];
@@ -252,8 +283,17 @@ function parseSessionEnd(
 
     // SessionEnd may carry aggregate data
     const turnCount = getNumber(event.turn_count) ?? getNumber(event.turnCount) ?? null;
-    const durationMs =
+    const explicitDurationMs =
         getNumber(event.duration_ms) ?? getNumber(event.durationMs) ?? null;
+
+    // Fall back: compute session duration from recorded SessionStart timestamp.
+    let durationMs = explicitDurationMs;
+    if (durationMs === null && options.getSessionStartTime && base.session_id && base.occurred_at) {
+        const startTime = await options.getSessionStartTime(base.session_id);
+        if (startTime) {
+            durationMs = computeDurationFromTimestamps(startTime, base.occurred_at);
+        }
+    }
 
     return [
         {
@@ -332,6 +372,17 @@ function mapSessionEndReason(reason: string | undefined): EventStatus {
         default:
             return "unknown";
     }
+}
+
+// ── Duration helpers ──
+
+function computeDurationFromTimestamps(startIso: string, endIso: string): number | null {
+    const start = new Date(startIso).getTime();
+    const end = new Date(endIso).getTime();
+    if (Number.isNaN(start) || Number.isNaN(end) || end < start) {
+        return null;
+    }
+    return end - start;
 }
 
 // ── Low-level record helpers ──
