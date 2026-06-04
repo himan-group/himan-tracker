@@ -592,7 +592,7 @@ async function handleRequest(options: {
 
   if (url.pathname === "/dashboard.json") {
     await options.runSyncNow();
-    const data = readDashboardData({
+    const data = await readDashboardData({
       paths: options.paths,
       since: options.since,
       now: options.now,
@@ -635,13 +635,52 @@ async function handleRequest(options: {
     return;
   }
 
+  if (url.pathname === "/projects") {
+    await options.runSyncNow();
+    const html = await renderProjectsHtml({
+      paths: options.paths,
+      since: options.since,
+      display: options.display,
+      now: options.now,
+      lastIngest: options.getLastIngest(),
+    });
+    writeResponse(options.response, 200, "text/html; charset=utf-8", html);
+    return;
+  }
+
+  if (url.pathname === "/sessions") {
+    await options.runSyncNow();
+    const html = renderSessionsHtml({
+      paths: options.paths,
+      since: options.since,
+      display: options.display,
+      now: options.now,
+      lastIngest: options.getLastIngest(),
+    });
+    writeResponse(options.response, 200, "text/html; charset=utf-8", html);
+    return;
+  }
+
+  if (url.pathname === "/turns") {
+    await options.runSyncNow();
+    const html = renderTurnsHtml({
+      paths: options.paths,
+      since: options.since,
+      display: options.display,
+      now: options.now,
+      lastIngest: options.getLastIngest(),
+    });
+    writeResponse(options.response, 200, "text/html; charset=utf-8", html);
+    return;
+  }
+
   if (url.pathname !== "/") {
     writeResponse(options.response, 404, "text/plain; charset=utf-8", "Not found");
     return;
   }
 
   await options.runSyncNow();
-  const html = renderDashboardPage({
+  const html = await renderDashboardPage({
     paths: options.paths,
     since: options.since,
     display: options.display,
@@ -651,14 +690,14 @@ async function handleRequest(options: {
   writeResponse(options.response, 200, "text/html; charset=utf-8", html);
 }
 
-function renderDashboardPage(options: {
+async function renderDashboardPage(options: {
   paths: TrackerPaths;
   since: string;
   display: DashboardDisplayMode;
   now: () => Date;
   lastIngest: ReportServerIngestSnapshot | null;
-}): string {
-  return renderDashboardHtml(readDashboardData(options), options.display);
+}): Promise<string> {
+  return renderDashboardHtml(await readDashboardData(options), options.display);
 }
 
 async function renderMetricsPage(options: {
@@ -670,15 +709,17 @@ async function renderMetricsPage(options: {
   return renderMetricsHtml(await readMetricsDashboardData(options), options.display);
 }
 
-function readDashboardData(options: {
+async function readDashboardData(options: {
   paths: TrackerPaths;
   since: string;
   now: () => Date;
   lastIngest: ReportServerIngestSnapshot | null;
-}): DashboardData {
+}): Promise<DashboardData> {
   const generatedAt = options.now();
   const range = parseSinceRange(options.since, generatedAt);
   const agentDate = todayLocalDate(generatedAt);
+  const config = await readOrCreateUserConfig(options.paths);
+  const projectDisplayNames = createKnownProjectDisplayNameMap(config);
   const { db } = initializeTrackerDatabase(options.paths.sqlitePath);
 
   try {
@@ -788,17 +829,17 @@ function readDashboardData(options: {
         {
           id: "projects",
           label: "Projects",
-          table: { ...readDashboardProjects(db, range, 10), moreHref: "/metrics" },
+          table: { ...readDashboardProjects(db, range, 10, projectDisplayNames), moreHref: "/projects" },
         },
         {
           id: "sessions",
           label: "Sessions",
-          table: { ...readDashboardSessions(db, range, 10), moreHref: "/metrics" },
+          table: { ...readDashboardSessions(db, range, 10), moreHref: "/sessions" },
         },
         {
           id: "turns",
           label: "Turns",
-          table: { ...readDashboardTurns(db, range, 10), moreHref: "/metrics" },
+          table: { ...readDashboardTurns(db, range, 10), moreHref: "/turns" },
         },
       ],
     };
@@ -1649,6 +1690,292 @@ function renderMetricsHtml(data: MetricsDashboardData, display: DashboardDisplay
   </script>
 </body>
 </html>`;
+}
+
+function renderListPageHtml(options: {
+  title: string;
+  table: DashboardTable;
+  ingestStatus: string;
+  generatedAt: string;
+  display: DashboardDisplayMode;
+}): string {
+  const { title, table, ingestStatus, generatedAt, display } = options;
+  const breadcrumb = `<a href="/">Overview</a> <span class="breadcrumb-sep">›</span> <span class="breadcrumb-current">${escapeHtml(title)}</span>`;
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(title)} – himan-tracker</title>
+  <link rel="icon" type="image/svg+xml" href="${escapeHtml(DASHBOARD_ICON_DATA_URL)}">
+  <meta name="theme-color" content="#117a65">
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fa;
+      --panel: #ffffff;
+      --text: #17202a;
+      --muted: #607080;
+      --line: #d9e1e8;
+      --accent: #117a65;
+      --danger: #b42318;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    header {
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    main,
+    .header-inner {
+      width: min(1180px, calc(100vw - 32px));
+      margin: 0 auto;
+    }
+
+    .header-inner {
+      padding: 22px 0 18px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 28px;
+      line-height: 1.15;
+      font-weight: 720;
+    }
+
+    .status {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .status strong {
+      color: var(--accent);
+    }
+
+    .nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .nav a {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 650;
+      line-height: 1.2;
+      padding: 7px 10px;
+      text-decoration: none;
+    }
+
+    .nav a[aria-current="page"] {
+      background: #eef8f5;
+      border-color: rgba(17, 122, 101, 0.35);
+      color: var(--accent);
+    }
+
+    main {
+      padding: 22px 0 40px;
+    }
+
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    section > h2 {
+      margin: 0;
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--line);
+      font-size: 16px;
+      line-height: 1.25;
+    }
+
+    .table-note,
+    .empty-state {
+      margin: 0;
+      padding: 12px 14px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .table-note {
+      border-bottom: 1px solid var(--line);
+    }
+
+    .table-scroll {
+      overflow: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th,
+    td {
+      padding: 9px 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      white-space: nowrap;
+    }
+
+    th {
+      background: #f8fafb;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    td {
+      color: #24313d;
+      font-variant-numeric: tabular-nums;
+    }
+
+    tbody tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .breadcrumb {
+      margin-top: 14px;
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    .breadcrumb a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .breadcrumb a:hover {
+      text-decoration: underline;
+    }
+
+    .breadcrumb-sep {
+      margin: 0 6px;
+      color: var(--line);
+    }
+
+    .breadcrumb-current {
+      color: var(--text);
+      font-weight: 650;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <h1>${escapeHtml(title)}</h1>
+      <div class="status">${ingestStatus} · Generated ${escapeHtml(generatedAt)}</div>
+      <nav class="breadcrumb" aria-label="Breadcrumb">
+        ${breadcrumb}
+      </nav>
+    </div>
+  </header>
+  <main>
+    <section>
+      <h2>${escapeHtml(title)}</h2>
+      ${renderDashboardContent(table, display)}
+    </section>
+  </main>
+</body>
+</html>`;
+}
+
+async function renderProjectsHtml(options: {
+  paths: TrackerPaths;
+  since: string;
+  display: DashboardDisplayMode;
+  now: () => Date;
+  lastIngest: ReportServerIngestSnapshot | null;
+}): Promise<string> {
+  const generatedAt = options.now();
+  const range = parseSinceRange(options.since, generatedAt);
+  const config = await readOrCreateUserConfig(options.paths);
+  const projectDisplayNames = createKnownProjectDisplayNameMap(config);
+  const { db } = initializeTrackerDatabase(options.paths.sqlitePath);
+
+  try {
+    const table = readDashboardProjects(db, range, 50, projectDisplayNames);
+    return renderListPageHtml({
+      title: "Projects",
+      table,
+      ingestStatus: renderIngestStatus(options.lastIngest),
+      generatedAt: formatLocalDateTime(generatedAt),
+      display: options.display,
+    });
+  } finally {
+    db.close();
+  }
+}
+
+function renderSessionsHtml(options: {
+  paths: TrackerPaths;
+  since: string;
+  display: DashboardDisplayMode;
+  now: () => Date;
+  lastIngest: ReportServerIngestSnapshot | null;
+}): string {
+  const generatedAt = options.now();
+  const range = parseSinceRange(options.since, generatedAt);
+  const { db } = initializeTrackerDatabase(options.paths.sqlitePath);
+
+  try {
+    const table = readDashboardSessions(db, range, 50);
+    return renderListPageHtml({
+      title: "Sessions",
+      table,
+      ingestStatus: renderIngestStatus(options.lastIngest),
+      generatedAt: formatLocalDateTime(generatedAt),
+      display: options.display,
+    });
+  } finally {
+    db.close();
+  }
+}
+
+function renderTurnsHtml(options: {
+  paths: TrackerPaths;
+  since: string;
+  display: DashboardDisplayMode;
+  now: () => Date;
+  lastIngest: ReportServerIngestSnapshot | null;
+}): string {
+  const generatedAt = options.now();
+  const range = parseSinceRange(options.since, generatedAt);
+  const { db } = initializeTrackerDatabase(options.paths.sqlitePath);
+
+  try {
+    const table = readDashboardTurns(db, range, 50);
+    return renderListPageHtml({
+      title: "Turns",
+      table,
+      ingestStatus: renderIngestStatus(options.lastIngest),
+      generatedAt: formatLocalDateTime(generatedAt),
+      display: options.display,
+    });
+  } finally {
+    db.close();
+  }
 }
 
 function findMetricsPeriod(
@@ -2505,6 +2832,7 @@ function readDashboardProjects(
   db: ReturnType<typeof initializeTrackerDatabase>["db"],
   range: { startDate: string; endDate: string },
   limit: number,
+  projectDisplayNames: ReadonlyMap<string, string> = new Map(),
 ): DashboardTable {
   const rows = db
     .prepare(
@@ -2527,7 +2855,7 @@ function readDashboardProjects(
   return {
     columns: ["Project", "Sessions", "Turns", "Runtime tokens", "Avg latency"],
     rows: rows.map((row) => [
-      row.repo_hash === "unknown" ? "unknown" : row.repo_hash.slice(0, 8),
+      repoHashToDisplay(row.repo_hash, projectDisplayNames),
       String(row.session_count),
       String(row.turn_count),
       formatTokenCount(row.total_tokens),
@@ -2536,6 +2864,14 @@ function readDashboardProjects(
     emptyText: "No project data found for this range.",
     note: `Top ${rows.length} projects (${formatDateRange(range)}).`,
   };
+}
+
+function repoHashToDisplay(
+  repoHash: string,
+  displayNames: ReadonlyMap<string, string>,
+): string {
+  if (repoHash === "unknown") return "unknown";
+  return displayNames.get(repoHash) ?? repoHash.slice(0, 8);
 }
 
 function readDashboardSessions(
