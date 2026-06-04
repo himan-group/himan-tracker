@@ -342,6 +342,10 @@ function buildAdapterEvents(options: {
 
   for (const turn of completedTurns) {
     const tokenUsage = resolveTurnTokenUsage(turn, options.tokenSnapshots);
+    if (shouldSkipTurnSummary(turn, tokenUsage)) {
+      continue;
+    }
+
     events.push({
       event_type: "turn_summary",
       identity_key: `codex-transcript:turn:${turn.turnId}`,
@@ -500,6 +504,19 @@ function resolveTurnTokenUsage(turn: TurnState, tokenSnapshots: TokenSnapshot[])
   };
 
   return subtractTokenUsage(endSnapshot.usage, baseline);
+}
+
+function shouldSkipTurnSummary(turn: TurnState, tokenUsage: Partial<TokenUsage>): boolean {
+  if (turn.model) {
+    return false;
+  }
+
+  return !hasNonZeroTokenUsage(tokenUsage);
+}
+
+function hasNonZeroTokenUsage(tokenUsage: Partial<TokenUsage>): boolean {
+  return [tokenUsage.input_tokens, tokenUsage.cached_input_tokens, tokenUsage.output_tokens, tokenUsage.total_tokens]
+    .some((value) => typeof value === "number" && value > 0);
 }
 
 function findLatestSnapshot(

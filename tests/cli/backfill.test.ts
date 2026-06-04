@@ -303,9 +303,9 @@ describe("backfill command", () => {
       const rawEvents = await readFile(eventPath, "utf8");
 
       assert.equal(result.ok, true);
-      assert.match(result.lines.join("\n"), /Parsed events: 2/);
+      assert.match(result.lines.join("\n"), /Parsed events: 1/);
       assert.match(result.lines.join("\n"), /Written events: 1/);
-      assert.match(result.lines.join("\n"), /Skipped duplicates: 1/);
+      assert.match(result.lines.join("\n"), /Skipped duplicates: 0/);
       assert.equal(rawEvents.trimEnd().split("\n").length, 2);
     } finally {
       await rm(homeDir, { recursive: true, force: true });
@@ -382,9 +382,73 @@ describe("backfill command", () => {
         .map((line) => JSON.parse(line) as Record<string, unknown>);
 
       assert.equal(result.ok, true);
-      assert.match(result.lines.join("\n"), /Written events: 2/);
-      assert.equal(events.length, 2);
+      assert.match(result.lines.join("\n"), /Written events: 1/);
+      assert.equal(events.length, 1);
       assert.equal(events.some((event) => event.capability_type === "skill"), false);
+    } finally {
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("skips model-less transcript turns with no observed token usage", async () => {
+    const homeDir = await mkdtemp(path.join(tmpdir(), "himan-backfill-test-"));
+    const paths = resolveTrackerPaths({ HIMAN_TRACKER_HOME: homeDir });
+    const transcriptDir = path.join(homeDir, "codex-transcripts");
+    const transcriptPath = path.join(transcriptDir, "rollout-2026-05-15T13-00-00-session_999.jsonl");
+
+    try {
+      await mkdir(transcriptDir, { recursive: true });
+      await writeFile(
+        transcriptPath,
+        [
+          JSON.stringify({
+            type: "session_meta",
+            timestamp: "2026-05-15T05:00:00.000Z",
+            payload: {
+              id: "session_999",
+              timestamp: "2026-05-15T05:00:00.000Z",
+              cwd: "/Users/example/private-project",
+            },
+          }),
+          JSON.stringify({
+            type: "event_msg",
+            timestamp: "2026-05-15T05:00:01.000Z",
+            payload: {
+              type: "task_started",
+              turn_id: "turn_999",
+            },
+          }),
+          JSON.stringify({
+            type: "event_msg",
+            timestamp: "2026-05-15T05:00:03.000Z",
+            payload: {
+              type: "task_complete",
+              turn_id: "turn_999",
+              duration_ms: 2_000,
+            },
+          }),
+        ].join("\n"),
+        "utf8",
+      );
+
+      const result = await runBackfill({
+        paths,
+        config: createTestConfig(),
+        date: "2026-05-15",
+        from: transcriptDir,
+      });
+
+      const eventPath = resolveDailyEventsPath(paths, "2026-05-15T05:00:03.000Z");
+      const rawEvents = await readFile(eventPath, "utf8");
+      const events = rawEvents
+        .trimEnd()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+
+      assert.equal(result.ok, true);
+      assert.match(result.lines.join("\n"), /Written events: 1/);
+      assert.equal(events.length, 1);
+      assert.equal(events[0]?.event_type, "session_summary");
     } finally {
       await rm(homeDir, { recursive: true, force: true });
     }

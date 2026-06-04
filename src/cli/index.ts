@@ -136,6 +136,7 @@ backfillCommand
   .option("--since <date>", "Backfill from this date through today in YYYY-MM-DD")
   .option("--from <dir>", "Read transcript JSONL files from a specific directory")
   .option("--ignore-cursor", "Ignore backfill source cursor fingerprints and force a full re-parse")
+  .option("--force", "Delete existing daily JSONL and regenerate from transcripts (picks up new fields like cached_input_tokens)")
   .action(async (options: BackfillCommandOptions) => {
     const result = await runBackfill({ ...options, agent: "codex" });
     console.log(result.lines.join("\n"));
@@ -149,6 +150,7 @@ backfillCommand
   .option("--since <date>", "Backfill from this date through today in YYYY-MM-DD")
   .option("--from <dir>", "Read transcript JSONL files from a specific directory")
   .option("--ignore-cursor", "Ignore backfill source cursor fingerprints and force a full re-parse")
+  .option("--force", "Delete existing daily JSONL and regenerate from transcripts (picks up new fields like cached_input_tokens)")
   .action(async (options: BackfillCommandOptions) => {
     const result = await runBackfill({ ...options, agent: "copilot" });
     console.log(result.lines.join("\n"));
@@ -160,6 +162,7 @@ type BackfillCommandOptions = {
   since?: string;
   from?: string;
   ignoreCursor?: boolean;
+  force?: boolean;
 };
 
 const archiveCommand = program
