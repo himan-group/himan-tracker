@@ -20,13 +20,13 @@
 
 ## 当前支持状态
 
-| 能力 | 状态 |
-| --- | --- |
-| Codex hooks 采集 | 已支持 |
+| 能力                      | 状态   |
+| ------------------------- | ------ |
+| Codex hooks 采集          | 已支持 |
 | Codex transcript backfill | 已支持 |
-| 本地 JSONL + SQLite 投影 | 已支持 |
-| CLI 报表与本地 dashboard | 已支持 |
-| Claude Code 采集 | 规划中 |
+| 本地 JSONL + SQLite 投影  | 已支持 |
+| CLI 报表与本地 dashboard  | 已支持 |
+| Claude Code 采集          | 规划中 |
 
 ## 安装
 
@@ -54,6 +54,12 @@ himan-tracker doctor
 
 ```bash
 himan-tracker setup codex
+```
+
+建议全局安装，让 hooks 在所有项目中生效：
+
+```bash
+himan-tracker setup codex -g
 ```
 
 如果你想先预览将写入的 Codex hook 配置：
@@ -88,6 +94,12 @@ himan-tracker ingest
 himan-tracker summary --since 7d
 ```
 
+如果想在所有项目中生效，用全局安装代替：
+
+```bash
+himan-tracker setup codex -g
+```
+
 ### 2. 从已有 Codex transcript 回填历史数据
 
 ```bash
@@ -106,13 +118,13 @@ himan-tracker server start --open
 
 ## 核心概念
 
-| 概念 | 说明 |
-| --- | --- |
-| `events/YYYY-MM-DD.jsonl` | 按天分片的 append-only 原始事件日志 |
-| `errors/YYYY-MM-DD.jsonl` | 采集或处理失败时的本地错误日志 |
-| `queue/` | hook 先写入的轻量队列，避免阻塞 Codex |
-| `himan.sqlite` | 用于报表和查询的本地 SQLite 投影 |
-| capability | 一次 skill、MCP tool、plugin、内置工具或 shell command 调用 |
+| 概念                      | 说明                                                        |
+| ------------------------- | ----------------------------------------------------------- |
+| `events/YYYY-MM-DD.jsonl` | 按天分片的 append-only 原始事件日志                         |
+| `errors/YYYY-MM-DD.jsonl` | 采集或处理失败时的本地错误日志                              |
+| `queue/`                  | hook 先写入的轻量队列，避免阻塞 Codex                       |
+| `himan.sqlite`            | 用于报表和查询的本地 SQLite 投影                            |
+| capability                | 一次 skill、MCP tool、plugin、内置工具或 shell command 调用 |
 
 默认 tracker home：
 
