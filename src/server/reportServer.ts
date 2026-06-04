@@ -42,6 +42,7 @@ import { createExcludeSystemCapabilityCondition } from "../reports/systemCapabil
 import {
   CODEX_WEEKLY_BUDGET_CREDITS,
   CODEX_WEEKLY_BUDGET_USD,
+  creditsToUsd,
   estimateCodexCost,
   formatBillingCycleStartDay,
   getBillingCycleRange,
@@ -203,6 +204,11 @@ type UsageCycleSummary = {
   endDate: string;
   usedCredits: number;
   usedUsd: number;
+  expectedBaselineCredits: number;
+  expectedBaselineUsd: number;
+  expectedBaselineRatio: number;
+  elapsedWorkdays: number;
+  totalWorkdays: number;
   remainingCredits: number;
   remainingUsd: number;
   budgetUsedRatio: number;
@@ -1059,6 +1065,7 @@ async function readUsageDashboardData(options: {
       row.cycle_start_date === currentCycleRange.startDate && row.cycle_end_date === currentCycleRange.endDate
     ) ?? createEmptyUsageCycle(currentCycleRange.startDate, currentCycleRange.endDate);
     const coverageSummary = summarizeUsageCoverage(dailyRows);
+    const budgetProgress = summarizeUsageBudgetProgress(currentCycleRange, generatedAt);
 
     return {
       generatedAt: generatedAt.toISOString(),
@@ -1071,6 +1078,11 @@ async function readUsageDashboardData(options: {
         endDate: currentCycle.cycle_end_date,
         usedCredits: currentCycle.used_credits,
         usedUsd: currentCycle.used_usd,
+        expectedBaselineCredits: budgetProgress.expectedBaselineCredits,
+        expectedBaselineUsd: budgetProgress.expectedBaselineUsd,
+        expectedBaselineRatio: budgetProgress.expectedBaselineRatio,
+        elapsedWorkdays: budgetProgress.elapsedWorkdays,
+        totalWorkdays: budgetProgress.totalWorkdays,
         remainingCredits: currentCycle.remaining_credits,
         remainingUsd: currentCycle.remaining_usd,
         budgetUsedRatio: currentCycle.budget_used_ratio,
@@ -1988,6 +2000,13 @@ function renderMetricsHtml(data: MetricsDashboardData, display: DashboardDisplay
 function renderUsageHtml(data: UsageDashboardData, display: DashboardDisplayMode): string {
   const generatedAt = new Date(data.generatedAt);
   const cycleQuery = new URLSearchParams({ cycleStartDay: data.billingCycleStartDay }).toString();
+  const usedRatio = clampRatio(data.currentCycle.budgetUsedRatio);
+  const baselineRatio = clampRatio(data.currentCycle.expectedBaselineRatio);
+  const baselineDelta = data.currentCycle.usedCredits - data.currentCycle.expectedBaselineCredits;
+  const isOverBaseline = baselineDelta > 0.000_001;
+  const usedCardClass = isOverBaseline ? " usage-legend-item is-alert" : "";
+  const deltaCardClass = isOverBaseline ? " usage-summary-item is-alert" : "";
+  const heroClass = isOverBaseline ? " usage-hero is-alert" : "";
 
   return `<!doctype html>
 <html lang="en">
@@ -2081,58 +2100,19 @@ function renderUsageHtml(data: UsageDashboardData, display: DashboardDisplayMode
       padding: 22px 0 40px;
     }
 
-    .metrics {
-      display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: 12px;
-      margin-bottom: 18px;
-    }
-
-    .metric,
     section {
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 8px;
     }
 
-    .metric {
-      padding: 14px;
-      min-width: 0;
-    }
-
-    .metric-label {
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 650;
-      text-transform: uppercase;
-    }
-
-    .metric-value {
-      margin-top: 8px;
-      font-size: 24px;
-      line-height: 1.1;
-      font-weight: 720;
-      overflow-wrap: anywhere;
-    }
-
-    .metric-subtle {
-      margin-top: 6px;
-      color: var(--muted);
-      font-size: 12px;
-      line-height: 1.4;
-    }
-
-    .metric.is-positive .metric-value {
-      color: #0f766e;
-    }
-
-    .metric.is-warning .metric-value {
-      color: var(--warning);
-    }
-
     section {
       margin-top: 14px;
       overflow: hidden;
+    }
+
+    section:first-of-type {
+      margin-top: 0;
     }
 
     section > h2 {
@@ -2141,6 +2121,237 @@ function renderUsageHtml(data: UsageDashboardData, display: DashboardDisplayMode
       border-bottom: 1px solid var(--line);
       font-size: 16px;
       line-height: 1.25;
+    }
+
+    .usage-hero {
+      padding: 18px;
+      margin-bottom: 18px;
+    }
+
+    .usage-hero.is-alert {
+      border-color: rgba(180, 35, 24, 0.24);
+      box-shadow: inset 0 0 0 1px rgba(180, 35, 24, 0.08);
+    }
+
+    .usage-hero-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .usage-hero-kicker {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .usage-hero-value {
+      margin-top: 8px;
+      font-size: 34px;
+      line-height: 1.05;
+      font-weight: 760;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .usage-hero-subtitle {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .usage-badge {
+      padding: 8px 10px;
+      border-radius: 999px;
+      background: #eef8f5;
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .usage-alert-badge {
+      margin-top: 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: #fff1f1;
+      color: var(--danger);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .usage-progress {
+      margin-top: 18px;
+    }
+
+    .usage-progress-track {
+      position: relative;
+      height: 18px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #edf3f8 0%, #f5f7fa 100%);
+      border: 1px solid #dbe4eb;
+      overflow: visible;
+    }
+
+    .usage-progress-fill {
+      position: absolute;
+      inset: 0 auto 0 0;
+      max-width: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #117a65 0%, #19a07f 100%);
+    }
+
+    .usage-progress-marker {
+      position: absolute;
+      top: -7px;
+      bottom: -7px;
+      width: 0;
+      pointer-events: none;
+    }
+
+    .usage-progress-marker::before {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      transform: translateX(-50%);
+      border-radius: 999px;
+      background: currentColor;
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.92);
+    }
+
+    .usage-progress-marker::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: -2px;
+      width: 10px;
+      height: 10px;
+      transform: translateX(-50%);
+      border-radius: 999px;
+      background: currentColor;
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.96);
+    }
+
+    .usage-progress-marker.is-baseline {
+      color: #0f3d62;
+      z-index: 2;
+    }
+
+    .usage-progress-scale {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .usage-legend {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .usage-legend-item,
+    .usage-summary-item {
+      min-width: 0;
+      border-radius: 10px;
+    }
+
+    .usage-legend-item {
+      padding: 12px 13px;
+      border: 1px solid var(--line);
+      background: #fbfcfd;
+    }
+
+    .usage-legend-item.is-alert,
+    .usage-summary-item.is-alert {
+      border-color: rgba(180, 35, 24, 0.28);
+      background: #fff6f5;
+    }
+
+    .usage-legend-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .usage-legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      flex: none;
+    }
+
+    .usage-legend-dot.is-used {
+      background: #117a65;
+    }
+
+    .usage-legend-dot.is-baseline {
+      background: #0f3d62;
+    }
+
+    .usage-legend-dot.is-total {
+      background: #8f9baa;
+    }
+
+    .usage-legend-value {
+      margin-top: 8px;
+      font-size: 24px;
+      line-height: 1.15;
+      font-weight: 740;
+      font-variant-numeric: tabular-nums;
+      overflow-wrap: anywhere;
+    }
+
+    .usage-legend-subtle,
+    .usage-summary-subtle {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .usage-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .usage-summary-item {
+      padding: 12px 13px;
+      background: #f8fafb;
+    }
+
+    .usage-summary-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .usage-summary-value {
+      margin-top: 7px;
+      font-size: 20px;
+      line-height: 1.15;
+      font-weight: 720;
+      font-variant-numeric: tabular-nums;
+      overflow-wrap: anywhere;
     }
 
     .usage-controls,
@@ -2270,7 +2481,8 @@ function renderUsageHtml(data: UsageDashboardData, display: DashboardDisplayMode
     }
 
     @media (max-width: 980px) {
-      .metrics {
+      .usage-legend,
+      .usage-summary-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
     }
@@ -2281,7 +2493,20 @@ function renderUsageHtml(data: UsageDashboardData, display: DashboardDisplayMode
         width: min(100vw - 20px, 1180px);
       }
 
-      .metrics {
+      .usage-hero {
+        padding: 14px;
+      }
+
+      .usage-hero-head {
+        flex-direction: column;
+      }
+
+      .usage-hero-value {
+        font-size: 30px;
+      }
+
+      .usage-legend,
+      .usage-summary-grid {
         grid-template-columns: 1fr;
       }
 
@@ -2306,24 +2531,68 @@ function renderUsageHtml(data: UsageDashboardData, display: DashboardDisplayMode
     </div>
   </header>
   <main>
-    <div class="metrics">
-      ${renderMetric("Cycle range", `${data.currentCycle.startDate} → ${data.currentCycle.endDate}`)}
-      ${renderMetric("Weekly budget", `${formatCredits(data.currentCycle.usedCredits + data.currentCycle.remainingCredits)} credits`, {
-    helperText: formatUsd(data.currentCycle.usedUsd + data.currentCycle.remainingUsd),
-  })}
-      ${renderMetric("Used this cycle", `${formatCredits(data.currentCycle.usedCredits)} credits`, {
-    helperText: formatUsd(data.currentCycle.usedUsd),
-    tone: data.currentCycle.usedCredits > 0 ? "positive" : undefined,
-  })}
-      ${renderMetric("Remaining", `${formatCredits(data.currentCycle.remainingCredits)} credits`, {
-    helperText: formatUsd(data.currentCycle.remainingUsd),
-    tone: data.currentCycle.remainingCredits === 0 ? "warning" : undefined,
-  })}
-      ${renderMetric("Coverage", formatPercent(data.coverageSummary.pricedTokenRatio), {
-    helperText: `${formatTokenCount(data.coverageSummary.pricedRuntimeTokens)} of ${formatTokenCount(data.coverageSummary.totalRuntimeTokens)} runtime tokens priced`,
-    tone: data.coverageSummary.pricedTokenRatio !== null && data.coverageSummary.pricedTokenRatio < 1 ? "warning" : "positive",
-  })}
-    </div>
+    <section class="usage-hero${heroClass}">
+      <div class="usage-hero-head">
+        <div>
+          <div class="usage-hero-kicker">Cycle budget progress</div>
+          <div class="usage-hero-value">${escapeHtml(formatCredits(data.currentCycle.usedCredits))} / ${escapeHtml(formatCredits(CODEX_WEEKLY_BUDGET_CREDITS))} credits</div>
+          <div class="usage-hero-subtitle">Current cycle: ${escapeHtml(data.currentCycle.startDate)} → ${escapeHtml(data.currentCycle.endDate)} · Remaining ${escapeHtml(formatCredits(data.currentCycle.remainingCredits))} credits (${escapeHtml(formatUsd(data.currentCycle.remainingUsd))})</div>
+          ${isOverBaseline
+    ? `<div class="usage-alert-badge">Over expected baseline by ${escapeHtml(formatCredits(baselineDelta))} credits</div>`
+    : ""}
+        </div>
+        <div class="usage-badge">Coverage ${escapeHtml(formatPercent(data.coverageSummary.pricedTokenRatio))}</div>
+      </div>
+      <div class="usage-progress">
+        <div class="usage-progress-track" aria-label="Cycle budget progress">
+          <div class="usage-progress-fill" style="width: ${usedRatio}%"></div>
+          <div class="usage-progress-marker is-baseline" style="left: ${baselineRatio}%"></div>
+        </div>
+        <div class="usage-progress-scale">
+          <span>0 credits</span>
+          <span>${escapeHtml(formatCredits(CODEX_WEEKLY_BUDGET_CREDITS))} credits</span>
+        </div>
+      </div>
+      <div class="usage-legend">
+        <div class="usage-legend-item${usedCardClass}">
+          <div class="usage-legend-head"><span class="usage-legend-dot is-used"></span>Used</div>
+          <div class="usage-legend-value">${escapeHtml(formatCredits(data.currentCycle.usedCredits))} credits</div>
+          <div class="usage-legend-subtle">${escapeHtml(formatUsd(data.currentCycle.usedUsd))} · ${escapeHtml(formatPercent(data.currentCycle.budgetUsedRatio))} of total${isOverBaseline ? ` · ${escapeHtml(formatSignedCredits(baselineDelta))} vs baseline` : ""}</div>
+        </div>
+        <div class="usage-legend-item">
+          <div class="usage-legend-head"><span class="usage-legend-dot is-baseline"></span>Expected baseline</div>
+          <div class="usage-legend-value">${escapeHtml(formatCredits(data.currentCycle.expectedBaselineCredits))} credits</div>
+          <div class="usage-legend-subtle">${escapeHtml(formatUsd(data.currentCycle.expectedBaselineUsd))} · 75 / 5 × ${escapeHtml(String(data.currentCycle.elapsedWorkdays))} workdays</div>
+        </div>
+        <div class="usage-legend-item">
+          <div class="usage-legend-head"><span class="usage-legend-dot is-total"></span>Total budget</div>
+          <div class="usage-legend-value">${escapeHtml(formatCredits(CODEX_WEEKLY_BUDGET_CREDITS))} credits</div>
+          <div class="usage-legend-subtle">${escapeHtml(formatUsd(CODEX_WEEKLY_BUDGET_USD))} · ${escapeHtml(String(data.currentCycle.totalWorkdays))} workdays per cycle</div>
+        </div>
+      </div>
+      <div class="usage-summary-grid">
+        <div class="usage-summary-item">
+          <div class="usage-summary-label">Remaining</div>
+          <div class="usage-summary-value">${escapeHtml(formatCredits(data.currentCycle.remainingCredits))} credits</div>
+          <div class="usage-summary-subtle">${escapeHtml(formatUsd(data.currentCycle.remainingUsd))}</div>
+        </div>
+        <div class="usage-summary-item${deltaCardClass}">
+          <div class="usage-summary-label">Baseline delta</div>
+          <div class="usage-summary-value">${escapeHtml(formatSignedCredits(baselineDelta))}</div>
+          <div class="usage-summary-subtle">Used vs expected baseline</div>
+        </div>
+        <div class="usage-summary-item">
+          <div class="usage-summary-label">Coverage</div>
+          <div class="usage-summary-value">${escapeHtml(formatPercent(data.coverageSummary.pricedTokenRatio))}</div>
+          <div class="usage-summary-subtle">${escapeHtml(formatTokenCount(data.coverageSummary.pricedRuntimeTokens))} of ${escapeHtml(formatTokenCount(data.coverageSummary.totalRuntimeTokens))} runtime tokens priced</div>
+        </div>
+        <div class="usage-summary-item">
+          <div class="usage-summary-label">Active days</div>
+          <div class="usage-summary-value">${escapeHtml(String(data.currentCycle.activeDays))} days</div>
+          <div class="usage-summary-subtle">${escapeHtml(String(data.currentCycle.modelCount))} models in this cycle</div>
+        </div>
+      </div>
+    </section>
     <section>
       <h2>Billing settings</h2>
       <form class="usage-controls" method="get" action="/usage">
@@ -2352,6 +2621,47 @@ function renderUsageHtml(data: UsageDashboardData, display: DashboardDisplayMode
   </main>
 </body>
 </html>`;
+}
+
+function summarizeUsageBudgetProgress(
+  cycleRange: { startDate: string; endDate: string },
+  now: Date,
+): {
+  expectedBaselineCredits: number;
+  expectedBaselineUsd: number;
+  expectedBaselineRatio: number;
+  elapsedWorkdays: number;
+  totalWorkdays: number;
+} {
+  const start = parseLocalDate(cycleRange.startDate);
+  const end = parseLocalDate(cycleRange.endDate);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const effectiveEnd = today < end ? today : end;
+
+  let elapsedWorkdays = 0;
+  let totalWorkdays = 0;
+
+  for (let cursor = start; cursor <= end; cursor = addDays(cursor, 1)) {
+    if (!isWeekday(cursor)) {
+      continue;
+    }
+
+    totalWorkdays += 1;
+    if (cursor <= effectiveEnd) {
+      elapsedWorkdays += 1;
+    }
+  }
+
+  const expectedBaselineRatio = totalWorkdays > 0 ? elapsedWorkdays / totalWorkdays : 0;
+  const expectedBaselineCredits = CODEX_WEEKLY_BUDGET_CREDITS * expectedBaselineRatio;
+
+  return {
+    expectedBaselineCredits,
+    expectedBaselineUsd: creditsToUsd(expectedBaselineCredits),
+    expectedBaselineRatio,
+    elapsedWorkdays,
+    totalWorkdays,
+  };
 }
 
 function readUsageDailyRows(
@@ -4228,6 +4538,19 @@ function formatPercent(value: number | null | undefined): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
+function formatSignedCredits(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "n/a";
+  }
+
+  if (value === 0) {
+    return "0 credits";
+  }
+
+  const sign = value > 0 ? "+" : "-";
+  return `${sign}${formatCredits(Math.abs(value))} credits`;
+}
+
 function formatCoverageLabel(coverage: CodexCostEstimate["coverage"]): string {
   switch (coverage) {
     case "full":
@@ -4237,6 +4560,19 @@ function formatCoverageLabel(coverage: CodexCostEstimate["coverage"]): string {
     default:
       return "Unpriced";
   }
+}
+
+function clampRatio(value: number | null | undefined): number {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Math.min(100, Math.max(0, value * 100));
+}
+
+function isWeekday(date: Date): boolean {
+  const day = date.getDay();
+  return day >= 1 && day <= 5;
 }
 
 function sumNullable(

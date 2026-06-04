@@ -248,6 +248,12 @@ describe("server command", () => {
       assert.equal(usageResponse.status, 200);
       assert.match(usageHtml, /<h1>Usage<\/h1>/);
       assert.match(usageHtml, /href="\/usage" aria-current="page">Usage<\/a>/);
+      assert.match(usageHtml, /Cycle budget progress/);
+      assert.match(usageHtml, /Expected baseline/);
+      assert.match(usageHtml, /75 \/ 5 × 5 workdays/);
+      assert.match(usageHtml, /usage-progress-track/);
+      assert.equal(usageHtml.includes("usage-progress-marker is-used"), false);
+      assert.equal(usageHtml.includes("usage-progress-marker is-total"), false);
       assert.match(usageHtml, /Billing cycle starts on/);
       assert.match(usageHtml, /Current cycle by model/);
       assert.match(usageHtml, /Daily usage/);
@@ -259,7 +265,14 @@ describe("server command", () => {
       const usageJsonResponse = await fetch(`${instance.url}/usage.json`);
       const usage = (await usageJsonResponse.json()) as {
         billingCycleStartDay: string;
-        currentCycle: { startDate: string; endDate: string; usedCredits: number; remainingCredits: number };
+        currentCycle: {
+          startDate: string;
+          endDate: string;
+          usedCredits: number;
+          expectedBaselineCredits: number;
+          elapsedWorkdays: number;
+          remainingCredits: number;
+        };
         dailySection: { table: { rows: string[][] } };
       };
       assert.equal(usageJsonResponse.status, 200);
@@ -267,6 +280,8 @@ describe("server command", () => {
       assert.equal(usage.currentCycle.startDate, "2026-05-06");
       assert.equal(usage.currentCycle.endDate, "2026-05-12");
       assert.ok(usage.currentCycle.usedCredits > 0);
+      assert.equal(usage.currentCycle.expectedBaselineCredits, 1_875);
+      assert.equal(usage.currentCycle.elapsedWorkdays, 5);
       assert.ok(usage.currentCycle.remainingCredits < 1_875);
       assert.equal(usage.dailySection.table.rows[0]?.[0], "2026-05-12");
 
@@ -385,17 +400,62 @@ describe("server command", () => {
       const mondayJsonResponse = await fetch(`${instance.url}/usage.json?cycleStartDay=monday`);
       const mondayUsage = (await mondayJsonResponse.json()) as {
         billingCycleStartDay: string;
-        currentCycle: { startDate: string; endDate: string };
+        currentCycle: { startDate: string; endDate: string; expectedBaselineCredits: number; elapsedWorkdays: number };
         weeklySection: { table: { rows: string[][] } };
       };
       assert.equal(mondayJsonResponse.status, 200);
       assert.equal(mondayUsage.billingCycleStartDay, "monday");
       assert.equal(mondayUsage.currentCycle.startDate, "2026-05-11");
       assert.equal(mondayUsage.currentCycle.endDate, "2026-05-17");
+      assert.equal(mondayUsage.currentCycle.expectedBaselineCredits, 750);
+      assert.equal(mondayUsage.currentCycle.elapsedWorkdays, 2);
       assert.deepEqual(
         mondayUsage.weeklySection.table.rows.map((row) => row[0]),
         ["2026-05-11 → 2026-05-17", "2026-05-04 → 2026-05-10"],
       );
+    } finally {
+      await instance.close();
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("highlights when used credits exceed the expected baseline", async () => {
+    const homeDir = await mkdtemp(path.join(tmpdir(), "himan-server-usage-alert-test-"));
+    const paths = resolveTrackerPaths({ HIMAN_TRACKER_HOME: homeDir });
+    const events = [
+      createTokenTurnEvent({
+        eventId: "evt_usage_alert",
+        occurredAt: "2026-05-12T12:00:00.000Z",
+        totalTokens: 20_000_000,
+        inputTokens: 20_000_000,
+        outputTokens: 0,
+      }),
+    ];
+
+    await ensureTrackerDirectories(paths);
+    for (const event of events) {
+      await appendJsonlRecord(resolveDailyEventsPath(paths, event.occurred_at), event);
+    }
+
+    const instance = await startReportHttpServer({
+      paths,
+      host: "127.0.0.1",
+      port: 0,
+      intervalSeconds: 60,
+      since: "7d",
+      display: "table",
+      startupBackfill: "none",
+      now: () => now,
+    });
+
+    try {
+      const response = await fetch(`${instance.url}/usage?cycleStartDay=monday`);
+      const html = await response.text();
+      assert.equal(response.status, 200);
+      assert.match(html, /Over expected baseline by 125 credits/);
+      assert.match(html, /usage-legend-item is-alert/);
+      assert.match(html, /usage-summary-item is-alert/);
+      assert.match(html, /\+125 credits vs baseline/);
     } finally {
       await instance.close();
       await rm(homeDir, { recursive: true, force: true });
@@ -722,6 +782,8 @@ function createTokenTurnEvent(options: {
   occurredAt: string;
   totalTokens: number;
   durationMs?: number;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
 }): NormalizedEvent {
   return {
     schema_version: "1.0",
@@ -736,8 +798,8 @@ function createTokenTurnEvent(options: {
     status: "success",
     model: "gpt-5.1-codex",
     duration_ms: options.durationMs ?? 1_000,
-    input_tokens: null,
-    output_tokens: null,
+    input_tokens: options.inputTokens ?? null,
+    output_tokens: options.outputTokens ?? null,
     total_tokens: options.totalTokens,
   };
 }
