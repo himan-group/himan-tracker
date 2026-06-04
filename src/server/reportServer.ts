@@ -1311,6 +1311,10 @@ function renderUsageHtml(data: UsageDashboardData, display: DashboardDisplayMode
       <div class="usage-progress">
         <div class="usage-progress-track" aria-label="Cycle budget progress">
           <div class="usage-progress-fill" style="width: ${usedRatio}%"></div>
+          <div class="usage-progress-ref-line" style="left: 20%"></div>
+          <div class="usage-progress-ref-line" style="left: 40%"></div>
+          <div class="usage-progress-ref-line" style="left: 60%"></div>
+          <div class="usage-progress-ref-line" style="left: 80%"></div>
           <div class="usage-progress-marker is-baseline" style="left: ${baselineRatio}%"></div>
         </div>
         <div class="usage-progress-scale">
