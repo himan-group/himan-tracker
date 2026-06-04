@@ -96,8 +96,8 @@ describe("server command", () => {
       assert.equal(summaryHtml.includes("Bash"), false);
       assert.match(html, /Runtime token usage/);
       assert.ok(html.indexOf("<h2>Summary</h2>") < html.indexOf("<h2>Runtime token usage</h2>"));
-      assert.match(html, /role="tablist"/);
-      assert.match(html, /role="tab"[^>]*>Daily<\/button>/);
+      assert.match(html, /class="tab-bar"/);
+      assert.match(html, /aria-current="true"[^>]*role="tab"[^>]*>Daily<\/button>/);
       assert.match(html, /role="tab"[^>]*>Weekly<\/button>/);
       assert.match(html, /role="tab"[^>]*>Monthly<\/button>/);
       assert.equal(html.includes("Daily tokens"), false);
