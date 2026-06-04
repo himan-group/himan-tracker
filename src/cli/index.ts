@@ -12,6 +12,7 @@ import { runCapabilities } from "./commands/capabilities.js";
 import { runCollect } from "./commands/collect.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runIngest } from "./commands/ingest.js";
+import { runRebuild } from "./commands/rebuild.js";
 import {
   runServerServe,
   runServerStart,
@@ -114,6 +115,8 @@ program
   .description("Import normalized JSONL events into the local SQLite projection")
   .option("--from <path>", "Read events from a specific JSONL file")
   .option("--rebuild", "Delete and rebuild the SQLite projection before ingesting")
+  .option("--date <date>", "Delete and rebuild projection rows for one local date in YYYY-MM-DD")
+  .option("--agent <agent>", "With --date, rebuild only one agent: codex, copilot, or claude-code")
   .action(async (options: IngestCommandOptions) => {
     const result = await runIngest(options);
     console.log(result.lines.join("\n"));
@@ -123,6 +126,8 @@ program
 type IngestCommandOptions = {
   from?: string;
   rebuild?: boolean;
+  date?: string;
+  agent?: string;
 };
 
 const backfillCommand = program
@@ -136,6 +141,7 @@ backfillCommand
   .option("--since <date>", "Backfill from this date through today in YYYY-MM-DD")
   .option("--from <dir>", "Read transcript JSONL files from a specific directory")
   .option("--ignore-cursor", "Ignore backfill source cursor fingerprints and force a full re-parse")
+  .option("--force", "Delete existing daily JSONL and regenerate from transcripts (picks up new fields like cached_input_tokens)")
   .action(async (options: BackfillCommandOptions) => {
     const result = await runBackfill({ ...options, agent: "codex" });
     console.log(result.lines.join("\n"));
@@ -149,6 +155,7 @@ backfillCommand
   .option("--since <date>", "Backfill from this date through today in YYYY-MM-DD")
   .option("--from <dir>", "Read transcript JSONL files from a specific directory")
   .option("--ignore-cursor", "Ignore backfill source cursor fingerprints and force a full re-parse")
+  .option("--force", "Delete existing daily JSONL and regenerate from transcripts (picks up new fields like cached_input_tokens)")
   .action(async (options: BackfillCommandOptions) => {
     const result = await runBackfill({ ...options, agent: "copilot" });
     console.log(result.lines.join("\n"));
@@ -160,6 +167,46 @@ type BackfillCommandOptions = {
   since?: string;
   from?: string;
   ignoreCursor?: boolean;
+  force?: boolean;
+};
+
+const rebuildCommand = program
+  .command("rebuild")
+  .description("Run cleanup, backfill, and ingest together for one agent and date");
+
+rebuildCommand
+  .command("codex")
+  .description("Rebuild one Codex date end-to-end")
+  .requiredOption("--date <date>", "Date to rebuild in YYYY-MM-DD")
+  .option("--from <dir>", "Read transcript JSONL files from a specific directory")
+  .action(async (options: RebuildCommandOptions) => {
+    const result = await runRebuild({
+      ...options,
+      agent: "codex",
+      progress: (line) => console.log(line),
+    });
+    console.log(result.lines.join("\n"));
+    process.exitCode = result.ok ? 0 : 1;
+  });
+
+rebuildCommand
+  .command("copilot")
+  .description("Rebuild one Copilot date end-to-end")
+  .requiredOption("--date <date>", "Date to rebuild in YYYY-MM-DD")
+  .option("--from <dir>", "Read transcript JSONL files from a specific directory")
+  .action(async (options: RebuildCommandOptions) => {
+    const result = await runRebuild({
+      ...options,
+      agent: "copilot",
+      progress: (line) => console.log(line),
+    });
+    console.log(result.lines.join("\n"));
+    process.exitCode = result.ok ? 0 : 1;
+  });
+
+type RebuildCommandOptions = {
+  date?: string;
+  from?: string;
 };
 
 const archiveCommand = program
@@ -272,6 +319,7 @@ type ServerServeCommandOptions = ServerStartCommandOptions;
 program
   .command("cleanup")
   .description("Delete raw JSONL logs while keeping SQLite statistics")
+  .option("--agent <agent>", "Delete only raw event records for one agent: codex, copilot, or claude-code")
   .option("--all", "Delete all raw event and error JSONL logs")
   .option("--before <date>", "Delete raw logs before YYYY-MM-DD")
   .option("--from <date>", "Delete raw logs on or after YYYY-MM-DD")
@@ -285,6 +333,7 @@ program
   });
 
 type CleanupCommandOptions = {
+  agent?: string;
   all?: boolean;
   before?: string;
   from?: string;

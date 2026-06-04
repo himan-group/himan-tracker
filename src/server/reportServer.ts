@@ -319,9 +319,10 @@ type DashboardTokenDayRow = {
 
 type UsageDailyAgentStatsRow = {
   date: string;
-  model: string;
+  model: string | null;
   turn_count: number;
   input_tokens: number | null;
+  cached_input_tokens: number | null;
   output_tokens: number | null;
   total_tokens: number | null;
 };
@@ -329,8 +330,8 @@ type UsageDailyAgentStatsRow = {
 type UsageDailyRow = UsageDailyAgentStatsRow & {
   cycle_start_date: string;
   cycle_end_date: string;
-  estimated_credits: number;
-  estimated_usd: number;
+  estimated_credits: number | null;
+  estimated_usd: number | null;
   priced_runtime_tokens: number;
   coverage: CodexCostEstimate["coverage"];
   rate_card_model: string | null;
@@ -374,6 +375,8 @@ type DashboardTokenBucket = {
   label: string;
   turn_count: number;
   input_tokens: number;
+  cached_input_tokens: number;
+  cached_input_count: number;
   input_count: number;
   output_tokens: number;
   output_count: number;
@@ -1308,6 +1311,10 @@ function renderUsageHtml(data: UsageDashboardData, display: DashboardDisplayMode
       <div class="usage-progress">
         <div class="usage-progress-track" aria-label="Cycle budget progress">
           <div class="usage-progress-fill" style="width: ${usedRatio}%"></div>
+          <div class="usage-progress-ref-line" style="left: 20%"></div>
+          <div class="usage-progress-ref-line" style="left: 40%"></div>
+          <div class="usage-progress-ref-line" style="left: 60%"></div>
+          <div class="usage-progress-ref-line" style="left: 80%"></div>
           <div class="usage-progress-marker is-baseline" style="left: ${baselineRatio}%"></div>
         </div>
         <div class="usage-progress-scale">
@@ -1435,9 +1442,10 @@ function readUsageDailyRows(
       `
       select
         date,
-        model,
+        nullif(trim(model), '') as model,
         sum(turn_count) as turn_count,
         case when count(input_tokens) = 0 then null else sum(input_tokens) end as input_tokens,
+        case when count(cached_input_tokens) = 0 then null else sum(cached_input_tokens) end as cached_input_tokens,
         case when count(output_tokens) = 0 then null else sum(output_tokens) end as output_tokens,
         case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens
       from daily_agent_stats
@@ -1453,16 +1461,19 @@ function readUsageDailyRows(
     const estimate = estimateCodexCost({
       model: row.model,
       inputTokens: row.input_tokens,
+      cachedInputTokens: row.cached_input_tokens,
       outputTokens: row.output_tokens,
     });
-    const pricedRuntimeTokens = (row.input_tokens ?? 0) + (row.output_tokens ?? 0);
+    const pricedRuntimeTokens =
+      (row.output_tokens ?? 0) +
+      (row.input_tokens !== null && row.cached_input_tokens !== null ? row.input_tokens : 0);
 
     return {
       ...row,
       cycle_start_date: cycleRange.startDate,
       cycle_end_date: cycleRange.endDate,
-      estimated_credits: estimate.estimatedCredits ?? 0,
-      estimated_usd: estimate.estimatedUsd ?? 0,
+      estimated_credits: estimate.estimatedCredits,
+      estimated_usd: estimate.estimatedUsd,
       priced_runtime_tokens: pricedRuntimeTokens,
       coverage: estimate.coverage,
       rate_card_model: estimate.pricing?.sourceModel ?? null,
@@ -1494,9 +1505,11 @@ function aggregateUsageCycles(rows: UsageDailyRow[]): UsageCycleRow[] {
 
     existing.total_runtime_tokens += row.total_tokens ?? 0;
     existing.priced_runtime_tokens += row.priced_runtime_tokens;
-    existing.used_credits += row.estimated_credits;
-    existing.used_usd += row.estimated_usd;
-    existing.models.add(row.model);
+    existing.used_credits += row.estimated_credits ?? 0;
+    existing.used_usd += row.estimated_usd ?? 0;
+    if (row.model) {
+      existing.models.add(row.model);
+    }
     existing.days.add(row.date);
     cycles.set(key, existing);
   }
@@ -1560,9 +1573,13 @@ function createUsageCurrentCycleTable(
 ): DashboardTable {
   const currentCycleRows = rows
     .filter((row) =>
-      row.cycle_start_date === currentCycleRange.startDate && row.cycle_end_date === currentCycleRange.endDate
+      row.cycle_start_date === currentCycleRange.startDate &&
+      row.cycle_end_date === currentCycleRange.endDate &&
+      row.model
     )
-    .sort((left, right) => right.estimated_credits - left.estimated_credits || left.model.localeCompare(right.model));
+    .sort((left, right) =>
+      compareUsageRows(left, right)
+    );
 
   const aggregates = new Map<string, UsageDailyRow & { day_count: number }>();
   for (const row of currentCycleRows) {
@@ -1571,29 +1588,32 @@ function createUsageCurrentCycleTable(
       ...row,
       turn_count: 0,
       input_tokens: null,
+      cached_input_tokens: null,
       output_tokens: null,
       total_tokens: null,
-      estimated_credits: 0,
-      estimated_usd: 0,
+      estimated_credits: null,
+      estimated_usd: null,
       priced_runtime_tokens: 0,
       day_count: 0,
-      coverage: "full" as CodexCostEstimate["coverage"],
+      coverage: row.coverage,
     };
     existing.turn_count += row.turn_count;
     existing.input_tokens = sumNullable(existing.input_tokens, row.input_tokens);
+    existing.cached_input_tokens = sumNullable(
+      existing.cached_input_tokens,
+      row.cached_input_tokens,
+    );
     existing.output_tokens = sumNullable(existing.output_tokens, row.output_tokens);
     existing.total_tokens = sumNullable(existing.total_tokens, row.total_tokens);
-    existing.estimated_credits += row.estimated_credits;
-    existing.estimated_usd += row.estimated_usd;
+    existing.estimated_credits = sumNullable(existing.estimated_credits, row.estimated_credits);
+    existing.estimated_usd = sumNullable(existing.estimated_usd, row.estimated_usd);
     existing.priced_runtime_tokens += row.priced_runtime_tokens;
     existing.day_count += 1;
     existing.coverage = mergeCoverage(existing.coverage, row.coverage);
     aggregates.set(key, existing);
   }
 
-  const modelRows = [...aggregates.values()].sort(
-    (left, right) => right.estimated_credits - left.estimated_credits || left.model.localeCompare(right.model),
-  );
+  const modelRows = [...aggregates.values()].sort(compareUsageRows);
 
   return {
     columns: [
@@ -1602,6 +1622,7 @@ function createUsageCurrentCycleTable(
       "Days",
       "Turns",
       "Input",
+      "Cached input",
       "Output",
       "Runtime tokens",
       "Credits",
@@ -1609,11 +1630,12 @@ function createUsageCurrentCycleTable(
       "Coverage",
     ],
     rows: modelRows.map((row) => [
-      row.model,
+      formatNullableText(row.model),
       row.rate_card_alias_of ? `${row.rate_card_model} via ${row.rate_card_alias_of}` : formatNullableText(row.rate_card_model),
       String(row.day_count),
       String(row.turn_count),
       formatTokenCount(row.input_tokens),
+      formatTokenCount(row.cached_input_tokens),
       formatTokenCount(row.output_tokens),
       formatTokenCount(row.total_tokens),
       formatCredits(row.estimated_credits),
@@ -1626,6 +1648,10 @@ function createUsageCurrentCycleTable(
 }
 
 function createUsageDailyTable(rows: UsageDailyRow[]): DashboardTable {
+  const modelRows = rows
+    .filter((row) => row.model)
+    .sort(compareUsageRows);
+
   return {
     columns: [
       "Date",
@@ -1634,19 +1660,21 @@ function createUsageDailyTable(rows: UsageDailyRow[]): DashboardTable {
       "Rate card",
       "Turns",
       "Input",
+      "Cached input",
       "Output",
       "Runtime tokens",
       "Credits",
       "USD",
       "Coverage",
     ],
-    rows: rows.map((row) => [
+    rows: modelRows.map((row) => [
       row.date,
       `${formatShortDate(parseLocalDate(row.cycle_start_date))} → ${formatShortDate(parseLocalDate(row.cycle_end_date))}`,
-      row.model,
+      formatNullableText(row.model),
       row.rate_card_alias_of ? `${row.rate_card_model} via ${row.rate_card_alias_of}` : formatNullableText(row.rate_card_model),
       String(row.turn_count),
       formatTokenCount(row.input_tokens),
+      formatTokenCount(row.cached_input_tokens),
       formatTokenCount(row.output_tokens),
       formatTokenCount(row.total_tokens),
       formatCredits(row.estimated_credits),
@@ -2969,6 +2997,8 @@ function aggregateDashboardTokenRows(
       label: descriptor.label,
       turn_count: 0,
       input_tokens: 0,
+      cached_input_tokens: 0,
+      cached_input_count: 0,
       input_count: 0,
       output_tokens: 0,
       output_count: 0,
@@ -3055,8 +3085,8 @@ function renderMetric(
   )}</div><div class="metric-value">${escapeHtml(value)}</div>${helperText}</div>`;
 }
 
-function formatCredits(value: number): string {
-  if (!Number.isFinite(value)) {
+function formatCredits(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
     return "n/a";
   }
 
@@ -3071,8 +3101,8 @@ function formatCredits(value: number): string {
   return value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
 }
 
-function formatUsd(value: number): string {
-  if (!Number.isFinite(value)) {
+function formatUsd(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
     return "n/a";
   }
 
@@ -3157,6 +3187,15 @@ function mergeCoverage(
   }
 
   return "partial";
+}
+
+function compareUsageRows(left: UsageDailyRow, right: UsageDailyRow): number {
+  const creditDelta = (right.estimated_credits ?? -1) - (left.estimated_credits ?? -1);
+  if (creditDelta !== 0) {
+    return creditDelta;
+  }
+
+  return formatNullableText(left.model).localeCompare(formatNullableText(right.model));
 }
 
 function renderSection(section: DashboardSection, display: DashboardDisplayMode): string {

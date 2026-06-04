@@ -1,4 +1,4 @@
-import { access, readdir, rm, stat } from "node:fs/promises";
+import { access, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { deleteIngestFileCursorsForFiles } from "../../aggregator/aggregateEvents.js";
@@ -8,8 +8,10 @@ import {
   type TrackerPaths,
 } from "../../config/paths.js";
 import { parseDate } from "../../reports/dateRange.js";
+import type { AgentName } from "../../types/events.js";
 
 export type CleanupCommandOptions = {
+  agent?: string;
   all?: boolean;
   from?: string;
   to?: string;
@@ -51,6 +53,11 @@ type RawLogFile = {
   sizeBytes: number;
 };
 
+type AgentCleanupCandidate = RawLogFile & {
+  removedCount: number;
+  remainingLines: string[];
+};
+
 const PERIOD_PATTERN = /^([1-9]\d*)([dwm])$/;
 const DAILY_JSONL_PATTERN = /^(\d{4}-\d{2}-\d{2})\.jsonl$/;
 
@@ -61,14 +68,28 @@ export async function runCleanup(
 
   try {
     await ensureTrackerDirectories(paths);
+    const agent = resolveCleanupAgent(options.agent);
     const scope = resolveCleanupScope(options, (options.now ?? (() => new Date()))());
-    const files = await listMatchingRawLogFiles(paths, scope);
+    const files = await listMatchingRawLogFiles(paths, scope, agent);
     let deletedCursorRows = 0;
 
     if (!options.dryRun) {
-      for (const file of files) {
-        await rm(file.filePath, { force: true });
+      if (agent) {
+        for (const file of files) {
+          const candidate = file as AgentCleanupCandidate;
+          if (candidate.remainingLines.length === 0) {
+            await rm(candidate.filePath, { force: true });
+            continue;
+          }
+
+          await writeFile(candidate.filePath, `${candidate.remainingLines.join("\n")}\n`, "utf8");
+        }
+      } else {
+        for (const file of files) {
+          await rm(file.filePath, { force: true });
+        }
       }
+
       deletedCursorRows = await deleteIngestFileCursorsForFiles(
         paths.sqlitePath,
         files.map((file) => file.filePath),
@@ -80,6 +101,7 @@ export async function runCleanup(
       lines: formatCleanupResult({
         paths,
         scope,
+        agent,
         files,
         dryRun: options.dryRun ?? false,
         deletedCursorRows,
@@ -96,8 +118,20 @@ export async function runCleanup(
 async function listMatchingRawLogFiles(
   paths: TrackerPaths,
   scope: CleanupScope,
-): Promise<RawLogFile[]> {
-  const files = [
+  agent: AgentName | null,
+): Promise<Array<RawLogFile | AgentCleanupCandidate>> {
+  if (agent) {
+    const files = [
+      ...(await listAgentCleanupCandidates(paths.eventsDir, "events", scope, agent)),
+      ...(scope.kind === "all"
+        ? await listAgentLegacyCandidates(paths.eventsPath, "events", agent)
+        : []),
+    ].sort((left, right) => left.filePath.localeCompare(right.filePath));
+
+    return files;
+  }
+
+  const files: RawLogFile[] = [
     ...(await listDailyJsonlFiles(paths.eventsDir, "events", scope)),
     ...(await listDailyJsonlFiles(paths.errorsDir, "errors", scope)),
   ].sort((left, right) => left.filePath.localeCompare(right.filePath));
@@ -147,6 +181,90 @@ async function listDailyJsonlFiles(
   }
 
   return files;
+}
+
+async function listAgentCleanupCandidates(
+  directoryPath: string,
+  category: RawLogFile["category"],
+  scope: CleanupScope,
+  agent: AgentName,
+): Promise<AgentCleanupCandidate[]> {
+  const entries = await readdir(directoryPath, { withFileTypes: true });
+  const files: AgentCleanupCandidate[] = [];
+
+  for (const entry of entries) {
+    if (!entry.isFile()) {
+      continue;
+    }
+
+    const match = DAILY_JSONL_PATTERN.exec(entry.name);
+    if (!match) {
+      continue;
+    }
+
+    const date = match[1];
+    if (!date || !matchesScope(date, scope)) {
+      continue;
+    }
+
+    const filePath = path.join(directoryPath, entry.name);
+    const candidate = await buildAgentCleanupCandidate(filePath, category, date, agent);
+    if (candidate) {
+      files.push(candidate);
+    }
+  }
+
+  return files;
+}
+
+async function listAgentLegacyCandidates(
+  filePath: string,
+  category: RawLogFile["category"],
+  agent: AgentName,
+): Promise<AgentCleanupCandidate[]> {
+  try {
+    await access(filePath);
+    const candidate = await buildAgentCleanupCandidate(filePath, category, null, agent);
+    return candidate ? [candidate] : [];
+  } catch {
+    return [];
+  }
+}
+
+async function buildAgentCleanupCandidate(
+  filePath: string,
+  category: RawLogFile["category"],
+  date: string | null,
+  agent: AgentName,
+): Promise<AgentCleanupCandidate | null> {
+  const raw = await readFile(filePath, "utf8");
+  const lines = raw.split(/\r?\n/).filter((line) => line.trim().length > 0);
+  const remainingLines: string[] = [];
+  let removedCount = 0;
+
+  for (const line of lines) {
+    const record = parseCleanupJsonLine(line, filePath);
+    if (record.agent === agent) {
+      removedCount += 1;
+      continue;
+    }
+
+    remainingLines.push(line);
+  }
+
+  if (removedCount === 0) {
+    return null;
+  }
+
+  const fileStat = await stat(filePath);
+  return {
+    category,
+    filePath,
+    date,
+    sizeBytes: fileStat.size,
+    removedCount,
+    remainingLines,
+  };
 }
 
 async function listLegacyRawLogFile(
@@ -250,25 +368,31 @@ function parsePeriodDays(period: string): number {
 function formatCleanupResult(options: {
   paths: TrackerPaths;
   scope: CleanupScope;
-  files: RawLogFile[];
+  agent: AgentName | null;
+  files: Array<RawLogFile | AgentCleanupCandidate>;
   dryRun: boolean;
   deletedCursorRows: number;
 }): string[] {
   const eventFiles = options.files.filter((file) => file.category === "events");
   const errorFiles = options.files.filter((file) => file.category === "errors");
   const sizeBytes = options.files.reduce((sum, file) => sum + file.sizeBytes, 0);
+  const removedEvents = options.agent
+    ? options.files.reduce((sum, file) => sum + ("removedCount" in file ? file.removedCount : 0), 0)
+    : null;
 
   return [
     "himan-tracker cleanup",
     "",
     `Mode: ${options.dryRun ? "dry-run" : "delete"}`,
     `Scope: ${formatScope(options.scope)}`,
+    `Agent filter: ${options.agent ?? "all"}`,
     `Events directory: ${options.paths.eventsDir}`,
     `Errors directory: ${options.paths.errorsDir}`,
     `SQLite retained: ${options.paths.sqlitePath}`,
     `Event files matched: ${eventFiles.length}`,
     `Error files matched: ${errorFiles.length}`,
     `Total files matched: ${options.files.length}`,
+    ...(removedEvents === null ? [] : [`Event records matched: ${removedEvents}`]),
     `Bytes matched: ${sizeBytes}`,
     options.dryRun ? "Deleted files: 0 (dry-run)" : `Deleted files: ${options.files.length}`,
     options.dryRun
@@ -311,4 +435,29 @@ function formatLocalDate(date: Date): string {
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function resolveCleanupAgent(agent: string | undefined): AgentName | null {
+  if (!agent) {
+    return null;
+  }
+
+  if (agent === "codex" || agent === "copilot" || agent === "claude-code") {
+    return agent;
+  }
+
+  throw new Error(`Unsupported cleanup agent "${agent}". Currently "codex", "copilot", and "claude-code" are supported.`);
+}
+
+function parseCleanupJsonLine(line: string, filePath: string): { agent?: unknown } {
+  try {
+    const value = JSON.parse(line);
+    if (!value || typeof value !== "object") {
+      throw new Error("Expected a JSON object");
+    }
+
+    return value as { agent?: unknown };
+  } catch (error) {
+    throw new Error(`Invalid cleanup JSONL record in ${filePath}: ${getErrorMessage(error)}`);
+  }
 }

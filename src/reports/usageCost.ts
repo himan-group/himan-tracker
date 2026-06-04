@@ -22,6 +22,7 @@ export type CodexCostEstimate = {
   estimatedCredits: number | null;
   estimatedUsd: number | null;
   inputCredits: number | null;
+  cachedInputCredits: number | null;
   outputCredits: number | null;
   pricing: CodexModelPricing | null;
   coverage: "full" | "partial" | "none";
@@ -137,6 +138,7 @@ export function resolveCodexModelPricing(model: string | null | undefined): Code
 export function estimateCodexCost(input: {
   model: string | null | undefined;
   inputTokens: number | null | undefined;
+  cachedInputTokens: number | null | undefined;
   outputTokens: number | null | undefined;
 }): CodexCostEstimate {
   const pricing = resolveCodexModelPricing(input.model);
@@ -145,6 +147,7 @@ export function estimateCodexCost(input: {
       estimatedCredits: null,
       estimatedUsd: null,
       inputCredits: null,
+      cachedInputCredits: null,
       outputCredits: null,
       pricing: null,
       coverage: "none",
@@ -152,33 +155,43 @@ export function estimateCodexCost(input: {
   }
 
   const hasInput = typeof input.inputTokens === "number";
+  const hasCachedInput = typeof input.cachedInputTokens === "number";
   const hasOutput = typeof input.outputTokens === "number";
   if (!hasInput && !hasOutput) {
     return {
       estimatedCredits: null,
       estimatedUsd: null,
       inputCredits: null,
+      cachedInputCredits: null,
       outputCredits: null,
       pricing,
       coverage: "none",
     };
   }
 
-  const inputCredits = hasInput
-    ? ((input.inputTokens ?? 0) / 1_000_000) * pricing.inputCreditsPerMillion
+  const cachedInputTokens = hasCachedInput ? Math.max(input.cachedInputTokens ?? 0, 0) : null;
+  const uncachedInputTokens = hasInput
+    ? Math.max((input.inputTokens ?? 0) - (cachedInputTokens ?? 0), 0)
+    : null;
+  const inputCredits = uncachedInputTokens !== null
+    ? (uncachedInputTokens / 1_000_000) * pricing.inputCreditsPerMillion
+    : null;
+  const cachedInputCredits = cachedInputTokens !== null
+    ? (cachedInputTokens / 1_000_000) * pricing.cachedInputCreditsPerMillion
     : null;
   const outputCredits = hasOutput
     ? ((input.outputTokens ?? 0) / 1_000_000) * pricing.outputCreditsPerMillion
     : null;
-  const estimatedCredits = (inputCredits ?? 0) + (outputCredits ?? 0);
+  const estimatedCredits = (inputCredits ?? 0) + (cachedInputCredits ?? 0) + (outputCredits ?? 0);
 
   return {
     estimatedCredits,
     estimatedUsd: creditsToUsd(estimatedCredits),
     inputCredits,
+    cachedInputCredits,
     outputCredits,
     pricing,
-    coverage: hasInput && hasOutput ? "full" : "partial",
+    coverage: hasInput && hasCachedInput && hasOutput ? "full" : "partial",
   };
 }
 

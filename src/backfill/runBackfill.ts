@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { readdirSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
@@ -30,6 +30,7 @@ export type BackfillCommandOptions = {
   since?: string;
   from?: string;
   ignoreCursor?: boolean;
+  force?: boolean;
   paths?: TrackerPaths;
   config?: UserConfig;
   now?: () => Date;
@@ -123,6 +124,7 @@ export async function runBackfill(
         config,
         persistKnownProjects: options.config === undefined,
         ignoreCursor: options.ignoreCursor ?? false,
+        force: options.force ?? false,
         cursorStore,
         now,
       });
@@ -207,6 +209,7 @@ async function runBackfillSince(
           config,
           persistKnownProjects: options.config === undefined,
           ignoreCursor: options.ignoreCursor ?? false,
+          force: options.force ?? false,
           cursorStore,
           now,
         });
@@ -235,6 +238,7 @@ async function runBackfillSince(
           config,
           persistKnownProjects: options.config === undefined,
           ignoreCursor: options.ignoreCursor ?? false,
+          force: options.force ?? false,
           cursorStore,
           now,
         });
@@ -305,6 +309,7 @@ async function parseAndWriteBackfillEvents(options: {
   config: UserConfig;
   persistKnownProjects: boolean;
   ignoreCursor: boolean;
+  force: boolean;
   cursorStore: BackfillCursorStore;
   now: () => Date;
 }): Promise<{
@@ -320,6 +325,7 @@ async function parseAndWriteBackfillEvents(options: {
   const existingCursor = options.cursorStore.records.get(sourceKey);
   if (
     !options.ignoreCursor &&
+    !options.force &&
     existingCursor &&
     existingCursor.fingerprint === sourceFingerprint
   ) {
@@ -341,7 +347,7 @@ async function parseAndWriteBackfillEvents(options: {
     persist: options.persistKnownProjects,
   });
   const normalizedEvents = parsed.events.map((event) => normalizeEvent(event, options.config));
-  const writeResult = await appendUniqueEvents(options.paths, normalizedEvents);
+  const writeResult = await appendUniqueEvents(options.paths, normalizedEvents, options.force);
 
   options.cursorStore.records.set(sourceKey, {
     source_key: sourceKey,
@@ -465,6 +471,7 @@ async function parseAgentTranscripts(agent: AgentName, transcriptDir: string) {
 async function appendUniqueEvents(
   paths: TrackerPaths,
   events: NormalizedEvent[],
+  force = false,
 ): Promise<WriteUniqueEventsResult> {
   const eventsByPath = new Map<string, NormalizedEvent[]>();
   for (const event of events) {
@@ -482,6 +489,17 @@ async function appendUniqueEvents(
     left.localeCompare(right),
   )) {
     await mkdir(path.dirname(eventPath), { recursive: true, mode: 0o700 });
+
+    // When force is true, delete the existing file so events are regenerated
+    // with any new fields (e.g. cached_input_tokens added in a later version).
+    if (force) {
+      try {
+        await rm(eventPath, { force: true });
+      } catch {
+        // File may not exist yet — that's fine
+      }
+    }
+
     const existingEvents = await readExistingEvents(eventPath);
 
     for (const event of fileEvents) {

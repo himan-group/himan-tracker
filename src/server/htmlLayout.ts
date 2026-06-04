@@ -116,6 +116,8 @@ tbody tr:last-child td { border-bottom: 0; }
 .usage-progress-marker { position: absolute; top: -7px; bottom: -7px; width: 0; pointer-events: none; }
 .usage-progress-marker::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; transform: translateX(-50%); border-radius: 999px; background: currentColor; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.92); }
 .usage-progress-marker::after { content: ""; position: absolute; left: 50%; top: -2px; width: 10px; height: 10px; transform: translateX(-50%); border-radius: 999px; background: currentColor; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.96); }
+.usage-progress-ref-line { position: absolute; top: -2px; bottom: -2px; width: 0; pointer-events: none; z-index: 1; }
+.usage-progress-ref-line::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; transform: translateX(-50%); border-radius: 999px; background: #c8d6e0; }
 .usage-progress-marker.is-baseline { color: #0f3d62; z-index: 2; }
 .usage-progress-scale { display: flex; justify-content: space-between; margin-top: 8px; color: var(--pico-muted-color); font-size: 12px; font-variant-numeric: tabular-nums; }
 .usage-legend { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }

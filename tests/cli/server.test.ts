@@ -359,6 +359,97 @@ describe("server command", () => {
     }
   });
 
+  it("hides model-less usage rows and renders unpriced cost fields as n/a", async () => {
+    const homeDir = await mkdtemp(path.join(tmpdir(), "himan-server-usage-model-test-"));
+    const paths = resolveTrackerPaths({ HIMAN_TRACKER_HOME: homeDir });
+    const events = [
+      createUsageTurnEvent({
+        eventId: "evt_usage_priced",
+        occurredAt: "2026-05-12T08:00:00.000Z",
+        model: "gpt-5.4",
+        inputTokens: 1_000_000,
+        cachedInputTokens: 800_000,
+        outputTokens: 20_000,
+        totalTokens: 1_020_000,
+      }),
+      createUsageTurnEvent({
+        eventId: "evt_usage_unpriced",
+        occurredAt: "2026-05-12T09:00:00.000Z",
+        model: "codex-auto-review",
+        inputTokens: 41_600,
+        cachedInputTokens: null,
+        outputTokens: 173,
+        totalTokens: 41_773,
+      }),
+      createUsageTurnEvent({
+        eventId: "evt_usage_model_less",
+        occurredAt: "2026-05-12T10:00:00.000Z",
+        model: null,
+        inputTokens: 0,
+        cachedInputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+      }),
+    ];
+
+    await ensureTrackerDirectories(paths);
+    for (const event of events) {
+      await appendJsonlRecord(resolveDailyEventsPath(paths, event.occurred_at), event);
+    }
+
+    const instance = await startReportHttpServer({
+      paths,
+      host: "127.0.0.1",
+      port: 0,
+      intervalSeconds: 60,
+      since: "7d",
+      display: "table",
+      startupBackfill: "none",
+      now: () => now,
+    });
+
+    try {
+      const usageJsonResponse = await fetch(`${instance.url}/usage.json`);
+      const usage = (await usageJsonResponse.json()) as {
+        currentCycle: { modelCount: number };
+        currentCycleSection: { table: { rows: string[][] } };
+        dailySection: { table: { rows: string[][] } };
+      };
+
+      assert.equal(usageJsonResponse.status, 200);
+      assert.equal(usage.currentCycle.modelCount, 2);
+      assert.deepEqual(
+        usage.currentCycleSection.table.rows.map((row) => row[0]),
+        ["gpt-5.4", "codex-auto-review"],
+      );
+      assert.equal(
+        usage.currentCycleSection.table.rows.some((row) => row[0] === "n/a" || row[0] === ""),
+        false,
+      );
+
+      const unpricedRow = usage.currentCycleSection.table.rows.find((row) => row[0] === "codex-auto-review");
+      assert.deepEqual(unpricedRow?.slice(1), [
+        "n/a",
+        "1",
+        "1",
+        "41.6K",
+        "n/a",
+        "173",
+        "41.8K",
+        "n/a",
+        "n/a",
+        "Unpriced",
+      ]);
+      assert.equal(
+        usage.dailySection.table.rows.some((row) => row[2] === "n/a" || row[2] === ""),
+        false,
+      );
+    } finally {
+      await instance.close();
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
   it("supports custom billing cycle start day on usage page", async () => {
     const homeDir = await mkdtemp(path.join(tmpdir(), "himan-server-usage-test-"));
     const paths = resolveTrackerPaths({ HIMAN_TRACKER_HOME: homeDir });
@@ -772,6 +863,7 @@ function createTurnEvent(): NormalizedEvent {
     model: "gpt-5.1-codex",
     duration_ms: 1_500,
     input_tokens: 1_000,
+    cached_input_tokens: 400,
     output_tokens: 234,
     total_tokens: 1_234,
   };
@@ -783,6 +875,7 @@ function createTokenTurnEvent(options: {
   totalTokens: number;
   durationMs?: number;
   inputTokens?: number | null;
+  cachedInputTokens?: number | null;
   outputTokens?: number | null;
 }): NormalizedEvent {
   return {
@@ -799,7 +892,38 @@ function createTokenTurnEvent(options: {
     model: "gpt-5.1-codex",
     duration_ms: options.durationMs ?? 1_000,
     input_tokens: options.inputTokens ?? null,
+    cached_input_tokens:
+      options.cachedInputTokens ?? (options.inputTokens !== undefined && options.inputTokens !== null ? 0 : null),
     output_tokens: options.outputTokens ?? null,
+    total_tokens: options.totalTokens,
+  };
+}
+
+function createUsageTurnEvent(options: {
+  eventId: string;
+  occurredAt: string;
+  model: string | null;
+  inputTokens: number | null;
+  cachedInputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+}): NormalizedEvent {
+  return {
+    schema_version: "1.0",
+    event_id: options.eventId,
+    event_type: "turn_summary",
+    occurred_at: options.occurredAt,
+    agent: "codex",
+    source: "fixture",
+    session_id: `${options.eventId}-session`,
+    turn_id: `${options.eventId}-turn`,
+    repo_hash: "repo_hash_usage",
+    status: "success",
+    model: options.model,
+    duration_ms: 1_000,
+    input_tokens: options.inputTokens,
+    cached_input_tokens: options.cachedInputTokens,
+    output_tokens: options.outputTokens,
     total_tokens: options.totalTokens,
   };
 }
@@ -824,6 +948,7 @@ function createPaginatedTurnEvents(count: number): NormalizedEvent[] {
       model: "gpt-5.1-codex",
       duration_ms: 1_000 + position,
       input_tokens: 100,
+      cached_input_tokens: 0,
       output_tokens: 20,
       total_tokens: 120,
     } satisfies NormalizedEvent;

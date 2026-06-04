@@ -42,6 +42,7 @@ describe("ingestEvents", () => {
         "006_capability_attribution_details",
         "007_capability_usage_evidence",
         "008_capability_weighted_stats",
+        "009_cached_input_tokens",
       ]);
       assert.deepEqual(first.affected_dates, [toLocalDate(events[0].occurred_at)]);
 
@@ -88,6 +89,7 @@ describe("ingestEvents", () => {
         "006_capability_attribution_details",
         "007_capability_usage_evidence",
         "008_capability_weighted_stats",
+        "009_cached_input_tokens",
       ]);
 
       assertDatabaseStats(sqlitePath, toLocalDate(events[0].occurred_at));
@@ -138,6 +140,264 @@ describe("ingestEvents", () => {
       assert.equal(incremental.events_read, 0);
       assert.equal(incremental.events_inserted, 0);
       assert.equal(incremental.events_skipped, 0);
+    } finally {
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rebuilds projection rows for one date without resetting other dates", async () => {
+    const homeDir = await mkdtemp(path.join(tmpdir(), "himan-ingest-test-"));
+
+    try {
+      const eventsDir = path.join(homeDir, "events");
+      const sqlitePath = path.join(homeDir, "himan.sqlite");
+      const [firstEvent, secondEvent, thirdEvent] = createFixtureEvents();
+      const originalDayTwoTurn: NormalizedEvent = {
+        ...firstEvent,
+        event_id: "evt_turn_002",
+        occurred_at: "2026-05-13T12:00:00.000Z",
+        session_id: "s_002",
+        turn_id: "t_002",
+      };
+
+      await appendJsonlRecord(path.join(eventsDir, "2026-05-12.jsonl"), firstEvent);
+      await appendJsonlRecord(path.join(eventsDir, "2026-05-12.jsonl"), secondEvent);
+      await appendJsonlRecord(path.join(eventsDir, "2026-05-12.jsonl"), thirdEvent);
+      await appendJsonlRecord(path.join(eventsDir, "2026-05-13.jsonl"), originalDayTwoTurn);
+
+      await ingestEvents({
+        sqlitePath,
+        eventsDir,
+        now: () => new Date("2026-05-13T13:00:00.000Z"),
+      });
+
+      await writeFile(
+        path.join(eventsDir, "2026-05-12.jsonl"),
+        [
+          JSON.stringify({
+            ...firstEvent,
+            model: "gpt-5.4",
+            input_tokens: 40,
+            cached_input_tokens: 8,
+            output_tokens: 10,
+            total_tokens: 50,
+          }),
+          JSON.stringify({
+            ...secondEvent,
+            input_tokens: 9,
+            cached_input_tokens: 3,
+            output_tokens: 2,
+            total_tokens: 11,
+          }),
+          JSON.stringify(thirdEvent),
+        ].join("\n") + "\n",
+        "utf8",
+      );
+
+      const rebuilt = await ingestEvents({
+        sqlitePath,
+        eventsDir,
+        rebuildDates: ["2026-05-12"],
+        now: () => new Date("2026-05-13T13:05:00.000Z"),
+      });
+
+      assert.equal(rebuilt.events_read, 3);
+      assert.equal(rebuilt.events_inserted, 3);
+      assert.equal(rebuilt.events_skipped, 0);
+      assert.deepEqual(rebuilt.affected_dates, ["2026-05-12"]);
+
+      const db = new Database(sqlitePath);
+      try {
+        const rebuiltTurn = db.prepare(
+          "select model, input_tokens, cached_input_tokens, output_tokens, total_tokens from turns where id = ?",
+        ).get("t_001") as {
+          model: string;
+          input_tokens: number;
+          cached_input_tokens: number;
+          output_tokens: number;
+          total_tokens: number;
+        };
+        assert.deepEqual(rebuiltTurn, {
+          model: "gpt-5.4",
+          input_tokens: 40,
+          cached_input_tokens: 8,
+          output_tokens: 10,
+          total_tokens: 50,
+        });
+
+        const dayOneStats = db.prepare(
+          "select model, input_tokens, cached_input_tokens, output_tokens, total_tokens from daily_agent_stats where date = ?",
+        ).get("2026-05-12") as {
+          model: string;
+          input_tokens: number;
+          cached_input_tokens: number;
+          output_tokens: number;
+          total_tokens: number;
+        };
+        assert.deepEqual(dayOneStats, {
+          model: "gpt-5.4",
+          input_tokens: 40,
+          cached_input_tokens: 8,
+          output_tokens: 10,
+          total_tokens: 50,
+        });
+
+        const dayTwoStats = db.prepare(
+          "select model, input_tokens, cached_input_tokens, output_tokens, total_tokens from daily_agent_stats where date = ?",
+        ).get("2026-05-13") as {
+          model: string;
+          input_tokens: number;
+          cached_input_tokens: number | null;
+          output_tokens: number;
+          total_tokens: number;
+        };
+        assert.deepEqual(dayTwoStats, {
+          model: "gpt-5.1-codex",
+          input_tokens: 10,
+          cached_input_tokens: null,
+          output_tokens: 5,
+          total_tokens: 15,
+        });
+
+        const ingestedEventCount = db.prepare("select count(*) as count from ingested_events").get() as {
+          count: number;
+        };
+        assert.equal(ingestedEventCount.count, 4);
+      } finally {
+        db.close();
+      }
+    } finally {
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rebuilds projection rows for one date and agent without touching other agents", async () => {
+    const homeDir = await mkdtemp(path.join(tmpdir(), "himan-ingest-test-"));
+
+    try {
+      const eventsDir = path.join(homeDir, "events");
+      const sqlitePath = path.join(homeDir, "himan.sqlite");
+      const codexTurn = createTurnEvent({
+        eventId: "evt_turn_codex_001",
+        sessionId: "s_codex_001",
+        turnId: "t_codex_001",
+        occurredAt: "2026-05-12T12:00:00.000Z",
+        agent: "codex",
+        model: "gpt-5.4",
+        inputTokens: 10,
+        outputTokens: 5,
+        totalTokens: 15,
+      });
+      const copilotTurn = createTurnEvent({
+        eventId: "evt_turn_copilot_001",
+        sessionId: "s_copilot_001",
+        turnId: "t_copilot_001",
+        occurredAt: "2026-05-12T12:05:00.000Z",
+        agent: "copilot",
+        model: "gpt-4.1",
+        inputTokens: 20,
+        outputTokens: 8,
+        totalTokens: 28,
+      });
+
+      await appendJsonlRecord(path.join(eventsDir, "2026-05-12.jsonl"), codexTurn);
+      await appendJsonlRecord(path.join(eventsDir, "2026-05-12.jsonl"), copilotTurn);
+      await ingestEvents({
+        sqlitePath,
+        eventsDir,
+        now: () => new Date("2026-05-12T13:00:00.000Z"),
+      });
+
+      await writeFile(
+        path.join(eventsDir, "2026-05-12.jsonl"),
+        [
+          JSON.stringify({
+            ...codexTurn,
+            input_tokens: 40,
+            cached_input_tokens: 7,
+            output_tokens: 11,
+            total_tokens: 51,
+          }),
+          JSON.stringify(copilotTurn),
+        ].join("\n") + "\n",
+        "utf8",
+      );
+
+      const rebuilt = await ingestEvents({
+        sqlitePath,
+        eventsDir,
+        rebuildDates: ["2026-05-12"],
+        rebuildAgent: "codex",
+        now: () => new Date("2026-05-12T13:05:00.000Z"),
+      });
+
+      assert.equal(rebuilt.events_read, 1);
+      assert.equal(rebuilt.events_inserted, 1);
+      assert.equal(rebuilt.events_skipped, 0);
+      assert.deepEqual(rebuilt.affected_dates, ["2026-05-12"]);
+
+      const db = new Database(sqlitePath);
+      try {
+        const turns = db.prepare(
+          "select agent, model, input_tokens, cached_input_tokens, output_tokens, total_tokens from turns order by agent asc",
+        ).all() as Array<{
+          agent: string;
+          model: string;
+          input_tokens: number;
+          cached_input_tokens: number | null;
+          output_tokens: number;
+          total_tokens: number;
+        }>;
+        assert.deepEqual(turns, [
+          {
+            agent: "codex",
+            model: "gpt-5.4",
+            input_tokens: 40,
+            cached_input_tokens: 7,
+            output_tokens: 11,
+            total_tokens: 51,
+          },
+          {
+            agent: "copilot",
+            model: "gpt-4.1",
+            input_tokens: 20,
+            cached_input_tokens: null,
+            output_tokens: 8,
+            total_tokens: 28,
+          },
+        ]);
+
+        const dailyStats = db.prepare(
+          "select agent, model, input_tokens, cached_input_tokens, output_tokens, total_tokens from daily_agent_stats where date = ? order by agent asc",
+        ).all("2026-05-12") as Array<{
+          agent: string;
+          model: string;
+          input_tokens: number;
+          cached_input_tokens: number | null;
+          output_tokens: number;
+          total_tokens: number;
+        }>;
+        assert.deepEqual(dailyStats, [
+          {
+            agent: "codex",
+            model: "gpt-5.4",
+            input_tokens: 40,
+            cached_input_tokens: 7,
+            output_tokens: 11,
+            total_tokens: 51,
+          },
+          {
+            agent: "copilot",
+            model: "gpt-4.1",
+            input_tokens: 20,
+            cached_input_tokens: null,
+            output_tokens: 8,
+            total_tokens: 28,
+          },
+        ]);
+      } finally {
+        db.close();
+      }
     } finally {
       await rm(homeDir, { recursive: true, force: true });
     }
@@ -348,6 +608,37 @@ function createFixtureEvents(): NormalizedEvent[] {
   ];
 }
 
+function createTurnEvent(options: {
+  eventId: string;
+  sessionId: string;
+  turnId: string;
+  occurredAt: string;
+  agent: "codex" | "copilot" | "claude-code";
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}): NormalizedEvent {
+  return {
+    schema_version: "1.0",
+    event_id: options.eventId,
+    event_type: "turn_summary",
+    occurred_at: options.occurredAt,
+    agent: options.agent,
+    source: "fixture",
+    session_id: options.sessionId,
+    turn_id: options.turnId,
+    repo_hash: `repo_hash_${options.agent}`,
+    status: "success",
+    model: options.model,
+    duration_ms: 1_000,
+    input_tokens: options.inputTokens,
+    cached_input_tokens: null,
+    output_tokens: options.outputTokens,
+    total_tokens: options.totalTokens,
+  };
+}
+
 function assertDatabaseStats(sqlitePath: string, expectedDate: string): void {
   const db = new Database(sqlitePath);
 
@@ -384,6 +675,7 @@ function assertDatabaseStats(sqlitePath: string, expectedDate: string): void {
       session_count: 1,
       turn_count: 1,
       input_tokens: 10,
+      cached_input_tokens: null,
       output_tokens: 5,
       total_tokens: 15,
       duration_ms: 1_000,

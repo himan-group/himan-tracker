@@ -370,6 +370,7 @@ async function parseTranscriptTurnUsage(options: {
   );
   const baseline = baselineSnapshot?.usage ?? {
     input_tokens: 0,
+    cached_input_tokens: 0,
     output_tokens: 0,
     total_tokens: 0,
   };
@@ -471,6 +472,7 @@ function mergeTurnUsage(
   }
 
   turn.input_tokens ??= usage.tokenUsage.input_tokens;
+  turn.cached_input_tokens ??= usage.tokenUsage.cached_input_tokens;
   turn.output_tokens ??= usage.tokenUsage.output_tokens;
   turn.total_tokens ??= usage.tokenUsage.total_tokens;
 }
@@ -533,6 +535,7 @@ function createTranscriptCapabilityEvent(
     capability_name: capability.capability_name,
     duration_ms: capability.duration_ms,
     input_tokens: null,
+    cached_input_tokens: null,
     output_tokens: null,
     total_tokens: null,
     adopted: "unknown",
@@ -676,6 +679,10 @@ function findLatestSnapshot(
 
 function subtractTokenUsage(end: TokenUsage, baseline: TokenUsage): TokenUsage {
   const inputTokens = subtractNullableInteger(end.input_tokens, baseline.input_tokens);
+  const cachedInputTokens = subtractNullableInteger(
+    end.cached_input_tokens,
+    baseline.cached_input_tokens,
+  );
   const outputTokens = subtractNullableInteger(end.output_tokens, baseline.output_tokens);
   const totalTokens =
     subtractNullableInteger(end.total_tokens, baseline.total_tokens) ??
@@ -685,6 +692,7 @@ function subtractTokenUsage(end: TokenUsage, baseline: TokenUsage): TokenUsage {
 
   return {
     input_tokens: inputTokens,
+    cached_input_tokens: cachedInputTokens,
     output_tokens: outputTokens,
     total_tokens: totalTokens,
   };
@@ -708,14 +716,21 @@ function getTokenUsage(value: RawRecord | null): TokenUsage | null {
 
   const totalTokens = getInteger(value.total_tokens);
   const inputTokens = getInteger(value.input_tokens);
+  const cachedInputTokens = getInteger(value.cached_input_tokens);
   const outputTokens = getInteger(value.output_tokens);
 
-  if (totalTokens === null && inputTokens === null && outputTokens === null) {
+  if (
+    totalTokens === null &&
+    inputTokens === null &&
+    cachedInputTokens === null &&
+    outputTokens === null
+  ) {
     return null;
   }
 
   return {
     input_tokens: inputTokens,
+    cached_input_tokens: cachedInputTokens,
     output_tokens: outputTokens,
     total_tokens: totalTokens,
   };

@@ -29,6 +29,7 @@ describe("initializeTrackerDatabase", () => {
           "006_capability_attribution_details",
           "007_capability_usage_evidence",
           "008_capability_weighted_stats",
+          "009_cached_input_tokens",
         ]);
 
         const tables = db
@@ -159,6 +160,7 @@ describe("initializeTrackerDatabase", () => {
           "006_capability_attribution_details",
           "007_capability_usage_evidence",
           "008_capability_weighted_stats",
+          "009_cached_input_tokens",
         ]);
 
         const capability = db
