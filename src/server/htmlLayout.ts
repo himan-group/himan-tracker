@@ -7,19 +7,19 @@ import path from "node:path";
 let _picoCss: string | null = null;
 
 function loadPicoCss(): string {
-    if (_picoCss !== null) return _picoCss;
+  if (_picoCss !== null) return _picoCss;
 
-    try {
-        const cssPath = path.resolve(
-            path.dirname(fileURLToPath(import.meta.url)),
-            "../../node_modules/@picocss/pico/css/pico.classless.min.css",
-        );
-        _picoCss = readFileSync(cssPath, "utf8");
-    } catch {
-        _picoCss = "/* Pico CSS not available */";
-    }
+  try {
+    const cssPath = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../../node_modules/@picocss/pico/css/pico.classless.min.css",
+    );
+    _picoCss = readFileSync(cssPath, "utf8");
+  } catch {
+    _picoCss = "/* Pico CSS not available */";
+  }
 
-    return _picoCss;
+  return _picoCss;
 }
 
 // ── Shared CSS (Pico + custom overrides) ──────────────────────────────
@@ -27,9 +27,9 @@ function loadPicoCss(): string {
 let _sharedCss: string | null = null;
 
 export function getSharedCss(): string {
-    if (_sharedCss !== null) return _sharedCss;
-    _sharedCss = loadPicoCss() + "\n" + CUSTOM_CSS;
-    return _sharedCss;
+  if (_sharedCss !== null) return _sharedCss;
+  _sharedCss = loadPicoCss() + "\n" + CUSTOM_CSS;
+  return _sharedCss;
 }
 
 const CUSTOM_CSS = `
@@ -48,7 +48,7 @@ body > header .status strong { color: var(--pico-primary); }
 body > header .status strong.is-error { color: #b42318; }
 body > main { padding: 22px 0 40px; }
 
-.nav { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.nav { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; justify-content: flex-start; }
 .nav a { border: 1px solid var(--pico-muted-border-color); border-radius: 8px; color: var(--pico-muted-color); font-size: 13px; font-weight: 650; line-height: 1.2; padding: 7px 10px; text-decoration: none; }
 .nav a[aria-current="page"] { background: #eef2f5; border-color: rgba(55, 60, 68, 0.35); color: var(--pico-color); }
 
@@ -138,10 +138,10 @@ tbody tr:last-child td { border-bottom: 0; }
 .usage-control { display: flex; flex-direction: column; gap: 6px; }
 .usage-control label { color: var(--pico-muted-color); font-size: 12px; font-weight: 650; text-transform: uppercase; }
 .usage-control select, .usage-controls button { height: 38px; border: 1px solid var(--pico-muted-border-color); border-radius: 8px; background: #fff; color: var(--pico-color); font: inherit; font-size: 14px; padding: 0 12px; }
-.usage-controls button { background: var(--pico-primary); border-color: var(--pico-primary); color: var(--pico-primary-inverse); cursor: pointer; font-weight: 650; }
+.usage-controls button { background: var(--pico-primary); border-color: var(--pico-primary); color: var(--pico-primary-inverse); cursor: pointer; font-weight: 650; width: auto; }
 .usage-note { color: var(--pico-muted-color); font-size: 13px; line-height: 1.55; }
 
-.breadcrumb { margin-top: 14px; font-size: 14px; color: var(--pico-muted-color); }
+.breadcrumb { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 14px; font-size: 14px; color: var(--pico-muted-color); justify-content: flex-start; }
 .breadcrumb a { color: var(--pico-primary); text-decoration: none; }
 .breadcrumb a:hover { text-decoration: underline; }
 .breadcrumb-sep { margin: 0 6px; color: var(--pico-muted-border-color); }
@@ -178,40 +178,40 @@ export const TAB_SCRIPT = `
 const ESCAPE_MAP: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 
 export function escapeHtml(text: string): string {
-    return text.replace(/[&<>"']/g, (char) => ESCAPE_MAP[char] ?? char);
+  return text.replace(/[&<>"']/g, (char) => ESCAPE_MAP[char] ?? char);
 }
 
 // ── Date formatting ───────────────────────────────────────────────────
 
 export function formatLocalDateTime(dateOrText: Date | string): string {
-    const date = typeof dateOrText === "string" ? new Date(dateOrText) : dateOrText;
-    if (isNaN(date.getTime())) return String(dateOrText);
-    return date.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", timeZoneName: "short" });
+  const date = typeof dateOrText === "string" ? new Date(dateOrText) : dateOrText;
+  if (isNaN(date.getTime())) return String(dateOrText);
+  return date.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", timeZoneName: "short" });
 }
 
 // ── Ingest status ─────────────────────────────────────────────────────
 
 export function renderIngestStatusHTML(snapshot: { ok: boolean; at: string; error?: string; events_inserted?: number; events_skipped?: number } | null): string {
-    if (!snapshot) return "<strong>Ingest pending</strong>";
-    if (!snapshot.ok) return `<strong class="is-error">Ingest failed</strong> at ${escapeHtml(formatLocalDateTime(snapshot.at))}: ${escapeHtml(snapshot.error ?? "unknown error")}`;
-    return `<strong>Ingested</strong> at ${escapeHtml(formatLocalDateTime(snapshot.at))}: ${snapshot.events_inserted ?? 0} inserted, ${snapshot.events_skipped ?? 0} skipped`;
+  if (!snapshot) return "<strong>Ingest pending</strong>";
+  if (!snapshot.ok) return `<strong class="is-error">Ingest failed</strong> at ${escapeHtml(formatLocalDateTime(snapshot.at))}: ${escapeHtml(snapshot.error ?? "unknown error")}`;
+  return `<strong>Ingested</strong> at ${escapeHtml(formatLocalDateTime(snapshot.at))}: ${snapshot.events_inserted ?? 0} inserted, ${snapshot.events_skipped ?? 0} skipped`;
 }
 
 // ── Page shell ────────────────────────────────────────────────────────
 
 export type PageShellOptions = {
-    title: string;
-    heading: string;
-    iconUrl: string;
-    ingestStatusHtml: string;
-    navLinks: string;
-    body: string;
-    scripts?: string;
+  title: string;
+  heading: string;
+  iconUrl: string;
+  ingestStatusHtml: string;
+  navLinks: string;
+  body: string;
+  scripts?: string;
 };
 
 export function renderPageShell(options: PageShellOptions): string {
-    const scripts = options.scripts ?? "";
-    return `<!doctype html>
+  const scripts = options.scripts ?? "";
+  return `<!doctype html>
 <html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8">
@@ -240,15 +240,15 @@ export function renderPageShell(options: PageShellOptions): string {
 // ── Nav link builder ──────────────────────────────────────────────────
 
 export function buildNavLinks(current: string): string {
-    const pages = [
-        { href: "/", label: "Overview" },
-        { href: "/metrics", label: "Metrics" },
-        { href: "/usage", label: "Usage" },
-    ];
-    return `<nav class="nav" aria-label="Dashboard navigation">${pages
-        .map((p) => {
-            const isCurrent = p.href === current;
-            return `<a href="${escapeHtml(p.href)}"${isCurrent ? ' aria-current="page"' : ""}>${escapeHtml(p.label)}</a>`;
-        })
-        .join("")}</nav>`;
+  const pages = [
+    { href: "/", label: "Overview" },
+    { href: "/metrics", label: "Metrics" },
+    { href: "/usage", label: "Usage" },
+  ];
+  return `<nav class="nav" aria-label="Dashboard navigation">${pages
+    .map((p) => {
+      const isCurrent = p.href === current;
+      return `<a href="${escapeHtml(p.href)}"${isCurrent ? ' aria-current="page"' : ""}>${escapeHtml(p.label)}</a>`;
+    })
+    .join("")}</nav>`;
 }

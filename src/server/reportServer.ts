@@ -8,7 +8,7 @@ import { ingestEvents } from "../aggregator/aggregateEvents.js";
 import { runBackfill } from "../backfill/runBackfill.js";
 import { createKnownProjectDisplayNameMap } from "../config/knownProjects.js";
 import { ensureTrackerDirectories, type TrackerPaths } from "../config/paths.js";
-import { readOrCreateUserConfig } from "../config/userConfig.js";
+import { readOrCreateUserConfig, writeUserConfig } from "../config/userConfig.js";
 import { formatDateRange, parseSinceRange, todayLocalDate } from "../reports/dateRange.js";
 import {
   formatAverageDurationMs,
@@ -763,12 +763,18 @@ async function handleRequest(options: {
 
   if (url.pathname === "/usage") {
     await options.runSyncNow();
+    const cycleStartDayParam = url.searchParams.get("cycleStartDay");
+    if (cycleStartDayParam) {
+      const config = await readOrCreateUserConfig(options.paths);
+      config.usage.billing_cycle_start_day = parseBillingCycleStartDay(cycleStartDayParam);
+      await writeUserConfig(options.paths, config);
+    }
     const html = await renderUsagePage({
       paths: options.paths,
       display: options.display,
       now: options.now,
       lastIngest: options.getLastIngest(),
-      cycleStartDayParam: url.searchParams.get("cycleStartDay"),
+      cycleStartDayParam,
     });
     writeResponse(options.response, 200, "text/html; charset=utf-8", html);
     return;
