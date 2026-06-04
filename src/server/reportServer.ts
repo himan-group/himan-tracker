@@ -123,6 +123,15 @@ type DashboardTable = {
   note?: string;
   width?: "full" | "compact";
   moreHref?: string;
+  pagination?: DashboardPagination;
+};
+
+type DashboardPagination = {
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  previousHref?: string;
+  nextHref?: string;
 };
 
 type DashboardCliBlock = {
@@ -570,6 +579,8 @@ async function handleRequest(options: {
 }): Promise<void> {
   const method = options.request.method ?? "GET";
   const url = new URL(options.request.url ?? "/", "http://localhost");
+  const page = parseDashboardPageParam(url.searchParams.get("page"));
+  const pageSize = parseDashboardPageSizeParam(url.searchParams.get("pageSize"));
 
   if (method !== "GET") {
     writeResponse(options.response, 405, "text/plain; charset=utf-8", "Method not allowed");
@@ -640,6 +651,8 @@ async function handleRequest(options: {
     const html = await renderProjectsHtml({
       paths: options.paths,
       since: options.since,
+      page,
+      pageSize,
       display: options.display,
       now: options.now,
       lastIngest: options.getLastIngest(),
@@ -653,6 +666,8 @@ async function handleRequest(options: {
     const html = renderSessionsHtml({
       paths: options.paths,
       since: options.since,
+      page,
+      pageSize,
       display: options.display,
       now: options.now,
       lastIngest: options.getLastIngest(),
@@ -666,6 +681,8 @@ async function handleRequest(options: {
     const html = renderTurnsHtml({
       paths: options.paths,
       since: options.since,
+      page,
+      pageSize,
       display: options.display,
       now: options.now,
       lastIngest: options.getLastIngest(),
@@ -1142,6 +1159,45 @@ function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode)
       gap: 12px;
     }
 
+    .table-meta {
+      border-bottom: 1px solid var(--line);
+    }
+
+    .table-meta .table-note {
+      border-bottom: 0;
+    }
+
+    .pagination {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 0 14px 12px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .pagination-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .pagination a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .pagination a:hover {
+      text-decoration: underline;
+    }
+
+    .pagination [aria-disabled="true"] {
+      color: #9aa7b2;
+    }
+
     .table-scroll {
       overflow: auto;
     }
@@ -1539,6 +1595,45 @@ function renderMetricsHtml(data: MetricsDashboardData, display: DashboardDisplay
       gap: 12px;
     }
 
+    .table-meta {
+      border-bottom: 1px solid var(--line);
+    }
+
+    .table-meta .table-note {
+      border-bottom: 0;
+    }
+
+    .pagination {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 0 14px 12px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .pagination-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .pagination a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .pagination a:hover {
+      text-decoration: underline;
+    }
+
+    .pagination [aria-disabled="true"] {
+      color: #9aa7b2;
+    }
+
     .table-scroll {
       overflow: auto;
     }
@@ -1819,6 +1914,45 @@ function renderListPageHtml(options: {
       border-bottom: 1px solid var(--line);
     }
 
+    .table-meta {
+      border-bottom: 1px solid var(--line);
+    }
+
+    .table-meta .table-note {
+      border-bottom: 0;
+    }
+
+    .pagination {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 0 14px 12px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .pagination-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .pagination a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .pagination a:hover {
+      text-decoration: underline;
+    }
+
+    .pagination [aria-disabled="true"] {
+      color: #9aa7b2;
+    }
+
     .table-scroll {
       overflow: auto;
     }
@@ -1904,6 +2038,8 @@ function renderListPageHtml(options: {
 async function renderProjectsHtml(options: {
   paths: TrackerPaths;
   since: string;
+  page: number;
+  pageSize: number;
   display: DashboardDisplayMode;
   now: () => Date;
   lastIngest: ReportServerIngestSnapshot | null;
@@ -1915,7 +2051,12 @@ async function renderProjectsHtml(options: {
   const { db } = initializeTrackerDatabase(options.paths.sqlitePath);
 
   try {
-    const table = readDashboardProjects(db, range, 50, projectDisplayNames);
+    const table = readDashboardProjects(
+      db,
+      range,
+      { page: options.page, pageSize: options.pageSize, basePath: "/projects" },
+      projectDisplayNames,
+    );
     return renderListPageHtml({
       title: "Projects",
       table,
@@ -1931,6 +2072,8 @@ async function renderProjectsHtml(options: {
 function renderSessionsHtml(options: {
   paths: TrackerPaths;
   since: string;
+  page: number;
+  pageSize: number;
   display: DashboardDisplayMode;
   now: () => Date;
   lastIngest: ReportServerIngestSnapshot | null;
@@ -1940,7 +2083,11 @@ function renderSessionsHtml(options: {
   const { db } = initializeTrackerDatabase(options.paths.sqlitePath);
 
   try {
-    const table = readDashboardSessions(db, range, 50);
+    const table = readDashboardSessions(db, range, {
+      page: options.page,
+      pageSize: options.pageSize,
+      basePath: "/sessions",
+    });
     return renderListPageHtml({
       title: "Sessions",
       table,
@@ -1956,6 +2103,8 @@ function renderSessionsHtml(options: {
 function renderTurnsHtml(options: {
   paths: TrackerPaths;
   since: string;
+  page: number;
+  pageSize: number;
   display: DashboardDisplayMode;
   now: () => Date;
   lastIngest: ReportServerIngestSnapshot | null;
@@ -1965,7 +2114,11 @@ function renderTurnsHtml(options: {
   const { db } = initializeTrackerDatabase(options.paths.sqlitePath);
 
   try {
-    const table = readDashboardTurns(db, range, 50);
+    const table = readDashboardTurns(db, range, {
+      page: options.page,
+      pageSize: options.pageSize,
+      basePath: "/turns",
+    });
     return renderListPageHtml({
       title: "Turns",
       table,
@@ -2791,8 +2944,20 @@ function readDashboardTokenUsage(
 function readDashboardTurns(
   db: ReturnType<typeof initializeTrackerDatabase>["db"],
   range: { startDate: string; endDate: string },
-  limit: number,
+  limit: number | PaginationQuery,
 ): DashboardTable {
+  const paginated = typeof limit !== "number";
+  const pagination = normalizePaginationQuery(limit, "/turns");
+  const offset = getPaginationOffset(pagination);
+  const totalRow = db
+    .prepare(
+      `
+      select count(*) as total_count
+      from turns
+      where date(occurred_at, 'localtime') between ? and ?
+      `,
+    )
+    .get(range.startDate, range.endDate) as { total_count: number };
   const rows = db
     .prepare(
       `
@@ -2807,10 +2972,10 @@ function readDashboardTurns(
       from turns
       where date(occurred_at, 'localtime') between ? and ?
       order by occurred_at desc
-      limit ?
+      limit ? offset ?
       `,
     )
-    .all(range.startDate, range.endDate, limit) as DashboardTurnRow[];
+    .all(range.startDate, range.endDate, pagination.pageSize, offset) as DashboardTurnRow[];
 
   return {
     columns: ["Time", "Agent", "Model", "Turn", "Duration", "Runtime tokens", "Status"],
@@ -2824,16 +2989,41 @@ function readDashboardTurns(
       row.status,
     ]),
     emptyText: "No turn usage found for this range.",
-    note: `Showing latest ${rows.length} turns (${formatDateRange(range)}).`,
+    note: paginated
+      ? formatPaginationNote("turns", pagination.page, pagination.pageSize, totalRow.total_count, range)
+      : `Showing latest ${rows.length} turns (${formatDateRange(range)}).`,
+    pagination: paginated ? createDashboardPagination(pagination, totalRow.total_count) : undefined,
   };
 }
+
+type PaginationQuery = {
+  page: number;
+  pageSize: number;
+  basePath: string;
+};
 
 function readDashboardProjects(
   db: ReturnType<typeof initializeTrackerDatabase>["db"],
   range: { startDate: string; endDate: string },
-  limit: number,
+  limit: number | PaginationQuery,
   projectDisplayNames: ReadonlyMap<string, string> = new Map(),
 ): DashboardTable {
+  const paginated = typeof limit !== "number";
+  const pagination = normalizePaginationQuery(limit, "/projects");
+  const offset = getPaginationOffset(pagination);
+  const totalRow = db
+    .prepare(
+      `
+      select count(*) as total_count
+      from (
+        select 1
+        from turns
+        where date(occurred_at, 'localtime') between ? and ?
+        group by repo_hash
+      )
+      `,
+    )
+    .get(range.startDate, range.endDate) as { total_count: number };
   const rows = db
     .prepare(
       `
@@ -2847,10 +3037,10 @@ function readDashboardProjects(
       where date(occurred_at, 'localtime') between ? and ?
       group by repo_hash
       order by turn_count desc, repo_hash asc
-      limit ?
+      limit ? offset ?
       `,
     )
-    .all(range.startDate, range.endDate, limit) as DashboardProjectRow[];
+    .all(range.startDate, range.endDate, pagination.pageSize, offset) as DashboardProjectRow[];
 
   return {
     columns: ["Project", "Sessions", "Turns", "Runtime tokens", "Avg latency"],
@@ -2862,7 +3052,10 @@ function readDashboardProjects(
       formatAverageDurationMs(row.duration_ms, row.turn_count),
     ]),
     emptyText: "No project data found for this range.",
-    note: `Top ${rows.length} projects (${formatDateRange(range)}).`,
+    note: paginated
+      ? formatPaginationNote("projects", pagination.page, pagination.pageSize, totalRow.total_count, range)
+      : `Top ${rows.length} projects (${formatDateRange(range)}).`,
+    pagination: paginated ? createDashboardPagination(pagination, totalRow.total_count) : undefined,
   };
 }
 
@@ -2877,8 +3070,20 @@ function repoHashToDisplay(
 function readDashboardSessions(
   db: ReturnType<typeof initializeTrackerDatabase>["db"],
   range: { startDate: string; endDate: string },
-  limit: number,
+  limit: number | PaginationQuery,
 ): DashboardTable {
+  const paginated = typeof limit !== "number";
+  const pagination = normalizePaginationQuery(limit, "/sessions");
+  const offset = getPaginationOffset(pagination);
+  const totalRow = db
+    .prepare(
+      `
+      select count(*) as total_count
+      from sessions
+      where date(coalesce(started_at, ended_at, '1970-01-01'), 'localtime') between ? and ?
+      `,
+    )
+    .get(range.startDate, range.endDate) as { total_count: number };
   const rows = db
     .prepare(
       `
@@ -2893,10 +3098,10 @@ function readDashboardSessions(
       from sessions
       where date(coalesce(started_at, ended_at, '1970-01-01'), 'localtime') between ? and ?
       order by coalesce(started_at, ended_at) desc
-      limit ?
+      limit ? offset ?
       `,
     )
-    .all(range.startDate, range.endDate, limit) as DashboardSessionRow[];
+    .all(range.startDate, range.endDate, pagination.pageSize, offset) as DashboardSessionRow[];
 
   return {
     columns: ["Session", "Agent", "Turns", "Duration", "Status"],
@@ -2908,8 +3113,90 @@ function readDashboardSessions(
       row.status,
     ]),
     emptyText: "No sessions found for this range.",
-    note: `Latest ${rows.length} sessions (${formatDateRange(range)}).`,
+    note: paginated
+      ? formatPaginationNote("sessions", pagination.page, pagination.pageSize, totalRow.total_count, range)
+      : `Latest ${rows.length} sessions (${formatDateRange(range)}).`,
+    pagination: paginated ? createDashboardPagination(pagination, totalRow.total_count) : undefined,
   };
+}
+
+function normalizePaginationQuery(
+  query: number | PaginationQuery,
+  basePath: string,
+): PaginationQuery {
+  if (typeof query === "number") {
+    return { page: 1, pageSize: query, basePath };
+  }
+
+  return query;
+}
+
+function getPaginationOffset(pagination: Pick<PaginationQuery, "page" | "pageSize">): number {
+  return (pagination.page - 1) * pagination.pageSize;
+}
+
+function createDashboardPagination(
+  pagination: PaginationQuery,
+  totalCount: number,
+): DashboardPagination | undefined {
+  if (totalCount <= pagination.pageSize) {
+    return undefined;
+  }
+
+  const previousHref =
+    pagination.page > 1
+      ? createPaginationHref(pagination.basePath, pagination.page - 1, pagination.pageSize)
+      : undefined;
+  const nextHref =
+    getPaginationOffset(pagination) + pagination.pageSize < totalCount
+      ? createPaginationHref(pagination.basePath, pagination.page + 1, pagination.pageSize)
+      : undefined;
+
+  return {
+    page: pagination.page,
+    pageSize: pagination.pageSize,
+    totalCount,
+    previousHref,
+    nextHref,
+  };
+}
+
+function createPaginationHref(basePath: string, page: number, pageSize: number): string {
+  return `${basePath}?page=${page}&pageSize=${pageSize}`;
+}
+
+function formatPaginationNote(
+  label: string,
+  page: number,
+  pageSize: number,
+  totalCount: number,
+  range: { startDate: string; endDate: string },
+): string {
+  if (totalCount === 0) {
+    return `No ${label} found (${formatDateRange(range)}).`;
+  }
+
+  const start = (page - 1) * pageSize + 1;
+  const end = Math.min(page * pageSize, totalCount);
+  return `Showing ${start}-${end} of ${totalCount} ${label} (${formatDateRange(range)}).`;
+}
+
+function parseDashboardPageParam(page: string | null): number {
+  const value = Number(page ?? "1");
+  if (!Number.isInteger(value) || value <= 0) {
+    return 1;
+  }
+
+  return value;
+}
+
+function parseDashboardPageSizeParam(pageSize: string | null): number {
+  const value = Number(pageSize ?? "50");
+  if (!Number.isInteger(value) || value <= 0 || value > 200) {
+    return 50;
+  }
+
+  return value;
 }
 
 function readDashboardSummary(
@@ -3115,9 +3402,7 @@ function renderDashboardContent(table: DashboardTable, display: DashboardDisplay
   const moreLink = table.moreHref
     ? ` <a href="${escapeHtml(table.moreHref)}" class="more-link">More \u2192</a>`
     : "";
-  const note = table.note || moreLink
-    ? `<p class="table-note">${escapeHtml(table.note ?? "")}${moreLink}</p>`
-    : "";
+  const note = renderDashboardTableMeta(table, moreLink);
   if (table.rows.length === 0) {
     return `${note}<p class="empty-state">${escapeHtml(table.emptyText)}</p>`;
   }
@@ -3143,6 +3428,26 @@ function renderDashboardContent(table: DashboardTable, display: DashboardDisplay
   const scrollClass = table.width === "compact" ? "table-scroll is-compact" : "table-scroll";
 
   return `${note}<div class="${scrollClass}"><table><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function renderDashboardTableMeta(table: DashboardTable, moreLink: string): string {
+  if (!table.note && !moreLink && !table.pagination) {
+    return "";
+  }
+
+  const pagination = table.pagination ? renderPaginationControls(table.pagination) : "";
+  return `<div class="table-meta"><p class="table-note">${escapeHtml(table.note ?? "")}${moreLink}</p>${pagination}</div>`;
+}
+
+function renderPaginationControls(pagination: DashboardPagination): string {
+  const previous = pagination.previousHref
+    ? `<a href="${escapeHtml(pagination.previousHref)}" rel="prev">← Previous</a>`
+    : `<span aria-disabled="true">← Previous</span>`;
+  const next = pagination.nextHref
+    ? `<a href="${escapeHtml(pagination.nextHref)}" rel="next">Next →</a>`
+    : `<span aria-disabled="true">Next →</span>`;
+
+  return `<nav class="pagination" aria-label="Pagination"><span>Page ${pagination.page}</span><div class="pagination-links">${previous}${next}</div></nav>`;
 }
 
 function renderDashboardCell(column: string, value: string): string {

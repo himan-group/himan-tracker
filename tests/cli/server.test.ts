@@ -317,6 +317,66 @@ describe("server command", () => {
     }
   });
 
+  it("paginates projects, sessions, and turns pages without changing overview lists", async () => {
+    const homeDir = await mkdtemp(path.join(tmpdir(), "himan-server-pagination-test-"));
+    const paths = resolveTrackerPaths({ HIMAN_TRACKER_HOME: homeDir });
+    const events = createPaginatedTurnEvents(55);
+
+    await ensureTrackerDirectories(paths);
+    for (const event of events) {
+      await appendJsonlRecord(resolveDailyEventsPath(paths, event.occurred_at), event);
+    }
+
+    const instance = await startReportHttpServer({
+      paths,
+      host: "127.0.0.1",
+      port: 0,
+      intervalSeconds: 60,
+      since: "7d",
+      display: "table",
+      startupBackfill: "none",
+      now: () => now,
+    });
+
+    try {
+      const overviewResponse = await fetch(instance.url);
+      const overviewHtml = await overviewResponse.text();
+      assert.equal(overviewResponse.status, 200);
+      assert.match(overviewHtml, /href="\/projects" class="more-link">More →<\/a>/);
+      assert.match(overviewHtml, /Showing latest 10 turns/);
+      assert.equal(overviewHtml.includes("Page 2"), false);
+
+      const projectsResponse = await fetch(`${instance.url}/projects?page=2&pageSize=10`);
+      const projectsHtml = await projectsResponse.text();
+      assert.equal(projectsResponse.status, 200);
+      assert.match(projectsHtml, /Showing 11-20 of 55 projects/);
+      assert.match(projectsHtml, /<span>Page 2<\/span>/);
+      assert.match(projectsHtml, /href="\/projects\?page=1&amp;pageSize=10" rel="prev">← Previous<\/a>/);
+      assert.match(projectsHtml, /href="\/projects\?page=3&amp;pageSize=10" rel="next">Next →<\/a>/);
+
+      const sessionsResponse = await fetch(`${instance.url}/sessions?page=2&pageSize=10`);
+      const sessionsHtml = await sessionsResponse.text();
+      assert.equal(sessionsResponse.status, 200);
+      assert.match(sessionsHtml, /Showing 11-20 of 55 sessions/);
+      assert.match(sessionsHtml, /session-0045/);
+      assert.equal(sessionsHtml.includes("session-0046"), false);
+      assert.match(sessionsHtml, /href="\/sessions\?page=1&amp;pageSize=10" rel="prev">← Previous<\/a>/);
+      assert.match(sessionsHtml, /href="\/sessions\?page=3&amp;pageSize=10" rel="next">Next →<\/a>/);
+
+      const turnsResponse = await fetch(`${instance.url}/turns?page=6&pageSize=10`);
+      const turnsHtml = await turnsResponse.text();
+      assert.equal(turnsResponse.status, 200);
+      assert.match(turnsHtml, /Showing 51-55 of 55 turns/);
+      assert.match(turnsHtml, /turn-0005/);
+      assert.equal(turnsHtml.includes("turn-0006"), false);
+      assert.match(turnsHtml, /href="\/turns\?page=5&amp;pageSize=10" rel="prev">← Previous<\/a>/);
+      assert.match(turnsHtml, /<span aria-disabled="true">Next →<\/span>/);
+    } finally {
+      await instance.close();
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
   it("renders colored metric and alert hints for growth and severity", async () => {
     const homeDir = await mkdtemp(path.join(tmpdir(), "himan-server-test-"));
     const paths = resolveTrackerPaths({ HIMAN_TRACKER_HOME: homeDir });
@@ -595,6 +655,32 @@ function createTokenTurnEvent(options: {
     output_tokens: null,
     total_tokens: options.totalTokens,
   };
+}
+
+function createPaginatedTurnEvents(count: number): NormalizedEvent[] {
+  return Array.from({ length: count }, (_, index) => {
+    const position = index + 1;
+    const second = String((position - 1) % 60).padStart(2, "0");
+    const minute = String(Math.floor((position - 1) / 60)).padStart(2, "0");
+
+    return {
+      schema_version: "1.0",
+      event_id: `evt-pagination-${String(position).padStart(4, "0")}`,
+      event_type: "turn_summary",
+      occurred_at: `2026-05-12T12:${minute}:${second}.000Z`,
+      agent: "codex",
+      source: "fixture",
+      session_id: `session-${String(position).padStart(4, "0")}`,
+      turn_id: `turn-${String(position).padStart(4, "0")}`,
+      repo_hash: `repo_${String(position).padStart(4, "0")}`,
+      status: "success",
+      model: "gpt-5.1-codex",
+      duration_ms: 1_000 + position,
+      input_tokens: 100,
+      output_tokens: 20,
+      total_tokens: 120,
+    } satisfies NormalizedEvent;
+  });
 }
 
 function createServerCapabilityEvents(): NormalizedEvent[] {

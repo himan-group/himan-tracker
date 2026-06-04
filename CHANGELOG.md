@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-06-04
+
+### Changed
+
+- Changed local report server detail pages `/projects`, `/sessions`, and `/turns` to support `page` and `pageSize` query pagination with previous/next navigation, while keeping the Overview dashboard summary lists unpaginated.
+
 ## [0.4.1] - 2026-06-03
 
 ### Added
