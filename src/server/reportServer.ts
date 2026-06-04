@@ -31,6 +31,7 @@ import {
 import {
   addDays,
   formatLocalDate,
+  formatShortDate,
   formatNaturalWeekRangeLabel,
   formatShortDateRange,
   parseLocalDate,
@@ -38,7 +39,18 @@ import {
 } from "../reports/periodFormatter.js";
 import { renderSummaryReport } from "../reports/summaryReport.js";
 import { createExcludeSystemCapabilityCondition } from "../reports/systemCapabilityFilter.js";
+import {
+  CODEX_WEEKLY_BUDGET_CREDITS,
+  CODEX_WEEKLY_BUDGET_USD,
+  estimateCodexCost,
+  formatBillingCycleStartDay,
+  getBillingCycleRange,
+  listBillingCycleStartDays,
+  parseBillingCycleStartDay,
+  type CodexCostEstimate,
+} from "../reports/usageCost.js";
 import { initializeTrackerDatabase } from "../storage/sqlite.js";
+import type { BillingCycleStartDay } from "../types/config.js";
 
 export const DEFAULT_SERVER_HOST = "127.0.0.1";
 export const DEFAULT_SERVER_PORT = 5127;
@@ -165,12 +177,49 @@ type MetricsDashboardData = MetricsInsightData & {
   alertsSection: DashboardSection;
 };
 
+type UsageDashboardData = {
+  generatedAt: string;
+  lastIngest: ReportServerIngestSnapshot | null;
+  agent: "codex";
+  billingCycleStartDay: BillingCycleStartDay;
+  availableCycleStartDays: BillingCycleStartDay[];
+  currentCycle: UsageCycleSummary;
+  coverageSummary: UsageCoverageSummary;
+  currentCycleSection: DashboardSection;
+  dailySection: DashboardSection;
+  weeklySection: DashboardSection;
+};
+
 type MetricsDashboardSummary = {
   totalTokens: number | null;
   durationMs: number | null;
   tokenGrowthRate: number | null;
   durationGrowthRate: number | null;
   alertCount: number;
+};
+
+type UsageCycleSummary = {
+  startDate: string;
+  endDate: string;
+  usedCredits: number;
+  usedUsd: number;
+  remainingCredits: number;
+  remainingUsd: number;
+  budgetUsedRatio: number;
+  totalRuntimeTokens: number;
+  pricedRuntimeTokens: number;
+  modelCount: number;
+  activeDays: number;
+};
+
+type UsageCoverageSummary = {
+  pricedRuntimeTokens: number;
+  totalRuntimeTokens: number;
+  pricedTokenRatio: number | null;
+  uncoveredRuntimeTokens: number;
+  fullyPricedDayCount: number;
+  partiallyPricedDayCount: number;
+  unpricedDayCount: number;
 };
 
 type DashboardCapabilityCallType = "skill" | "mcp_tool";
@@ -251,6 +300,40 @@ type DashboardTokenDayRow = {
   input_tokens: number | null;
   output_tokens: number | null;
   total_tokens: number | null;
+};
+
+type UsageDailyAgentStatsRow = {
+  date: string;
+  model: string;
+  turn_count: number;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  total_tokens: number | null;
+};
+
+type UsageDailyRow = UsageDailyAgentStatsRow & {
+  cycle_start_date: string;
+  cycle_end_date: string;
+  estimated_credits: number;
+  estimated_usd: number;
+  priced_runtime_tokens: number;
+  coverage: CodexCostEstimate["coverage"];
+  rate_card_model: string | null;
+  rate_card_alias_of: string | null;
+};
+
+type UsageCycleRow = {
+  cycle_start_date: string;
+  cycle_end_date: string;
+  model_count: number;
+  active_days: number;
+  total_runtime_tokens: number;
+  priced_runtime_tokens: number;
+  used_credits: number;
+  used_usd: number;
+  remaining_credits: number;
+  remaining_usd: number;
+  budget_used_ratio: number;
 };
 
 const RUNTIME_TOKEN_NOTE =
@@ -646,6 +729,36 @@ async function handleRequest(options: {
     return;
   }
 
+  if (url.pathname === "/usage.json") {
+    await options.runSyncNow();
+    const data = await readUsageDashboardData({
+      paths: options.paths,
+      now: options.now,
+      lastIngest: options.getLastIngest(),
+      cycleStartDayParam: url.searchParams.get("cycleStartDay"),
+    });
+    writeResponse(
+      options.response,
+      200,
+      "application/json; charset=utf-8",
+      `${JSON.stringify(data, null, 2)}\n`,
+    );
+    return;
+  }
+
+  if (url.pathname === "/usage") {
+    await options.runSyncNow();
+    const html = await renderUsagePage({
+      paths: options.paths,
+      display: options.display,
+      now: options.now,
+      lastIngest: options.getLastIngest(),
+      cycleStartDayParam: url.searchParams.get("cycleStartDay"),
+    });
+    writeResponse(options.response, 200, "text/html; charset=utf-8", html);
+    return;
+  }
+
   if (url.pathname === "/projects") {
     await options.runSyncNow();
     const html = await renderProjectsHtml({
@@ -724,6 +837,16 @@ async function renderMetricsPage(options: {
   lastIngest: ReportServerIngestSnapshot | null;
 }): Promise<string> {
   return renderMetricsHtml(await readMetricsDashboardData(options), options.display);
+}
+
+async function renderUsagePage(options: {
+  paths: TrackerPaths;
+  display: DashboardDisplayMode;
+  now: () => Date;
+  lastIngest: ReportServerIngestSnapshot | null;
+  cycleStartDayParam: string | null;
+}): Promise<string> {
+  return renderUsageHtml(await readUsageDashboardData(options), options.display);
 }
 
 async function readDashboardData(options: {
@@ -907,6 +1030,67 @@ async function readMetricsDashboardData(options: {
       alertsSection: {
         title: "Alerts",
         table: createMetricsAlertsTable(insights.alerts),
+      },
+    };
+  } finally {
+    db.close();
+  }
+}
+
+async function readUsageDashboardData(options: {
+  paths: TrackerPaths;
+  now: () => Date;
+  lastIngest: ReportServerIngestSnapshot | null;
+  cycleStartDayParam: string | null;
+}): Promise<UsageDashboardData> {
+  const generatedAt = options.now();
+  const config = await readOrCreateUserConfig(options.paths);
+  const billingCycleStartDay = parseBillingCycleStartDay(
+    options.cycleStartDayParam,
+    config.usage.billing_cycle_start_day,
+  );
+  const currentCycleRange = getBillingCycleRange(generatedAt, billingCycleStartDay);
+  const { db } = initializeTrackerDatabase(options.paths.sqlitePath);
+
+  try {
+    const dailyRows = readUsageDailyRows(db, billingCycleStartDay);
+    const cycleRows = aggregateUsageCycles(dailyRows);
+    const currentCycle = cycleRows.find((row) =>
+      row.cycle_start_date === currentCycleRange.startDate && row.cycle_end_date === currentCycleRange.endDate
+    ) ?? createEmptyUsageCycle(currentCycleRange.startDate, currentCycleRange.endDate);
+    const coverageSummary = summarizeUsageCoverage(dailyRows);
+
+    return {
+      generatedAt: generatedAt.toISOString(),
+      lastIngest: options.lastIngest,
+      agent: "codex",
+      billingCycleStartDay,
+      availableCycleStartDays: listBillingCycleStartDays(),
+      currentCycle: {
+        startDate: currentCycle.cycle_start_date,
+        endDate: currentCycle.cycle_end_date,
+        usedCredits: currentCycle.used_credits,
+        usedUsd: currentCycle.used_usd,
+        remainingCredits: currentCycle.remaining_credits,
+        remainingUsd: currentCycle.remaining_usd,
+        budgetUsedRatio: currentCycle.budget_used_ratio,
+        totalRuntimeTokens: currentCycle.total_runtime_tokens,
+        pricedRuntimeTokens: currentCycle.priced_runtime_tokens,
+        modelCount: currentCycle.model_count,
+        activeDays: currentCycle.active_days,
+      },
+      coverageSummary,
+      currentCycleSection: {
+        title: "Current cycle by model",
+        table: createUsageCurrentCycleTable(dailyRows, currentCycleRange),
+      },
+      dailySection: {
+        title: "Daily usage",
+        table: createUsageDailyTable(dailyRows),
+      },
+      weeklySection: {
+        title: "Weekly cycles",
+        table: createUsageWeeklyTable(cycleRows),
       },
     };
   } finally {
@@ -1302,6 +1486,7 @@ function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode)
       <nav class="nav" aria-label="Dashboard navigation">
         <a href="/" aria-current="page">Overview</a>
         <a href="/metrics">Metrics</a>
+        <a href="/usage">Usage</a>
       </nav>
     </div>
   </header>
@@ -1693,6 +1878,18 @@ function renderMetricsHtml(data: MetricsDashboardData, display: DashboardDisplay
       white-space: pre;
     }
 
+    .more-link {
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 650;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .more-link:hover {
+      text-decoration: underline;
+    }
+
     @media (max-width: 980px) {
       .metrics {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1738,6 +1935,7 @@ function renderMetricsHtml(data: MetricsDashboardData, display: DashboardDisplay
       <nav class="nav" aria-label="Dashboard navigation">
         <a href="/">Overview</a>
         <a href="/metrics" aria-current="page">Metrics</a>
+        <a href="/usage">Usage</a>
       </nav>
     </div>
   </header>
@@ -1785,6 +1983,654 @@ function renderMetricsHtml(data: MetricsDashboardData, display: DashboardDisplay
   </script>
 </body>
 </html>`;
+}
+
+function renderUsageHtml(data: UsageDashboardData, display: DashboardDisplayMode): string {
+  const generatedAt = new Date(data.generatedAt);
+  const cycleQuery = new URLSearchParams({ cycleStartDay: data.billingCycleStartDay }).toString();
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>himan-tracker Usage</title>
+  <link rel="icon" type="image/svg+xml" href="${escapeHtml(DASHBOARD_ICON_DATA_URL)}">
+  <meta name="theme-color" content="#117a65">
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fa;
+      --panel: #ffffff;
+      --text: #17202a;
+      --muted: #607080;
+      --line: #d9e1e8;
+      --accent: #117a65;
+      --danger: #b42318;
+      --warning: #a15c07;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    header {
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    main,
+    .header-inner {
+      width: min(1180px, calc(100vw - 32px));
+      margin: 0 auto;
+    }
+
+    .header-inner {
+      padding: 22px 0 18px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 28px;
+      line-height: 1.15;
+      font-weight: 720;
+    }
+
+    .status {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .status strong {
+      color: ${data.lastIngest?.ok === false ? "var(--danger)" : "var(--accent)"};
+    }
+
+    .nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .nav a {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 650;
+      line-height: 1.2;
+      padding: 7px 10px;
+      text-decoration: none;
+    }
+
+    .nav a[aria-current="page"] {
+      background: #eef8f5;
+      border-color: rgba(17, 122, 101, 0.35);
+      color: var(--accent);
+    }
+
+    main {
+      padding: 22px 0 40px;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .metric,
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .metric {
+      padding: 14px;
+      min-width: 0;
+    }
+
+    .metric-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+      text-transform: uppercase;
+    }
+
+    .metric-value {
+      margin-top: 8px;
+      font-size: 24px;
+      line-height: 1.1;
+      font-weight: 720;
+      overflow-wrap: anywhere;
+    }
+
+    .metric-subtle {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .metric.is-positive .metric-value {
+      color: #0f766e;
+    }
+
+    .metric.is-warning .metric-value {
+      color: var(--warning);
+    }
+
+    section {
+      margin-top: 14px;
+      overflow: hidden;
+    }
+
+    section > h2 {
+      margin: 0;
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--line);
+      font-size: 16px;
+      line-height: 1.25;
+    }
+
+    .usage-controls,
+    .usage-note {
+      padding: 14px;
+      color: #24313d;
+    }
+
+    .usage-controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: end;
+      gap: 12px 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .usage-control {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .usage-control label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+      text-transform: uppercase;
+    }
+
+    .usage-control select,
+    .usage-controls button {
+      height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--text);
+      font: inherit;
+      font-size: 14px;
+      padding: 0 12px;
+    }
+
+    .usage-controls button {
+      background: #117a65;
+      border-color: #117a65;
+      color: #fff;
+      cursor: pointer;
+      font-weight: 650;
+    }
+
+    .usage-note {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .table-note,
+    .empty-state {
+      margin: 0;
+      padding: 12px 14px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .table-note {
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .table-meta {
+      border-bottom: 1px solid var(--line);
+    }
+
+    .table-meta .table-note {
+      border-bottom: 0;
+    }
+
+    .table-scroll {
+      overflow: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th,
+    td {
+      padding: 9px 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      white-space: nowrap;
+    }
+
+    th {
+      background: #f8fafb;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    td {
+      color: #24313d;
+      font-variant-numeric: tabular-nums;
+    }
+
+    tbody tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .cli-output {
+      margin: 0;
+      padding: 14px;
+      overflow: auto;
+      color: #24313d;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+      line-height: 1.45;
+      font-variant-numeric: tabular-nums;
+      white-space: pre;
+    }
+
+    @media (max-width: 980px) {
+      .metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 520px) {
+      main,
+      .header-inner {
+        width: min(100vw - 20px, 1180px);
+      }
+
+      .metrics {
+        grid-template-columns: 1fr;
+      }
+
+      .usage-controls {
+        align-items: stretch;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <h1>Usage</h1>
+      <div class="status">${renderIngestStatus(data.lastIngest)} · Generated ${escapeHtml(
+    formatLocalDateTime(generatedAt),
+  )}</div>
+      <nav class="nav" aria-label="Dashboard navigation">
+        <a href="/">Overview</a>
+        <a href="/metrics">Metrics</a>
+        <a href="/usage" aria-current="page">Usage</a>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <div class="metrics">
+      ${renderMetric("Cycle range", `${data.currentCycle.startDate} → ${data.currentCycle.endDate}`)}
+      ${renderMetric("Weekly budget", `${formatCredits(data.currentCycle.usedCredits + data.currentCycle.remainingCredits)} credits`, {
+    helperText: formatUsd(data.currentCycle.usedUsd + data.currentCycle.remainingUsd),
+  })}
+      ${renderMetric("Used this cycle", `${formatCredits(data.currentCycle.usedCredits)} credits`, {
+    helperText: formatUsd(data.currentCycle.usedUsd),
+    tone: data.currentCycle.usedCredits > 0 ? "positive" : undefined,
+  })}
+      ${renderMetric("Remaining", `${formatCredits(data.currentCycle.remainingCredits)} credits`, {
+    helperText: formatUsd(data.currentCycle.remainingUsd),
+    tone: data.currentCycle.remainingCredits === 0 ? "warning" : undefined,
+  })}
+      ${renderMetric("Coverage", formatPercent(data.coverageSummary.pricedTokenRatio), {
+    helperText: `${formatTokenCount(data.coverageSummary.pricedRuntimeTokens)} of ${formatTokenCount(data.coverageSummary.totalRuntimeTokens)} runtime tokens priced`,
+    tone: data.coverageSummary.pricedTokenRatio !== null && data.coverageSummary.pricedTokenRatio < 1 ? "warning" : "positive",
+  })}
+    </div>
+    <section>
+      <h2>Billing settings</h2>
+      <form class="usage-controls" method="get" action="/usage">
+        <div class="usage-control">
+          <label for="cycleStartDay">Billing cycle starts on</label>
+          <select id="cycleStartDay" name="cycleStartDay">
+            ${data.availableCycleStartDays.map((day) =>
+              `<option value="${escapeHtml(day)}"${day === data.billingCycleStartDay ? " selected" : ""}>${escapeHtml(formatBillingCycleStartDay(day))}</option>`
+            ).join("")}
+          </select>
+        </div>
+        <button type="submit">Update</button>
+      </form>
+      <div class="usage-note">
+        Codex weekly budget is fixed at ${formatUsd(CODEX_WEEKLY_BUDGET_USD)} / ${formatCredits(CODEX_WEEKLY_BUDGET_CREDITS)} credits. Cost estimates use the provided Codex credit rate card, price only rows with known model pricing and observed input/output token splits, and currently do not apply cached-input discounts separately.
+      </div>
+    </section>
+    ${renderSection(data.currentCycleSection, display)}
+    ${renderSection(data.dailySection, display)}
+    ${renderSection(data.weeklySection, display)}
+    <section>
+      <h2>Raw data</h2>
+      <p class="table-note"><a class="more-link" href="/usage.json?${escapeHtml(cycleQuery)}">Open usage.json</a></p>
+      <p class="usage-note">The JSON endpoint exposes the resolved billing cycle start day together with the current-cycle, daily, and weekly aggregates used by this page.</p>
+    </section>
+  </main>
+</body>
+</html>`;
+}
+
+function readUsageDailyRows(
+  db: ReturnType<typeof initializeTrackerDatabase>["db"],
+  billingCycleStartDay: BillingCycleStartDay,
+): UsageDailyRow[] {
+  const rows = db
+    .prepare(
+      `
+      select
+        date,
+        model,
+        sum(turn_count) as turn_count,
+        case when count(input_tokens) = 0 then null else sum(input_tokens) end as input_tokens,
+        case when count(output_tokens) = 0 then null else sum(output_tokens) end as output_tokens,
+        case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens
+      from daily_agent_stats
+      where agent = 'codex'
+      group by date, model
+      order by date desc, model asc
+      `,
+    )
+    .all() as UsageDailyAgentStatsRow[];
+
+  return rows.map((row) => {
+    const cycleRange = getBillingCycleRange(parseLocalDate(row.date), billingCycleStartDay);
+    const estimate = estimateCodexCost({
+      model: row.model,
+      inputTokens: row.input_tokens,
+      outputTokens: row.output_tokens,
+    });
+    const pricedRuntimeTokens = (row.input_tokens ?? 0) + (row.output_tokens ?? 0);
+
+    return {
+      ...row,
+      cycle_start_date: cycleRange.startDate,
+      cycle_end_date: cycleRange.endDate,
+      estimated_credits: estimate.estimatedCredits ?? 0,
+      estimated_usd: estimate.estimatedUsd ?? 0,
+      priced_runtime_tokens: pricedRuntimeTokens,
+      coverage: estimate.coverage,
+      rate_card_model: estimate.pricing?.sourceModel ?? null,
+      rate_card_alias_of: estimate.pricing?.aliasOf ?? null,
+    };
+  });
+}
+
+function aggregateUsageCycles(rows: UsageDailyRow[]): UsageCycleRow[] {
+  const cycles = new Map<string, UsageCycleRow & { models: Set<string>; days: Set<string> }>();
+
+  for (const row of rows) {
+    const key = `${row.cycle_start_date}:${row.cycle_end_date}`;
+    const existing = cycles.get(key) ?? {
+      cycle_start_date: row.cycle_start_date,
+      cycle_end_date: row.cycle_end_date,
+      model_count: 0,
+      active_days: 0,
+      total_runtime_tokens: 0,
+      priced_runtime_tokens: 0,
+      used_credits: 0,
+      used_usd: 0,
+      remaining_credits: CODEX_WEEKLY_BUDGET_CREDITS,
+      remaining_usd: CODEX_WEEKLY_BUDGET_USD,
+      budget_used_ratio: 0,
+      models: new Set<string>(),
+      days: new Set<string>(),
+    };
+
+    existing.total_runtime_tokens += row.total_tokens ?? 0;
+    existing.priced_runtime_tokens += row.priced_runtime_tokens;
+    existing.used_credits += row.estimated_credits;
+    existing.used_usd += row.estimated_usd;
+    existing.models.add(row.model);
+    existing.days.add(row.date);
+    cycles.set(key, existing);
+  }
+
+  return [...cycles.values()]
+    .map((cycle) => {
+      const remainingCredits = Math.max(CODEX_WEEKLY_BUDGET_CREDITS - cycle.used_credits, 0);
+      const remainingUsd = Math.max(CODEX_WEEKLY_BUDGET_USD - cycle.used_usd, 0);
+
+      return {
+        cycle_start_date: cycle.cycle_start_date,
+        cycle_end_date: cycle.cycle_end_date,
+        model_count: cycle.models.size,
+        active_days: cycle.days.size,
+        total_runtime_tokens: cycle.total_runtime_tokens,
+        priced_runtime_tokens: cycle.priced_runtime_tokens,
+        used_credits: cycle.used_credits,
+        used_usd: cycle.used_usd,
+        remaining_credits: remainingCredits,
+        remaining_usd: remainingUsd,
+        budget_used_ratio: cycle.used_credits / CODEX_WEEKLY_BUDGET_CREDITS,
+      };
+    })
+    .sort((left, right) => right.cycle_start_date.localeCompare(left.cycle_start_date));
+}
+
+function summarizeUsageCoverage(rows: UsageDailyRow[]): UsageCoverageSummary {
+  let pricedRuntimeTokens = 0;
+  let totalRuntimeTokens = 0;
+  let fullyPricedDayCount = 0;
+  let partiallyPricedDayCount = 0;
+  let unpricedDayCount = 0;
+
+  for (const row of rows) {
+    pricedRuntimeTokens += row.priced_runtime_tokens;
+    totalRuntimeTokens += row.total_tokens ?? 0;
+
+    if (row.coverage === "full") {
+      fullyPricedDayCount += 1;
+    } else if (row.coverage === "partial") {
+      partiallyPricedDayCount += 1;
+    } else {
+      unpricedDayCount += 1;
+    }
+  }
+
+  return {
+    pricedRuntimeTokens,
+    totalRuntimeTokens,
+    pricedTokenRatio: totalRuntimeTokens > 0 ? pricedRuntimeTokens / totalRuntimeTokens : null,
+    uncoveredRuntimeTokens: Math.max(totalRuntimeTokens - pricedRuntimeTokens, 0),
+    fullyPricedDayCount,
+    partiallyPricedDayCount,
+    unpricedDayCount,
+  };
+}
+
+function createUsageCurrentCycleTable(
+  rows: UsageDailyRow[],
+  currentCycleRange: { startDate: string; endDate: string },
+): DashboardTable {
+  const currentCycleRows = rows
+    .filter((row) =>
+      row.cycle_start_date === currentCycleRange.startDate && row.cycle_end_date === currentCycleRange.endDate
+    )
+    .sort((left, right) => right.estimated_credits - left.estimated_credits || left.model.localeCompare(right.model));
+
+  const aggregates = new Map<string, UsageDailyRow & { day_count: number }>();
+  for (const row of currentCycleRows) {
+    const key = `${row.model}:${row.rate_card_model ?? "unknown"}`;
+    const existing = aggregates.get(key) ?? {
+      ...row,
+      turn_count: 0,
+      input_tokens: null,
+      output_tokens: null,
+      total_tokens: null,
+      estimated_credits: 0,
+      estimated_usd: 0,
+      priced_runtime_tokens: 0,
+      day_count: 0,
+      coverage: "full" as CodexCostEstimate["coverage"],
+    };
+    existing.turn_count += row.turn_count;
+    existing.input_tokens = sumNullable(existing.input_tokens, row.input_tokens);
+    existing.output_tokens = sumNullable(existing.output_tokens, row.output_tokens);
+    existing.total_tokens = sumNullable(existing.total_tokens, row.total_tokens);
+    existing.estimated_credits += row.estimated_credits;
+    existing.estimated_usd += row.estimated_usd;
+    existing.priced_runtime_tokens += row.priced_runtime_tokens;
+    existing.day_count += 1;
+    existing.coverage = mergeCoverage(existing.coverage, row.coverage);
+    aggregates.set(key, existing);
+  }
+
+  const modelRows = [...aggregates.values()].sort(
+    (left, right) => right.estimated_credits - left.estimated_credits || left.model.localeCompare(right.model),
+  );
+
+  return {
+    columns: [
+      "Model",
+      "Rate card",
+      "Days",
+      "Turns",
+      "Input",
+      "Output",
+      "Runtime tokens",
+      "Credits",
+      "USD",
+      "Coverage",
+    ],
+    rows: modelRows.map((row) => [
+      row.model,
+      row.rate_card_alias_of ? `${row.rate_card_model} via ${row.rate_card_alias_of}` : formatNullableText(row.rate_card_model),
+      String(row.day_count),
+      String(row.turn_count),
+      formatTokenCount(row.input_tokens),
+      formatTokenCount(row.output_tokens),
+      formatTokenCount(row.total_tokens),
+      formatCredits(row.estimated_credits),
+      formatUsd(row.estimated_usd),
+      formatCoverageLabel(row.coverage),
+    ]),
+    emptyText: "No Codex usage found in the current billing cycle.",
+    note: `Current cycle ${currentCycleRange.startDate} to ${currentCycleRange.endDate}.`,
+  };
+}
+
+function createUsageDailyTable(rows: UsageDailyRow[]): DashboardTable {
+  return {
+    columns: [
+      "Date",
+      "Cycle",
+      "Model",
+      "Rate card",
+      "Turns",
+      "Input",
+      "Output",
+      "Runtime tokens",
+      "Credits",
+      "USD",
+      "Coverage",
+    ],
+    rows: rows.map((row) => [
+      row.date,
+      `${formatShortDate(parseLocalDate(row.cycle_start_date))} → ${formatShortDate(parseLocalDate(row.cycle_end_date))}`,
+      row.model,
+      row.rate_card_alias_of ? `${row.rate_card_model} via ${row.rate_card_alias_of}` : formatNullableText(row.rate_card_model),
+      String(row.turn_count),
+      formatTokenCount(row.input_tokens),
+      formatTokenCount(row.output_tokens),
+      formatTokenCount(row.total_tokens),
+      formatCredits(row.estimated_credits),
+      formatUsd(row.estimated_usd),
+      formatCoverageLabel(row.coverage),
+    ]),
+    emptyText: "No Codex usage found yet.",
+    note: "Daily runtime-token usage and estimated cost by model.",
+  };
+}
+
+function createUsageWeeklyTable(rows: UsageCycleRow[]): DashboardTable {
+  return {
+    columns: [
+      "Cycle",
+      "Active days",
+      "Models",
+      "Runtime tokens",
+      "Priced tokens",
+      "Credits used",
+      "USD used",
+      "Budget used",
+      "Credits left",
+      "USD left",
+    ],
+    rows: rows.map((row) => [
+      `${row.cycle_start_date} → ${row.cycle_end_date}`,
+      String(row.active_days),
+      String(row.model_count),
+      formatTokenCount(row.total_runtime_tokens),
+      formatTokenCount(row.priced_runtime_tokens),
+      formatCredits(row.used_credits),
+      formatUsd(row.used_usd),
+      formatPercent(row.budget_used_ratio),
+      formatCredits(row.remaining_credits),
+      formatUsd(row.remaining_usd),
+    ]),
+    emptyText: "No Codex billing cycles found yet.",
+    note: "Weekly budget assumes $75 = 1,875 credits with no carry-over between cycles.",
+  };
+}
+
+function createEmptyUsageCycle(startDate: string, endDate: string): UsageCycleRow {
+  return {
+    cycle_start_date: startDate,
+    cycle_end_date: endDate,
+    model_count: 0,
+    active_days: 0,
+    total_runtime_tokens: 0,
+    priced_runtime_tokens: 0,
+    used_credits: 0,
+    used_usd: 0,
+    remaining_credits: CODEX_WEEKLY_BUDGET_CREDITS,
+    remaining_usd: CODEX_WEEKLY_BUDGET_USD,
+    budget_used_ratio: 0,
+  };
 }
 
 function renderListPageHtml(options: {
@@ -3332,13 +4178,95 @@ function renderMetric(
   value: string,
   options: {
     tone?: VisualTone;
+    helperText?: string;
   } = {},
 ): string {
   const toneClass = options.tone ? ` is-${options.tone}` : "";
+  const helperText = options.helperText
+    ? `<div class="metric-subtle">${escapeHtml(options.helperText)}</div>`
+    : "";
 
   return `<div class="metric${toneClass}"><div class="metric-label">${escapeHtml(
     label,
-  )}</div><div class="metric-value">${escapeHtml(value)}</div></div>`;
+  )}</div><div class="metric-value">${escapeHtml(value)}</div>${helperText}</div>`;
+}
+
+function formatCredits(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "n/a";
+  }
+
+  if (value >= 100) {
+    return value.toFixed(1).replace(/\.0$/, "");
+  }
+
+  if (value >= 10) {
+    return value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+  }
+
+  return value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function formatUsd(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "n/a";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: value >= 100 ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function formatPercent(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return "n/a";
+  }
+
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function formatCoverageLabel(coverage: CodexCostEstimate["coverage"]): string {
+  switch (coverage) {
+    case "full":
+      return "Full";
+    case "partial":
+      return "Partial";
+    default:
+      return "Unpriced";
+  }
+}
+
+function sumNullable(
+  current: number | null | undefined,
+  next: number | null | undefined,
+): number | null {
+  if (current === null || current === undefined) {
+    return next ?? null;
+  }
+
+  if (next === null || next === undefined) {
+    return current;
+  }
+
+  return current + next;
+}
+
+function mergeCoverage(
+  left: CodexCostEstimate["coverage"],
+  right: CodexCostEstimate["coverage"],
+): CodexCostEstimate["coverage"] {
+  if (left === right) {
+    return left;
+  }
+
+  if (left === "none" || right === "none") {
+    return "partial";
+  }
+
+  return "partial";
 }
 
 function renderSection(section: DashboardSection, display: DashboardDisplayMode): string {

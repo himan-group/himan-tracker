@@ -19,6 +19,7 @@ describe("readOrCreateUserConfig", () => {
       assert.equal(config.privacy.capture_content, false);
       assert.equal(config.privacy.hash_repo_path, true);
       assert.equal(config.privacy.capture_shell_args, false);
+      assert.equal(config.usage.billing_cycle_start_day, "wednesday");
       assert.equal(config.agents.codex.enabled, true);
       assert.equal(config.agents["claude-code"].enabled, true);
       assert.match(config.local_salt, /^[a-f0-9]{32}$/);

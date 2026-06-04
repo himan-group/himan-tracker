@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-04
+
+### Added
+
+- Added a local report server `Usage` page (`/usage` and `/usage.json`) for Codex, with daily model-level cost estimates, weekly credit budget tracking, and configurable billing-cycle start day (default Wednesday).
+
 ## [0.4.2] - 2026-06-04
 
 ### Changed

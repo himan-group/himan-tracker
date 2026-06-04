@@ -243,6 +243,33 @@ describe("server command", () => {
         true,
       );
 
+      const usageResponse = await fetch(`${instance.url}/usage`);
+      const usageHtml = await usageResponse.text();
+      assert.equal(usageResponse.status, 200);
+      assert.match(usageHtml, /<h1>Usage<\/h1>/);
+      assert.match(usageHtml, /href="\/usage" aria-current="page">Usage<\/a>/);
+      assert.match(usageHtml, /Billing cycle starts on/);
+      assert.match(usageHtml, /Current cycle by model/);
+      assert.match(usageHtml, /Daily usage/);
+      assert.match(usageHtml, /Weekly cycles/);
+      assert.match(usageHtml, /2026-05-06 → 2026-05-12/);
+      assert.match(usageHtml, /gpt-5\.1-codex/);
+      assert.match(usageHtml, /1\.23K/);
+
+      const usageJsonResponse = await fetch(`${instance.url}/usage.json`);
+      const usage = (await usageJsonResponse.json()) as {
+        billingCycleStartDay: string;
+        currentCycle: { startDate: string; endDate: string; usedCredits: number; remainingCredits: number };
+        dailySection: { table: { rows: string[][] } };
+      };
+      assert.equal(usageJsonResponse.status, 200);
+      assert.equal(usage.billingCycleStartDay, "wednesday");
+      assert.equal(usage.currentCycle.startDate, "2026-05-06");
+      assert.equal(usage.currentCycle.endDate, "2026-05-12");
+      assert.ok(usage.currentCycle.usedCredits > 0);
+      assert.ok(usage.currentCycle.remainingCredits < 1_875);
+      assert.equal(usage.dailySection.table.rows[0]?.[0], "2026-05-12");
+
       const healthResponse = await fetch(`${instance.url}/healthz`);
       const health = (await healthResponse.json()) as {
         ok: boolean;
@@ -311,6 +338,64 @@ describe("server command", () => {
       };
       assert.equal(metricsJsonResponse.status, 200);
       assert.equal(metrics.periods.find((period) => period.period === "day")?.overall.turnCount, 0);
+    } finally {
+      await instance.close();
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("supports custom billing cycle start day on usage page", async () => {
+    const homeDir = await mkdtemp(path.join(tmpdir(), "himan-server-usage-test-"));
+    const paths = resolveTrackerPaths({ HIMAN_TRACKER_HOME: homeDir });
+    const events = [
+      createTokenTurnEvent({
+        eventId: "evt_usage_previous_cycle",
+        occurredAt: "2026-05-08T12:00:00.000Z",
+        totalTokens: 300,
+      }),
+      createTokenTurnEvent({
+        eventId: "evt_usage_current_cycle",
+        occurredAt: "2026-05-12T12:00:00.000Z",
+        totalTokens: 700,
+      }),
+    ];
+
+    await ensureTrackerDirectories(paths);
+    for (const event of events) {
+      await appendJsonlRecord(resolveDailyEventsPath(paths, event.occurred_at), event);
+    }
+
+    const instance = await startReportHttpServer({
+      paths,
+      host: "127.0.0.1",
+      port: 0,
+      intervalSeconds: 60,
+      since: "7d",
+      display: "table",
+      startupBackfill: "none",
+      now: () => now,
+    });
+
+    try {
+      const defaultResponse = await fetch(`${instance.url}/usage`);
+      const defaultHtml = await defaultResponse.text();
+      assert.equal(defaultResponse.status, 200);
+      assert.match(defaultHtml, /2026-05-06 → 2026-05-12/);
+
+      const mondayJsonResponse = await fetch(`${instance.url}/usage.json?cycleStartDay=monday`);
+      const mondayUsage = (await mondayJsonResponse.json()) as {
+        billingCycleStartDay: string;
+        currentCycle: { startDate: string; endDate: string };
+        weeklySection: { table: { rows: string[][] } };
+      };
+      assert.equal(mondayJsonResponse.status, 200);
+      assert.equal(mondayUsage.billingCycleStartDay, "monday");
+      assert.equal(mondayUsage.currentCycle.startDate, "2026-05-11");
+      assert.equal(mondayUsage.currentCycle.endDate, "2026-05-17");
+      assert.deepEqual(
+        mondayUsage.weeklySection.table.rows.map((row) => row[0]),
+        ["2026-05-11 → 2026-05-17", "2026-05-04 → 2026-05-10"],
+      );
     } finally {
       await instance.close();
       await rm(homeDir, { recursive: true, force: true });
