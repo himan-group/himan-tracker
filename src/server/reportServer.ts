@@ -144,6 +144,7 @@ type DashboardTable = {
   emptyText: string;
   note?: string;
   width?: "full" | "compact";
+  stickyColumns?: number;
   moreHref?: string;
   pagination?: DashboardPagination;
 };
@@ -396,6 +397,7 @@ type DashboardTurnRow = {
   duration_ms: number | null;
   total_tokens: number | null;
   status: string;
+  repo_hash: string;
 };
 
 type DashboardProjectRow = {
@@ -404,6 +406,7 @@ type DashboardProjectRow = {
   turn_count: number;
   total_tokens: number | null;
   duration_ms: number | null;
+  last_active_at: string;
 };
 
 type DashboardSessionRow = {
@@ -414,6 +417,7 @@ type DashboardSessionRow = {
   duration_ms: number | null;
   turn_count: number;
   status: string;
+  repo_hash: string;
 };
 
 type AlertSeverityName = "warning" | "major" | "critical";
@@ -800,7 +804,7 @@ async function handleRequest(options: {
 
   if (url.pathname === "/sessions") {
     await options.runSyncNow();
-    const html = renderSessionsHtml({
+    const html = await renderSessionsHtml({
       paths: options.paths,
       since: options.since,
       page,
@@ -815,7 +819,7 @@ async function handleRequest(options: {
 
   if (url.pathname === "/turns") {
     await options.runSyncNow();
-    const html = renderTurnsHtml({
+    const html = await renderTurnsHtml({
       paths: options.paths,
       since: options.since,
       page,
@@ -998,12 +1002,12 @@ async function readDashboardData(options: {
         {
           id: "sessions",
           label: "Sessions",
-          table: { ...readDashboardSessions(db, range, 10), moreHref: "/sessions" },
+          table: { ...readDashboardSessions(db, range, 10, projectDisplayNames), moreHref: "/sessions" },
         },
         {
           id: "turns",
           label: "Turns",
-          table: { ...readDashboardTurns(db, range, 10), moreHref: "/turns" },
+          table: { ...readDashboardTurns(db, range, 10, projectDisplayNames), moreHref: "/turns" },
         },
       ],
     };
@@ -1149,7 +1153,7 @@ function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode)
     formatLocalDateTime(generatedAt),
   )}</div>
       <nav class="nav" aria-label="Dashboard navigation">
-        <a href="/" aria-current="page">Overview</a>
+        <a href="/" aria-current="page">Activity</a>
         <a href="/metrics">Metrics</a>
         <a href="/usage">Usage</a>
       </nav>
@@ -1168,7 +1172,7 @@ function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode)
     ${data.sections.map((section) => renderSection(section, display)).join("\n")}
     ${renderTabbedSection("Capability ROI views", "capability-roi", data.capabilityViewTabs, display)}
     ${renderTabbedSection("Capability calls", "capability-calls", data.capabilityCallTabs, display)}
-    ${renderTabbedSection("Overview", "overview", data.overviewTabs, display)}
+    ${renderTabbedSection("Activity", "activity", data.overviewTabs, display)}
   </main>
   <script>
     document.querySelectorAll("[data-tabs]").forEach((root) => {
@@ -1213,7 +1217,7 @@ function renderMetricsHtml(data: MetricsDashboardData, display: DashboardDisplay
     formatLocalDateTime(generatedAt),
   )}</div>
       <nav class="nav" aria-label="Dashboard navigation">
-        <a href="/">Overview</a>
+        <a href="/">Activity</a>
         <a href="/metrics" aria-current="page">Metrics</a>
         <a href="/usage">Usage</a>
       </nav>
@@ -1289,7 +1293,7 @@ function renderUsageHtml(data: UsageDashboardData, display: DashboardDisplayMode
     formatLocalDateTime(generatedAt),
   )}</div>
       <nav class="nav" aria-label="Dashboard navigation">
-        <a href="/">Overview</a>
+        <a href="/">Activity</a>
         <a href="/metrics">Metrics</a>
         <a href="/usage" aria-current="page">Usage</a>
       </nav>
@@ -1741,7 +1745,7 @@ function renderListPageHtml(options: {
   display: DashboardDisplayMode;
 }): string {
   const { title, table, ingestStatus, generatedAt, display } = options;
-  const breadcrumb = `<a href="/">Overview</a> <span class="breadcrumb-sep">›</span> <span class="breadcrumb-current">${escapeHtml(title)}</span>`;
+  const breadcrumb = `<a href="/">Activity</a> <span class="breadcrumb-sep">›</span> <span class="breadcrumb-current">${escapeHtml(title)}</span>`;
 
   return `<!doctype html>
 <html lang="en" data-theme="light">
@@ -1807,7 +1811,7 @@ async function renderProjectsHtml(options: {
   }
 }
 
-function renderSessionsHtml(options: {
+async function renderSessionsHtml(options: {
   paths: TrackerPaths;
   since: string;
   page: number;
@@ -1815,9 +1819,11 @@ function renderSessionsHtml(options: {
   display: DashboardDisplayMode;
   now: () => Date;
   lastIngest: ReportServerIngestSnapshot | null;
-}): string {
+}): Promise<string> {
   const generatedAt = options.now();
   const range = parseSinceRange(options.since, generatedAt);
+  const config = await readOrCreateUserConfig(options.paths);
+  const projectDisplayNames = createKnownProjectDisplayNameMap(config);
   const { db } = initializeTrackerDatabase(options.paths.sqlitePath);
 
   try {
@@ -1825,7 +1831,7 @@ function renderSessionsHtml(options: {
       page: options.page,
       pageSize: options.pageSize,
       basePath: "/sessions",
-    });
+    }, projectDisplayNames);
     return renderListPageHtml({
       title: "Sessions",
       table,
@@ -1838,7 +1844,7 @@ function renderSessionsHtml(options: {
   }
 }
 
-function renderTurnsHtml(options: {
+async function renderTurnsHtml(options: {
   paths: TrackerPaths;
   since: string;
   page: number;
@@ -1846,9 +1852,11 @@ function renderTurnsHtml(options: {
   display: DashboardDisplayMode;
   now: () => Date;
   lastIngest: ReportServerIngestSnapshot | null;
-}): string {
+}): Promise<string> {
   const generatedAt = options.now();
   const range = parseSinceRange(options.since, generatedAt);
+  const config = await readOrCreateUserConfig(options.paths);
+  const projectDisplayNames = createKnownProjectDisplayNameMap(config);
   const { db } = initializeTrackerDatabase(options.paths.sqlitePath);
 
   try {
@@ -1856,7 +1864,7 @@ function renderTurnsHtml(options: {
       page: options.page,
       pageSize: options.pageSize,
       basePath: "/turns",
-    });
+    }, projectDisplayNames);
     return renderListPageHtml({
       title: "Turns",
       table,
@@ -1985,6 +1993,7 @@ function createMetricsCapabilityTable(period: MetricsPeriodInsight): DashboardTa
       "Max runtime tokens",
       "Runtime token stddev",
     ],
+    stickyColumns: 3,
     rows: period.capabilities.map((capability) => createMetricsCapabilityRow(capability)),
     emptyText: `No capability metrics found for ${formatMetricsPeriodCaption(period)}.`,
     note: `Capability metrics for ${formatMetricsPeriodCaption(period)}. Runtime tokens exclude himan.yaml static token estimates; turn estimate duration is inferred from the parent turn.`,
@@ -2240,6 +2249,7 @@ function readDashboardCapabilityCalls(
 
   return {
     columns: ["Time", "Agent", "Source", "Capability", "Duration", "Basis", "Runtime tokens", "Status", "Origin"],
+    stickyColumns: 3,
     rows: rows.map((row) => [
       formatLocalDateTime(row.occurred_at),
       row.agent,
@@ -2333,6 +2343,7 @@ function createDashboardSummaryMetricTable(summary: DashboardSummary): Dashboard
       ["Success rate", formatSuccessRate(summary.success_count, summary.failure_count)],
     ],
     emptyText: "No usage data found for this range.",
+    stickyColumns: 0,
   };
 }
 
@@ -2368,6 +2379,7 @@ function readDashboardSummaryAgents(
       formatTokenCount(row.total_tokens),
     ]),
     emptyText: "No agent usage found.",
+    stickyColumns: 0,
   };
 }
 
@@ -2428,6 +2440,7 @@ function readDashboardSummaryCapabilities(
 
   return {
     columns: ["Agent", "Type", "Capability", "Invocations", "Runtime tokens", "Static tokens", "Duration"],
+    stickyColumns: 0,
     rows: rows.map((row) => [
       row.agent,
       row.capability_type,
@@ -2578,6 +2591,7 @@ function readDashboardCapabilities(
       "Max duration",
       "Success rate",
     ],
+    stickyColumns: 3,
     rows: visibleRows.map((row) => [
       row.agent,
       row.capability_type,
@@ -2683,6 +2697,7 @@ function readDashboardTurns(
   db: ReturnType<typeof initializeTrackerDatabase>["db"],
   range: { startDate: string; endDate: string },
   limit: number | PaginationQuery,
+  projectDisplayNames: ReadonlyMap<string, string> = new Map(),
 ): DashboardTable {
   const paginated = typeof limit !== "number";
   const pagination = normalizePaginationQuery(limit, "/turns");
@@ -2706,8 +2721,9 @@ function readDashboardTurns(
         id,
         duration_ms,
         total_tokens,
-        status
-      from turns
+        status,
+        coalesce(t.repo_hash, 'unknown') as repo_hash
+      from turns t
       where date(occurred_at, 'localtime') between ? and ?
       order by occurred_at desc
       limit ? offset ?
@@ -2716,10 +2732,12 @@ function readDashboardTurns(
     .all(range.startDate, range.endDate, pagination.pageSize, offset) as DashboardTurnRow[];
 
   return {
-    columns: ["Time", "Agent", "Model", "Turn", "Duration", "Runtime tokens", "Status"],
+    columns: ["Time", "Agent", "Project", "Model", "Turn", "Duration", "Runtime tokens", "Status"],
+    stickyColumns: 3,
     rows: rows.map((row) => [
       formatLocalDateTime(row.occurred_at),
       row.agent,
+      repoHashToDisplay(row.repo_hash, projectDisplayNames),
       formatNullableText(row.model),
       shortenId(row.id),
       formatDurationMs(row.duration_ms),
@@ -2770,29 +2788,31 @@ function readDashboardProjects(
         count(distinct session_id) as session_count,
         count(*) as turn_count,
         case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens,
-        case when count(duration_ms) = 0 then null else sum(duration_ms) end as duration_ms
+        case when count(duration_ms) = 0 then null else sum(duration_ms) end as duration_ms,
+        max(occurred_at) as last_active_at
       from turns
       where date(occurred_at, 'localtime') between ? and ?
       group by repo_hash
-      order by turn_count desc, repo_hash asc
+      order by max(occurred_at) desc, repo_hash asc
       limit ? offset ?
       `,
     )
     .all(range.startDate, range.endDate, pagination.pageSize, offset) as DashboardProjectRow[];
 
   return {
-    columns: ["Project", "Sessions", "Turns", "Runtime tokens", "Avg latency"],
+    columns: ["Project", "Sessions", "Turns", "Runtime tokens", "Avg latency", "Last active"],
     rows: rows.map((row) => [
       repoHashToDisplay(row.repo_hash, projectDisplayNames),
       String(row.session_count),
       String(row.turn_count),
       formatTokenCount(row.total_tokens),
       formatAverageDurationMs(row.duration_ms, row.turn_count),
+      formatLocalDateTime(row.last_active_at),
     ]),
     emptyText: "No project data found for this range.",
     note: paginated
       ? formatPaginationNote("projects", pagination.page, pagination.pageSize, totalRow.total_count, range)
-      : `Top ${rows.length} projects (${formatDateRange(range)}).`,
+      : `Recent projects (${formatDateRange(range)}).`,
     pagination: paginated ? createDashboardPagination(pagination, totalRow.total_count) : undefined,
   };
 }
@@ -2809,6 +2829,7 @@ function readDashboardSessions(
   db: ReturnType<typeof initializeTrackerDatabase>["db"],
   range: { startDate: string; endDate: string },
   limit: number | PaginationQuery,
+  projectDisplayNames: ReadonlyMap<string, string> = new Map(),
 ): DashboardTable {
   const paginated = typeof limit !== "number";
   const pagination = normalizePaginationQuery(limit, "/sessions");
@@ -2832,8 +2853,9 @@ function readDashboardSessions(
         ended_at,
         duration_ms,
         turn_count,
-        status
-      from sessions
+        status,
+        coalesce(s.repo_hash, 'unknown') as repo_hash
+      from sessions s
       where date(coalesce(started_at, ended_at, '1970-01-01'), 'localtime') between ? and ?
       order by coalesce(started_at, ended_at) desc
       limit ? offset ?
@@ -2842,10 +2864,12 @@ function readDashboardSessions(
     .all(range.startDate, range.endDate, pagination.pageSize, offset) as DashboardSessionRow[];
 
   return {
-    columns: ["Session", "Agent", "Turns", "Duration", "Status"],
+    columns: ["Session", "Agent", "Project", "Started", "Turns", "Duration", "Status"],
     rows: rows.map((row) => [
       shortenId(row.id),
       row.agent,
+      repoHashToDisplay(row.repo_hash, projectDisplayNames),
+      row.started_at ? formatLocalDateTime(row.started_at) : "n/a",
       String(row.turn_count),
       formatDurationMs(row.duration_ms),
       row.status,
@@ -3280,9 +3304,13 @@ function renderDashboardContent(table: DashboardTable, display: DashboardDisplay
     )
     .join("");
 
-  const scrollClass = table.width === "compact" ? "table-scroll is-compact" : "table-scroll";
+  const stickyCols = table.stickyColumns ?? 2;
+  const scrollClass = table.width === "compact"
+    ? `table-scroll is-compact`
+    : `table-scroll`;
+  const stickyAttr = stickyCols > 0 ? ` data-sticky-cols="${stickyCols}"` : "";
 
-  return `${note}<div class="${scrollClass}"><table><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  return `${note}<div class="${scrollClass}"${stickyAttr}><table><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function renderDashboardTableMeta(table: DashboardTable, moreLink: string): string {

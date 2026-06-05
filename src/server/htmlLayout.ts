@@ -91,6 +91,67 @@ th { background: #f8fafb; color: var(--pico-muted-color); font-size: 12px; font-
 td { color: #24313d; font-variant-numeric: tabular-nums; }
 tbody tr:last-child td { border-bottom: 0; }
 
+/* Sticky first N columns for wide scrollable tables */
+/* Fixed column widths guarantee gap-free left offsets for position:sticky */
+[data-sticky-cols] table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+/* ── Column 1 (all sticky tables) ── */
+[data-sticky-cols] th:first-child,
+[data-sticky-cols] td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  width: 180px;
+  min-width: 180px;
+}
+[data-sticky-cols] td:first-child {
+  background: var(--pico-card-background-color);
+}
+[data-sticky-cols] th:first-child {
+  background: #f0f3f6;
+}
+
+/* ── Column 2 (2+ sticky columns) ── */
+[data-sticky-cols="2"] th:nth-child(2),
+[data-sticky-cols="2"] td:nth-child(2),
+[data-sticky-cols="3"] th:nth-child(2),
+[data-sticky-cols="3"] td:nth-child(2) {
+  position: sticky;
+  left: 180px;
+  z-index: 2;
+  width: 130px;
+  min-width: 130px;
+}
+[data-sticky-cols="2"] td:nth-child(2),
+[data-sticky-cols="3"] td:nth-child(2) {
+  background: var(--pico-card-background-color);
+  box-shadow: 2px 0 4px rgba(0, 0, 0, 0.06);
+}
+[data-sticky-cols="2"] th:nth-child(2),
+[data-sticky-cols="3"] th:nth-child(2) {
+  background: #f0f3f6;
+}
+
+/* ── Column 3 (3 sticky columns) ── */
+[data-sticky-cols="3"] th:nth-child(3),
+[data-sticky-cols="3"] td:nth-child(3) {
+  position: sticky;
+  left: 310px;
+  z-index: 1;
+  width: 150px;
+  min-width: 150px;
+}
+[data-sticky-cols="3"] td:nth-child(3) {
+  background: var(--pico-card-background-color);
+  box-shadow: 2px 0 4px rgba(0, 0, 0, 0.06);
+}
+[data-sticky-cols="3"] th:nth-child(3) {
+  background: #f0f3f6;
+}
+
 .cli-output { margin: 0; padding: 14px; overflow: auto; color: #24313d; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 12px; line-height: 1.45; font-variant-numeric: tabular-nums; white-space: pre; }
 .more-link { color: var(--pico-primary); font-size: 13px; font-weight: 650; text-decoration: none; white-space: nowrap; }
 .more-link:hover { text-decoration: underline; }
@@ -240,7 +301,7 @@ export function renderPageShell(options: PageShellOptions): string {
 
 export function buildNavLinks(current: string): string {
   const pages = [
-    { href: "/", label: "Overview" },
+    { href: "/", label: "Activity" },
     { href: "/metrics", label: "Metrics" },
     { href: "/usage", label: "Usage" },
   ];
