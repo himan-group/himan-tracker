@@ -31,6 +31,7 @@ import {
 import {
   addDays,
   formatLocalDate,
+  formatLocalDateTime,
   formatShortDate,
   formatNaturalWeekRangeLabel,
   formatShortDateRange,
@@ -55,7 +56,6 @@ import type { BillingCycleStartDay } from "../types/config.js";
 import {
   buildNavLinks,
   escapeHtml,
-  formatLocalDateTime,
   getSharedCss,
   renderIngestStatusHTML,
   renderPageShell,

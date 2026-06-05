@@ -8,6 +8,7 @@ import {
   type TrackerPaths,
 } from "../../config/paths.js";
 import { parseDate } from "../../reports/dateRange.js";
+import { formatLocalDate } from "../../reports/periodFormatter.js";
 import type { AgentName } from "../../types/events.js";
 
 export type CleanupCommandOptions = {
@@ -29,22 +30,22 @@ export type CleanupCommandResult = {
 
 type CleanupScope =
   | {
-      kind: "all";
-    }
+    kind: "all";
+  }
   | {
-      kind: "range";
-      fromDate?: string;
-      toDate?: string;
-    }
+    kind: "range";
+    fromDate?: string;
+    toDate?: string;
+  }
   | {
-      kind: "older-than";
-      period: string;
-      beforeDate: string;
-    }
+    kind: "older-than";
+    period: string;
+    beforeDate: string;
+  }
   | {
-      kind: "before";
-      beforeDate: string;
-    };
+    kind: "before";
+    beforeDate: string;
+  };
 
 type RawLogFile = {
   category: "events" | "errors";
@@ -423,14 +424,6 @@ function formatScope(scope: CleanupScope): string {
 
 function startOfLocalDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function formatLocalDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
 }
 
 function getErrorMessage(error: unknown): string {

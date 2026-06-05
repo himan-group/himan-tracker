@@ -185,11 +185,8 @@ export function escapeHtml(text: string): string {
 
 // ── Date formatting ───────────────────────────────────────────────────
 
-export function formatLocalDateTime(dateOrText: Date | string): string {
-  const date = typeof dateOrText === "string" ? new Date(dateOrText) : dateOrText;
-  if (isNaN(date.getTime())) return String(dateOrText);
-  return date.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", timeZoneName: "short" });
-}
+import { formatLocalDateTime } from "../reports/periodFormatter.js";
+export { formatLocalDateTime };
 
 // ── Ingest status ─────────────────────────────────────────────────────
 

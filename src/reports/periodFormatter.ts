@@ -1,5 +1,25 @@
 import type { DateRange } from "./dateRange.js";
 
+// ── Shared Intl formatters (sv-SE locale = ISO 8601 YYYY-MM-DD) ──────
+
+const localDateFormatter = new Intl.DateTimeFormat("sv-SE", {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+const localDateTimeFormatter = new Intl.DateTimeFormat("sv-SE", {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+});
+
+// ── Parsing / math ───────────────────────────────────────────────────
+
 export function parseLocalDate(value: string): Date {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!match) {
@@ -22,11 +42,7 @@ export function addDays(date: Date, days: number): Date {
 }
 
 export function formatLocalDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
+  return localDateFormatter.format(date);
 }
 
 export function formatShortDate(date: Date): string {
@@ -56,6 +72,16 @@ export function formatYearWeekLabel(date: Date): string {
 export function formatNaturalWeekRangeLabel(range: DateRange): string {
   return `${formatYearWeekLabel(parseLocalDate(range.startDate))} (${formatShortDateRange(range)})`;
 }
+
+// ── DateTime (local, YYYY-MM-DD HH:mm:ss) ────────────────────────────
+
+export function formatLocalDateTime(dateOrText: Date | string): string {
+  const date = typeof dateOrText === "string" ? new Date(dateOrText) : dateOrText;
+  if (isNaN(date.getTime())) return String(dateOrText);
+  return localDateTimeFormatter.format(date);
+}
+
+// ── Internal helpers ──────────────────────────────────────────────────
 
 function startOfLocalDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
