@@ -1,4 +1,5 @@
 import type { BillingCycleStartDay } from "../types/config.js";
+import { formatLocalDate } from "./periodFormatter.js";
 
 export const CODEX_WEEKLY_BUDGET_USD = 75;
 export const CODEX_WEEKLY_BUDGET_CREDITS = 1_875;
@@ -201,12 +202,4 @@ export function creditsToUsd(credits: number): number {
 
 function startOfLocalDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function formatLocalDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
 }

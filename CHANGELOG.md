@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-06-05
+
+### Changed
+
+- Migrated Dashboard server-side HTML rendering from raw string concatenation to Preact JSX components (`preact` + `preact-render-to-string`), improving view-layer maintainability and component reuse.
+
 ## [0.5.3] - 2026-06-04
 
 ### Added

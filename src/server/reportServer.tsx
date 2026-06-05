@@ -1,3 +1,7 @@
+/** @jsx h */
+/** @jsxFrag Fragment */
+
+import { h, Fragment } from "preact";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo, Socket } from "node:net";
 import path from "node:path";
@@ -31,6 +35,7 @@ import {
 import {
   addDays,
   formatLocalDate,
+  formatLocalDateTime,
   formatShortDate,
   formatNaturalWeekRangeLabel,
   formatShortDateRange,
@@ -55,12 +60,22 @@ import type { BillingCycleStartDay } from "../types/config.js";
 import {
   buildNavLinks,
   escapeHtml,
-  formatLocalDateTime,
   getSharedCss,
   renderIngestStatusHTML,
   renderPageShell,
-  TAB_SCRIPT,
 } from "./htmlLayout.js";
+import { render } from "preact-render-to-string";
+import {
+  DashboardContent,
+  MetricsGrid,
+  Metric,
+  NavBar,
+  PageShell,
+  Section,
+  TabbedSection,
+  TAB_SCRIPT,
+  type DashboardSection as JsxDashboardSection,
+} from "./views/shared.js";
 
 export const DEFAULT_SERVER_HOST = "127.0.0.1";
 export const DEFAULT_SERVER_PORT = 5127;
@@ -144,6 +159,7 @@ type DashboardTable = {
   emptyText: string;
   note?: string;
   width?: "full" | "compact";
+  stickyColumns?: number;
   moreHref?: string;
   pagination?: DashboardPagination;
 };
@@ -396,6 +412,7 @@ type DashboardTurnRow = {
   duration_ms: number | null;
   total_tokens: number | null;
   status: string;
+  repo_hash: string;
 };
 
 type DashboardProjectRow = {
@@ -404,6 +421,7 @@ type DashboardProjectRow = {
   turn_count: number;
   total_tokens: number | null;
   duration_ms: number | null;
+  last_active_at: string;
 };
 
 type DashboardSessionRow = {
@@ -414,6 +432,7 @@ type DashboardSessionRow = {
   duration_ms: number | null;
   turn_count: number;
   status: string;
+  repo_hash: string;
 };
 
 type AlertSeverityName = "warning" | "major" | "critical";
@@ -800,7 +819,7 @@ async function handleRequest(options: {
 
   if (url.pathname === "/sessions") {
     await options.runSyncNow();
-    const html = renderSessionsHtml({
+    const html = await renderSessionsHtml({
       paths: options.paths,
       since: options.since,
       page,
@@ -815,7 +834,7 @@ async function handleRequest(options: {
 
   if (url.pathname === "/turns") {
     await options.runSyncNow();
-    const html = renderTurnsHtml({
+    const html = await renderTurnsHtml({
       paths: options.paths,
       since: options.since,
       page,
@@ -998,12 +1017,12 @@ async function readDashboardData(options: {
         {
           id: "sessions",
           label: "Sessions",
-          table: { ...readDashboardSessions(db, range, 10), moreHref: "/sessions" },
+          table: { ...readDashboardSessions(db, range, 10, projectDisplayNames), moreHref: "/sessions" },
         },
         {
           id: "turns",
           label: "Turns",
-          table: { ...readDashboardTurns(db, range, 10), moreHref: "/turns" },
+          table: { ...readDashboardTurns(db, range, 10, projectDisplayNames), moreHref: "/turns" },
         },
       ],
     };
@@ -1130,67 +1149,93 @@ async function readUsageDashboardData(options: {
 
 function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode): string {
   const generatedAt = new Date(data.generatedAt);
+  const navPages = [
+    { href: "/", label: "Activity" },
+    { href: "/metrics", label: "Metrics" },
+    { href: "/usage", label: "Usage" },
+  ];
 
-  return `<!doctype html>
-<html lang="en" data-theme="light">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>himan-tracker</title>
-  <link rel="icon" type="image/svg+xml" href="${escapeHtml(DASHBOARD_ICON_DATA_URL)}">
-  <meta name="theme-color" content="#f7f8fa">
-  <style>${getSharedCss()}</style>
-</head>
-<body>
-  <header>
-    <div class="header-inner">
-      <h1>himan-tracker</h1>
-      <div class="status">${renderIngestStatus(data.lastIngest)} · Generated ${escapeHtml(
-    formatLocalDateTime(generatedAt),
-  )}</div>
-      <nav class="nav" aria-label="Dashboard navigation">
-        <a href="/" aria-current="page">Overview</a>
-        <a href="/metrics">Metrics</a>
-        <a href="/usage">Usage</a>
-      </nav>
-    </div>
-  </header>
-  <main>
-    <div class="metrics">
-      ${renderMetric("Projects", String(data.summary.project_count))}
-      ${renderMetric("Sessions", String(data.summary.session_count))}
-      ${renderMetric("Turns", String(data.summary.turn_count))}
-      ${renderMetric("Runtime tokens", formatTokenCount(data.summary.total_tokens))}
-      ${renderMetric("Avg latency", formatAverageDurationMs(data.summary.duration_ms, data.summary.turn_count))}
-    </div>
-    ${renderSection(data.summarySection, display)}
-    ${renderTabbedSection("Runtime token usage", "token", data.tokenTabs, display)}
-    ${data.sections.map((section) => renderSection(section, display)).join("\n")}
-    ${renderTabbedSection("Capability ROI views", "capability-roi", data.capabilityViewTabs, display)}
-    ${renderTabbedSection("Capability calls", "capability-calls", data.capabilityCallTabs, display)}
-    ${renderTabbedSection("Overview", "overview", data.overviewTabs, display)}
-  </main>
-  <script>
-    document.querySelectorAll("[data-tabs]").forEach((root) => {
-      const buttons = [...root.querySelectorAll("[role='tab']")];
-      const panels = [...root.querySelectorAll("[role='tabpanel']")];
-      buttons.forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const selectedPanel = btn.getAttribute("aria-controls");
-          buttons.forEach((b) => {
-            const active = b === btn;
-            b.setAttribute("aria-current", active ? "true" : "false");
-            b.classList.toggle("outline", !active);
-            b.setAttribute("tabindex", active ? "0" : "-1");
-          });
-          panels.forEach((p) => { p.hidden = p.id !== selectedPanel; });
-        });
-      });
-    });
-  </script>
-</body>
-</html>`;
+  const shell = (
+    <PageShell
+      title="himan-tracker"
+      heading="himan-tracker"
+      iconUrl={DASHBOARD_ICON_DATA_URL}
+      css={getSharedCss()}
+      navBar={<NavBar pages={navPages} current="/" />}
+      statusHtml={
+        <>
+          <span dangerouslySetInnerHTML={{ __html: renderIngestStatus(data.lastIngest) }} />
+          {" · Generated "}
+          {formatLocalDateTime(generatedAt)}
+        </>
+      }
+      scripts={TAB_SCRIPT}
+    >
+      <MetricsGrid>
+        <Metric label="Projects" value={String(data.summary.project_count)} />
+        <Metric label="Sessions" value={String(data.summary.session_count)} />
+        <Metric label="Turns" value={String(data.summary.turn_count)} />
+        <Metric label="Runtime tokens" value={formatTokenCount(data.summary.total_tokens)} />
+        <Metric
+          label="Avg latency"
+          value={formatAverageDurationMs(data.summary.duration_ms, data.summary.turn_count)}
+        />
+      </MetricsGrid>
+      <Section section={adaptSection(data.summarySection)} display={display} />
+      <TabbedSection
+        title="Runtime token usage"
+        idPrefix="token"
+        tabs={adaptTabs(data.tokenTabs)}
+        display={display}
+      />
+      {data.sections.map((section) => (
+        <Section section={adaptSection(section)} display={display} />
+      ))}
+      <TabbedSection
+        title="Capability ROI views"
+        idPrefix="capability-roi"
+        tabs={adaptTabs(data.capabilityViewTabs)}
+        display={display}
+      />
+      <TabbedSection
+        title="Capability calls"
+        idPrefix="capability-calls"
+        tabs={adaptTabs(data.capabilityCallTabs)}
+        display={display}
+      />
+      <TabbedSection
+        title="Activity"
+        idPrefix="activity"
+        tabs={adaptTabs(data.overviewTabs)}
+        display={display}
+      />
+    </PageShell>
+  );
+
+  return `<!doctype html>\n${render(shell)}`;
 }
+
+// ── Type adapters for JSX components ──────────────────────────────────
+
+function adaptSection(section: DashboardSection): JsxDashboardSection {
+  return {
+    title: section.title,
+    table: section.table,
+    cliLines: section.cliLines,
+    cliBlocks: section.cliBlocks,
+    tableBlocks: section.tableBlocks,
+  };
+}
+
+function adaptTabs(tabs: DashboardTab[]): DashboardTab[] {
+  return tabs.map((tab) => ({
+    id: tab.id,
+    label: tab.label,
+    table: tab.table,
+  }));
+}
+
+// ── Metrics page ──────────────────────────────────────────────────────
 
 function renderMetricsHtml(data: MetricsDashboardData, display: DashboardDisplayMode): string {
   const generatedAt = new Date(data.generatedAt);
@@ -1213,7 +1258,7 @@ function renderMetricsHtml(data: MetricsDashboardData, display: DashboardDisplay
     formatLocalDateTime(generatedAt),
   )}</div>
       <nav class="nav" aria-label="Dashboard navigation">
-        <a href="/">Overview</a>
+        <a href="/">Activity</a>
         <a href="/metrics" aria-current="page">Metrics</a>
         <a href="/usage">Usage</a>
       </nav>
@@ -1289,7 +1334,7 @@ function renderUsageHtml(data: UsageDashboardData, display: DashboardDisplayMode
     formatLocalDateTime(generatedAt),
   )}</div>
       <nav class="nav" aria-label="Dashboard navigation">
-        <a href="/">Overview</a>
+        <a href="/">Activity</a>
         <a href="/metrics">Metrics</a>
         <a href="/usage" aria-current="page">Usage</a>
       </nav>
@@ -1741,7 +1786,7 @@ function renderListPageHtml(options: {
   display: DashboardDisplayMode;
 }): string {
   const { title, table, ingestStatus, generatedAt, display } = options;
-  const breadcrumb = `<a href="/">Overview</a> <span class="breadcrumb-sep">›</span> <span class="breadcrumb-current">${escapeHtml(title)}</span>`;
+  const breadcrumb = `<a href="/">Activity</a> <span class="breadcrumb-sep">›</span> <span class="breadcrumb-current">${escapeHtml(title)}</span>`;
 
   return `<!doctype html>
 <html lang="en" data-theme="light">
@@ -1807,7 +1852,7 @@ async function renderProjectsHtml(options: {
   }
 }
 
-function renderSessionsHtml(options: {
+async function renderSessionsHtml(options: {
   paths: TrackerPaths;
   since: string;
   page: number;
@@ -1815,9 +1860,11 @@ function renderSessionsHtml(options: {
   display: DashboardDisplayMode;
   now: () => Date;
   lastIngest: ReportServerIngestSnapshot | null;
-}): string {
+}): Promise<string> {
   const generatedAt = options.now();
   const range = parseSinceRange(options.since, generatedAt);
+  const config = await readOrCreateUserConfig(options.paths);
+  const projectDisplayNames = createKnownProjectDisplayNameMap(config);
   const { db } = initializeTrackerDatabase(options.paths.sqlitePath);
 
   try {
@@ -1825,7 +1872,7 @@ function renderSessionsHtml(options: {
       page: options.page,
       pageSize: options.pageSize,
       basePath: "/sessions",
-    });
+    }, projectDisplayNames);
     return renderListPageHtml({
       title: "Sessions",
       table,
@@ -1838,7 +1885,7 @@ function renderSessionsHtml(options: {
   }
 }
 
-function renderTurnsHtml(options: {
+async function renderTurnsHtml(options: {
   paths: TrackerPaths;
   since: string;
   page: number;
@@ -1846,9 +1893,11 @@ function renderTurnsHtml(options: {
   display: DashboardDisplayMode;
   now: () => Date;
   lastIngest: ReportServerIngestSnapshot | null;
-}): string {
+}): Promise<string> {
   const generatedAt = options.now();
   const range = parseSinceRange(options.since, generatedAt);
+  const config = await readOrCreateUserConfig(options.paths);
+  const projectDisplayNames = createKnownProjectDisplayNameMap(config);
   const { db } = initializeTrackerDatabase(options.paths.sqlitePath);
 
   try {
@@ -1856,7 +1905,7 @@ function renderTurnsHtml(options: {
       page: options.page,
       pageSize: options.pageSize,
       basePath: "/turns",
-    });
+    }, projectDisplayNames);
     return renderListPageHtml({
       title: "Turns",
       table,
@@ -1985,6 +2034,7 @@ function createMetricsCapabilityTable(period: MetricsPeriodInsight): DashboardTa
       "Max runtime tokens",
       "Runtime token stddev",
     ],
+    stickyColumns: 3,
     rows: period.capabilities.map((capability) => createMetricsCapabilityRow(capability)),
     emptyText: `No capability metrics found for ${formatMetricsPeriodCaption(period)}.`,
     note: `Capability metrics for ${formatMetricsPeriodCaption(period)}. Runtime tokens exclude himan.yaml static token estimates; turn estimate duration is inferred from the parent turn.`,
@@ -2240,6 +2290,7 @@ function readDashboardCapabilityCalls(
 
   return {
     columns: ["Time", "Agent", "Source", "Capability", "Duration", "Basis", "Runtime tokens", "Status", "Origin"],
+    stickyColumns: 3,
     rows: rows.map((row) => [
       formatLocalDateTime(row.occurred_at),
       row.agent,
@@ -2333,6 +2384,7 @@ function createDashboardSummaryMetricTable(summary: DashboardSummary): Dashboard
       ["Success rate", formatSuccessRate(summary.success_count, summary.failure_count)],
     ],
     emptyText: "No usage data found for this range.",
+    stickyColumns: 0,
   };
 }
 
@@ -2368,6 +2420,7 @@ function readDashboardSummaryAgents(
       formatTokenCount(row.total_tokens),
     ]),
     emptyText: "No agent usage found.",
+    stickyColumns: 0,
   };
 }
 
@@ -2428,6 +2481,7 @@ function readDashboardSummaryCapabilities(
 
   return {
     columns: ["Agent", "Type", "Capability", "Invocations", "Runtime tokens", "Static tokens", "Duration"],
+    stickyColumns: 0,
     rows: rows.map((row) => [
       row.agent,
       row.capability_type,
@@ -2578,6 +2632,7 @@ function readDashboardCapabilities(
       "Max duration",
       "Success rate",
     ],
+    stickyColumns: 3,
     rows: visibleRows.map((row) => [
       row.agent,
       row.capability_type,
@@ -2683,6 +2738,7 @@ function readDashboardTurns(
   db: ReturnType<typeof initializeTrackerDatabase>["db"],
   range: { startDate: string; endDate: string },
   limit: number | PaginationQuery,
+  projectDisplayNames: ReadonlyMap<string, string> = new Map(),
 ): DashboardTable {
   const paginated = typeof limit !== "number";
   const pagination = normalizePaginationQuery(limit, "/turns");
@@ -2706,8 +2762,9 @@ function readDashboardTurns(
         id,
         duration_ms,
         total_tokens,
-        status
-      from turns
+        status,
+        coalesce(t.repo_hash, 'unknown') as repo_hash
+      from turns t
       where date(occurred_at, 'localtime') between ? and ?
       order by occurred_at desc
       limit ? offset ?
@@ -2716,10 +2773,12 @@ function readDashboardTurns(
     .all(range.startDate, range.endDate, pagination.pageSize, offset) as DashboardTurnRow[];
 
   return {
-    columns: ["Time", "Agent", "Model", "Turn", "Duration", "Runtime tokens", "Status"],
+    columns: ["Time", "Agent", "Project", "Model", "Turn", "Duration", "Runtime tokens", "Status"],
+    stickyColumns: 3,
     rows: rows.map((row) => [
       formatLocalDateTime(row.occurred_at),
       row.agent,
+      repoHashToDisplay(row.repo_hash, projectDisplayNames),
       formatNullableText(row.model),
       shortenId(row.id),
       formatDurationMs(row.duration_ms),
@@ -2770,29 +2829,31 @@ function readDashboardProjects(
         count(distinct session_id) as session_count,
         count(*) as turn_count,
         case when count(total_tokens) = 0 then null else sum(total_tokens) end as total_tokens,
-        case when count(duration_ms) = 0 then null else sum(duration_ms) end as duration_ms
+        case when count(duration_ms) = 0 then null else sum(duration_ms) end as duration_ms,
+        max(occurred_at) as last_active_at
       from turns
       where date(occurred_at, 'localtime') between ? and ?
       group by repo_hash
-      order by turn_count desc, repo_hash asc
+      order by max(occurred_at) desc, repo_hash asc
       limit ? offset ?
       `,
     )
     .all(range.startDate, range.endDate, pagination.pageSize, offset) as DashboardProjectRow[];
 
   return {
-    columns: ["Project", "Sessions", "Turns", "Runtime tokens", "Avg latency"],
+    columns: ["Project", "Sessions", "Turns", "Runtime tokens", "Avg latency", "Last active"],
     rows: rows.map((row) => [
       repoHashToDisplay(row.repo_hash, projectDisplayNames),
       String(row.session_count),
       String(row.turn_count),
       formatTokenCount(row.total_tokens),
       formatAverageDurationMs(row.duration_ms, row.turn_count),
+      formatLocalDateTime(row.last_active_at),
     ]),
     emptyText: "No project data found for this range.",
     note: paginated
       ? formatPaginationNote("projects", pagination.page, pagination.pageSize, totalRow.total_count, range)
-      : `Top ${rows.length} projects (${formatDateRange(range)}).`,
+      : `Recent projects (${formatDateRange(range)}).`,
     pagination: paginated ? createDashboardPagination(pagination, totalRow.total_count) : undefined,
   };
 }
@@ -2809,6 +2870,7 @@ function readDashboardSessions(
   db: ReturnType<typeof initializeTrackerDatabase>["db"],
   range: { startDate: string; endDate: string },
   limit: number | PaginationQuery,
+  projectDisplayNames: ReadonlyMap<string, string> = new Map(),
 ): DashboardTable {
   const paginated = typeof limit !== "number";
   const pagination = normalizePaginationQuery(limit, "/sessions");
@@ -2832,8 +2894,9 @@ function readDashboardSessions(
         ended_at,
         duration_ms,
         turn_count,
-        status
-      from sessions
+        status,
+        coalesce(s.repo_hash, 'unknown') as repo_hash
+      from sessions s
       where date(coalesce(started_at, ended_at, '1970-01-01'), 'localtime') between ? and ?
       order by coalesce(started_at, ended_at) desc
       limit ? offset ?
@@ -2842,10 +2905,12 @@ function readDashboardSessions(
     .all(range.startDate, range.endDate, pagination.pageSize, offset) as DashboardSessionRow[];
 
   return {
-    columns: ["Session", "Agent", "Turns", "Duration", "Status"],
+    columns: ["Session", "Agent", "Project", "Started", "Turns", "Duration", "Status"],
     rows: rows.map((row) => [
       shortenId(row.id),
       row.agent,
+      repoHashToDisplay(row.repo_hash, projectDisplayNames),
+      row.started_at ? formatLocalDateTime(row.started_at) : "n/a",
       String(row.turn_count),
       formatDurationMs(row.duration_ms),
       row.status,
@@ -3280,9 +3345,13 @@ function renderDashboardContent(table: DashboardTable, display: DashboardDisplay
     )
     .join("");
 
-  const scrollClass = table.width === "compact" ? "table-scroll is-compact" : "table-scroll";
+  const stickyCols = table.stickyColumns ?? 2;
+  const scrollClass = table.width === "compact"
+    ? `table-scroll is-compact`
+    : `table-scroll`;
+  const stickyAttr = stickyCols > 0 ? ` data-sticky-cols="${stickyCols}"` : "";
 
-  return `${note}<div class="${scrollClass}"><table><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  return `${note}<div class="${scrollClass}"${stickyAttr}><table><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function renderDashboardTableMeta(table: DashboardTable, moreLink: string): string {
