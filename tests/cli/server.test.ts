@@ -113,14 +113,14 @@ describe("server command", () => {
       assert.equal(capabilitiesHtml.includes("server-capability-23"), false);
       assert.match(html, /Capability ROI views/);
       assert.match(html, /role="tab"[^>]*>Raw<\/button>/);
-      assert.match(html, /role="tab"[^>]*>Strict \(&gt;=80\)<\/button>/);
+      assert.match(html, /role="tab"[^>]*>Strict \(>=80\)<\/button>/);
       assert.match(html, /role="tab"[^>]*>Weighted<\/button>/);
       const capabilityRoiHtml = html.slice(
         html.indexOf("<h2>Capability ROI views</h2>"),
         html.indexOf("<h2>Capability calls</h2>"),
       );
       assert.match(capabilityRoiHtml, /view=raw/);
-      assert.match(capabilityRoiHtml, /view=strict, score&gt;=80/);
+      assert.match(capabilityRoiHtml, /view=strict, score>=80/);
       assert.match(
         capabilityRoiHtml,
         /view=weighted \(confidence-weighted invocations\/tokens\/duration\)/,

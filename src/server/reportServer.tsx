@@ -1,3 +1,7 @@
+/** @jsx h */
+/** @jsxFrag Fragment */
+
+import { h, Fragment } from "preact";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo, Socket } from "node:net";
 import path from "node:path";
@@ -59,8 +63,19 @@ import {
   getSharedCss,
   renderIngestStatusHTML,
   renderPageShell,
-  TAB_SCRIPT,
 } from "./htmlLayout.js";
+import { render } from "preact-render-to-string";
+import {
+  DashboardContent,
+  MetricsGrid,
+  Metric,
+  NavBar,
+  PageShell,
+  Section,
+  TabbedSection,
+  TAB_SCRIPT,
+  type DashboardSection as JsxDashboardSection,
+} from "./views/shared.js";
 
 export const DEFAULT_SERVER_HOST = "127.0.0.1";
 export const DEFAULT_SERVER_PORT = 5127;
@@ -1134,67 +1149,93 @@ async function readUsageDashboardData(options: {
 
 function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode): string {
   const generatedAt = new Date(data.generatedAt);
+  const navPages = [
+    { href: "/", label: "Activity" },
+    { href: "/metrics", label: "Metrics" },
+    { href: "/usage", label: "Usage" },
+  ];
 
-  return `<!doctype html>
-<html lang="en" data-theme="light">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>himan-tracker</title>
-  <link rel="icon" type="image/svg+xml" href="${escapeHtml(DASHBOARD_ICON_DATA_URL)}">
-  <meta name="theme-color" content="#f7f8fa">
-  <style>${getSharedCss()}</style>
-</head>
-<body>
-  <header>
-    <div class="header-inner">
-      <h1>himan-tracker</h1>
-      <div class="status">${renderIngestStatus(data.lastIngest)} · Generated ${escapeHtml(
-    formatLocalDateTime(generatedAt),
-  )}</div>
-      <nav class="nav" aria-label="Dashboard navigation">
-        <a href="/" aria-current="page">Activity</a>
-        <a href="/metrics">Metrics</a>
-        <a href="/usage">Usage</a>
-      </nav>
-    </div>
-  </header>
-  <main>
-    <div class="metrics">
-      ${renderMetric("Projects", String(data.summary.project_count))}
-      ${renderMetric("Sessions", String(data.summary.session_count))}
-      ${renderMetric("Turns", String(data.summary.turn_count))}
-      ${renderMetric("Runtime tokens", formatTokenCount(data.summary.total_tokens))}
-      ${renderMetric("Avg latency", formatAverageDurationMs(data.summary.duration_ms, data.summary.turn_count))}
-    </div>
-    ${renderSection(data.summarySection, display)}
-    ${renderTabbedSection("Runtime token usage", "token", data.tokenTabs, display)}
-    ${data.sections.map((section) => renderSection(section, display)).join("\n")}
-    ${renderTabbedSection("Capability ROI views", "capability-roi", data.capabilityViewTabs, display)}
-    ${renderTabbedSection("Capability calls", "capability-calls", data.capabilityCallTabs, display)}
-    ${renderTabbedSection("Activity", "activity", data.overviewTabs, display)}
-  </main>
-  <script>
-    document.querySelectorAll("[data-tabs]").forEach((root) => {
-      const buttons = [...root.querySelectorAll("[role='tab']")];
-      const panels = [...root.querySelectorAll("[role='tabpanel']")];
-      buttons.forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const selectedPanel = btn.getAttribute("aria-controls");
-          buttons.forEach((b) => {
-            const active = b === btn;
-            b.setAttribute("aria-current", active ? "true" : "false");
-            b.classList.toggle("outline", !active);
-            b.setAttribute("tabindex", active ? "0" : "-1");
-          });
-          panels.forEach((p) => { p.hidden = p.id !== selectedPanel; });
-        });
-      });
-    });
-  </script>
-</body>
-</html>`;
+  const shell = (
+    <PageShell
+      title="himan-tracker"
+      heading="himan-tracker"
+      iconUrl={DASHBOARD_ICON_DATA_URL}
+      css={getSharedCss()}
+      navBar={<NavBar pages={navPages} current="/" />}
+      statusHtml={
+        <>
+          <span dangerouslySetInnerHTML={{ __html: renderIngestStatus(data.lastIngest) }} />
+          {" · Generated "}
+          {formatLocalDateTime(generatedAt)}
+        </>
+      }
+      scripts={TAB_SCRIPT}
+    >
+      <MetricsGrid>
+        <Metric label="Projects" value={String(data.summary.project_count)} />
+        <Metric label="Sessions" value={String(data.summary.session_count)} />
+        <Metric label="Turns" value={String(data.summary.turn_count)} />
+        <Metric label="Runtime tokens" value={formatTokenCount(data.summary.total_tokens)} />
+        <Metric
+          label="Avg latency"
+          value={formatAverageDurationMs(data.summary.duration_ms, data.summary.turn_count)}
+        />
+      </MetricsGrid>
+      <Section section={adaptSection(data.summarySection)} display={display} />
+      <TabbedSection
+        title="Runtime token usage"
+        idPrefix="token"
+        tabs={adaptTabs(data.tokenTabs)}
+        display={display}
+      />
+      {data.sections.map((section) => (
+        <Section section={adaptSection(section)} display={display} />
+      ))}
+      <TabbedSection
+        title="Capability ROI views"
+        idPrefix="capability-roi"
+        tabs={adaptTabs(data.capabilityViewTabs)}
+        display={display}
+      />
+      <TabbedSection
+        title="Capability calls"
+        idPrefix="capability-calls"
+        tabs={adaptTabs(data.capabilityCallTabs)}
+        display={display}
+      />
+      <TabbedSection
+        title="Activity"
+        idPrefix="activity"
+        tabs={adaptTabs(data.overviewTabs)}
+        display={display}
+      />
+    </PageShell>
+  );
+
+  return `<!doctype html>\n${render(shell)}`;
 }
+
+// ── Type adapters for JSX components ──────────────────────────────────
+
+function adaptSection(section: DashboardSection): JsxDashboardSection {
+  return {
+    title: section.title,
+    table: section.table,
+    cliLines: section.cliLines,
+    cliBlocks: section.cliBlocks,
+    tableBlocks: section.tableBlocks,
+  };
+}
+
+function adaptTabs(tabs: DashboardTab[]): DashboardTab[] {
+  return tabs.map((tab) => ({
+    id: tab.id,
+    label: tab.label,
+    table: tab.table,
+  }));
+}
+
+// ── Metrics page ──────────────────────────────────────────────────────
 
 function renderMetricsHtml(data: MetricsDashboardData, display: DashboardDisplayMode): string {
   const generatedAt = new Date(data.generatedAt);
