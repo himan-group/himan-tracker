@@ -1,6 +1,6 @@
 {
   "name": "@hi-man/himan-tracker",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "Local-first observability and analytics for AI coding agents.",
   "type": "module",
   "license": "Apache-2.0",
