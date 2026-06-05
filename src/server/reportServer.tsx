@@ -1150,7 +1150,7 @@ async function readUsageDashboardData(options: {
 function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode): string {
   const generatedAt = new Date(data.generatedAt);
   const navPages = [
-    { href: "/", label: "Activity" },
+    { href: "/", label: "Overview" },
     { href: "/metrics", label: "Metrics" },
     { href: "/usage", label: "Usage" },
   ];
@@ -1205,9 +1205,10 @@ function renderDashboardHtml(data: DashboardData, display: DashboardDisplayMode)
       />
       <TabbedSection
         title="Activity"
-        idPrefix="activity"
+        idPrefix="overview"
         tabs={adaptTabs(data.overviewTabs)}
         display={display}
+        defaultActiveTab="turns"
       />
     </PageShell>
   );
@@ -1258,7 +1259,7 @@ function renderMetricsHtml(data: MetricsDashboardData, display: DashboardDisplay
     formatLocalDateTime(generatedAt),
   )}</div>
       <nav class="nav" aria-label="Dashboard navigation">
-        <a href="/">Activity</a>
+        <a href="/">Overview</a>
         <a href="/metrics" aria-current="page">Metrics</a>
         <a href="/usage">Usage</a>
       </nav>
@@ -1334,7 +1335,7 @@ function renderUsageHtml(data: UsageDashboardData, display: DashboardDisplayMode
     formatLocalDateTime(generatedAt),
   )}</div>
       <nav class="nav" aria-label="Dashboard navigation">
-        <a href="/">Activity</a>
+        <a href="/">Overview</a>
         <a href="/metrics">Metrics</a>
         <a href="/usage" aria-current="page">Usage</a>
       </nav>
@@ -1786,7 +1787,7 @@ function renderListPageHtml(options: {
   display: DashboardDisplayMode;
 }): string {
   const { title, table, ingestStatus, generatedAt, display } = options;
-  const breadcrumb = `<a href="/">Activity</a> <span class="breadcrumb-sep">›</span> <span class="breadcrumb-current">${escapeHtml(title)}</span>`;
+  const breadcrumb = `<a href="/">Overview</a> <span class="breadcrumb-sep">›</span> <span class="breadcrumb-current">${escapeHtml(title)}</span>`;
 
   return `<!doctype html>
 <html lang="en" data-theme="light">

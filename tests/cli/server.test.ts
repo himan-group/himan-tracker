@@ -64,7 +64,7 @@ describe("server command", () => {
       assert.match(html, /himan-tracker/);
       assert.match(html, /<link rel="icon" type="image\/svg\+xml" href="data:image\/svg\+xml,/);
       assert.match(html, /<table>/);
-      assert.match(html, /href="\/" aria-current="page">Activity<\/a>/);
+      assert.match(html, /href="\/" aria-current="page">Overview<\/a>/);
       assert.match(html, /href="\/metrics">Metrics<\/a>/);
       assert.match(html, /Summary/);
       assert.ok(html.indexOf("Projects") < html.indexOf("Sessions"));
@@ -130,7 +130,7 @@ describe("server command", () => {
       assert.match(html, /server-capability-24/);
       assert.match(html, /github\.create_pull_request/);
       assert.match(html, /Showing latest 31 skill calls/);
-      assert.match(html, /Activity/);
+      assert.match(html, /Overview/);
       assert.match(html, /role="tab"[^>]*>Projects<\/button>/);
       assert.match(html, /role="tab"[^>]*>Sessions<\/button>/);
       assert.match(html, /role="tab"[^>]*>Turns<\/button>/);
@@ -197,7 +197,7 @@ describe("server command", () => {
       const metricsHtml = await metricsResponse.text();
       assert.equal(metricsResponse.status, 200);
       assert.match(metricsHtml, /<h1>Metrics<\/h1>/);
-      assert.match(metricsHtml, /href="\/">Activity<\/a>/);
+      assert.match(metricsHtml, /href="\/">Overview<\/a>/);
       assert.match(metricsHtml, /href="\/metrics" aria-current="page">Metrics<\/a>/);
       assert.match(metricsHtml, /Overall metrics/);
       assert.match(metricsHtml, /Project metrics/);
