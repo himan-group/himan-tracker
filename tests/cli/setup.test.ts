@@ -181,7 +181,7 @@ describe("setup command", () => {
     });
 
     it("rejects unsupported agents", async () => {
-        const result = await runSetup({ agent: "claude-code" });
+        const result = await runSetup({ agent: "unknown-agent" });
 
         assert.equal(result.ok, false);
         assert.equal(result.exitCode, 1);

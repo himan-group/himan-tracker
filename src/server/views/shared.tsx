@@ -459,8 +459,12 @@ export function TabbedSection(props: {
     idPrefix: string;
     tabs: DashboardTab[];
     display: DashboardDisplayMode;
+    defaultActiveTab?: string;
 }): JSX.Element {
-    const { title, idPrefix, tabs, display } = props;
+    const { title, idPrefix, tabs, display, defaultActiveTab } = props;
+    const activeIndex = defaultActiveTab
+        ? Math.max(0, tabs.findIndex((t) => t.id === defaultActiveTab))
+        : 0;
 
     return (
         <section data-tabs>
@@ -468,7 +472,7 @@ export function TabbedSection(props: {
                 <h2>{title}</h2>
                 <div class="tab-bar" aria-label={title}>
                     {tabs.map((tab, index) => {
-                        const active = index === 0;
+                        const active = index === activeIndex;
                         return (
                             <button
                                 aria-current={active ? "true" : undefined}
@@ -485,7 +489,7 @@ export function TabbedSection(props: {
                 </div>
             </div>
             {tabs.map((tab, index) => {
-                const hidden = index !== 0;
+                const hidden = index !== activeIndex;
                 return (
                     <div
                         id={`${idPrefix}-panel-${tab.id}`}

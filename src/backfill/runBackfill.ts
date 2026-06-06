@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
 
+import { parseClaudeCodeTranscriptBackfill } from "../adapters/claude-code/transcriptBackfill.js";
 import { parseCodexTranscriptBackfill } from "../adapters/codex/transcriptBackfill.js";
 import {
   parseCopilotSessionStore,
@@ -103,7 +104,9 @@ export async function runBackfill(
       ? [path.resolve(options.from)]
       : agent === "copilot"
         ? resolveCopilotDataSource()
-        : [resolveCodexTranscriptDir(date)];
+        : agent === "claude-code"
+          ? resolveClaudeCodeTranscriptDirs()
+          : [resolveCodexTranscriptDir(date)];
 
     await ensureTrackerDirectories(paths);
     const cursorStore = await readBackfillCursorStore(paths);
@@ -197,9 +200,13 @@ async function runBackfillSince(
   const cursorStore = await readBackfillCursorStore(paths);
   const config = options.config ?? (await readOrCreateUserConfig(paths));
 
-  // Copilot sources are not partitioned by day, so --since should process them once.
-  if (agent === "copilot") {
-    const transcriptDirs = options.from ? [path.resolve(options.from)] : resolveCopilotDataSource();
+  // Copilot and Claude Code sources are not partitioned by day, so --since should process them once.
+  if (agent === "copilot" || agent === "claude-code") {
+    const transcriptDirs = options.from
+      ? [path.resolve(options.from)]
+      : agent === "claude-code"
+        ? resolveClaudeCodeTranscriptDirs()
+        : resolveCopilotDataSource();
     for (const transcriptDir of transcriptDirs) {
       try {
         const writeResult = await parseAndWriteBackfillEvents({
@@ -384,11 +391,49 @@ function enumerateDates(start: string, end: string): string[] {
 function resolveBackfillAgent(agent: string | undefined): AgentName {
   const resolvedAgent = agent ?? "codex";
 
-  if (resolvedAgent === "codex" || resolvedAgent === "copilot") {
+  if (resolvedAgent === "codex" || resolvedAgent === "copilot" || resolvedAgent === "claude-code") {
     return resolvedAgent;
   }
 
-  throw new Error(`Unsupported backfill agent "${resolvedAgent}". Currently "codex" and "copilot" are supported.`);
+  throw new Error(`Unsupported backfill agent "${resolvedAgent}". Currently "codex", "copilot", and "claude-code" are supported.`);
+}
+
+function resolveClaudeCodeTranscriptDirs(): string[] {
+  const projectsDir = path.join(homedir(), ".claude", "projects");
+
+  try {
+    const projectDirs = readdirSyncSafe(projectsDir);
+    const dirs: string[] = [];
+
+    for (const projectDir of projectDirs) {
+      const fullPath = path.join(projectsDir, projectDir);
+      try {
+        const files = readdirSyncSafe(fullPath);
+        if (files.some((f) => f.endsWith(".jsonl") && !f.includes("agent-") && !f.includes("workflow"))) {
+          dirs.push(fullPath);
+        }
+      } catch {
+        // Skip inaccessible project directories
+      }
+    }
+
+    if (dirs.length === 0) {
+      throw new Error(
+        "Could not auto-detect Claude Code transcript directories. Use --from to specify the path.\n" +
+        'Example: himan-tracker backfill claude-code --from "~/.claude/projects/-Users-example/"',
+      );
+    }
+
+    return dirs;
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("Could not auto-detect")) {
+      throw error;
+    }
+    throw new Error(
+      "Could not auto-detect Claude Code transcript directories. Use --from to specify the path.\n" +
+      'Example: himan-tracker backfill claude-code --from "~/.claude/projects/-Users-example/"',
+    );
+  }
 }
 
 function resolveCodexTranscriptDir(date: string): string {
@@ -464,7 +509,7 @@ async function parseAgentTranscripts(agent: AgentName, transcriptDir: string) {
     case "copilot":
       return parseCopilotTranscriptBackfill({ transcriptDir });
     case "claude-code":
-      throw new Error('Agent "claude-code" is not supported by backfill yet');
+      return parseClaudeCodeTranscriptBackfill({ transcriptDir });
   }
 }
 

@@ -301,7 +301,7 @@ export function renderPageShell(options: PageShellOptions): string {
 
 export function buildNavLinks(current: string): string {
   const pages = [
-    { href: "/", label: "Activity" },
+    { href: "/", label: "Overview" },
     { href: "/metrics", label: "Metrics" },
     { href: "/usage", label: "Usage" },
   ];

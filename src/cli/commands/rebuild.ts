@@ -4,7 +4,7 @@ import { runIngest, type IngestCommandOptions, type IngestCommandResult } from "
 import { resolveTrackerPaths, type TrackerPaths } from "../../config/paths.js";
 import { parseDate } from "../../reports/dateRange.js";
 
-type RebuildSupportedAgent = "codex" | "copilot";
+type RebuildSupportedAgent = "codex" | "copilot" | "claude-code";
 
 export type RebuildCommandOptions = {
   agent?: string;
@@ -103,16 +103,16 @@ export async function runRebuild(
 }
 
 function resolveRebuildAgent(agent: string | undefined): RebuildSupportedAgent {
-  if (agent === "codex" || agent === "copilot") {
+  if (agent === "codex" || agent === "copilot" || agent === "claude-code") {
     return agent;
   }
 
   if (!agent) {
-    throw new Error('Expected rebuild agent "codex" or "copilot"');
+    throw new Error('Expected rebuild agent "codex", "copilot", or "claude-code"');
   }
 
   throw new Error(
-    `Unsupported rebuild agent "${agent}". Currently "codex" and "copilot" are supported.`,
+    `Unsupported rebuild agent "${agent}". Currently "codex", "copilot", and "claude-code" are supported.`,
   );
 }
 

@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { AgentName } from "../../types/events.js";
+import type { AgentName } from "../types/events.js";
 
 type RawRecord = Record<string, unknown>;
 

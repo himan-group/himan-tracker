@@ -19,7 +19,7 @@ import {
   runServerStatus,
   runServerStop,
 } from "./commands/server.js";
-import { runSetup, setupCodex, setupCopilot } from "./commands/setup.js";
+import { runSetup, setupClaudeCode, setupCodex, setupCopilot } from "./commands/setup.js";
 import { runSummary } from "./commands/summary.js";
 import { runTokens } from "./commands/tokens.js";
 import { runTurns } from "./commands/turns.js";
@@ -52,7 +52,7 @@ program
 program
   .command("collect")
   .description("Collect raw agent hook payloads without blocking the agent workflow")
-  .option("--agent <agent>", "Agent adapter to use; currently codex and copilot are supported", "codex")
+  .option("--agent <agent>", "Agent adapter to use: codex, copilot, or claude-code", "codex")
   .option("--from <path>", "Read the agent payload from a JSON file")
   .option("--quiet", "Suppress collect output for hook usage")
   .option("--sync", "Drain the local collect queue in the foreground after enqueueing")
@@ -97,6 +97,17 @@ setupCommand
   .option("--dry-run", "Preview files without writing them")
   .action(async (options: { global?: boolean; dryRun?: boolean }) => {
     const result = await setupCopilot(options);
+    console.log(result.lines.join("\n"));
+    process.exitCode = result.exitCode;
+  });
+
+setupCommand
+  .command("claude-code")
+  .description("Configure Claude Code hooks")
+  .option("-g, --global", "Install hooks globally instead of the current project")
+  .option("--dry-run", "Preview files without writing them")
+  .action(async (options: { global?: boolean; dryRun?: boolean }) => {
+    const result = await setupClaudeCode(options);
     console.log(result.lines.join("\n"));
     process.exitCode = result.exitCode;
   });
@@ -162,6 +173,20 @@ backfillCommand
     process.exitCode = result.ok ? 0 : 1;
   });
 
+backfillCommand
+  .command("claude-code")
+  .description("Backfill Claude Code events from local Claude Code transcript JSONL files")
+  .option("--date <date>", "Transcript date to backfill in YYYY-MM-DD; defaults to today")
+  .option("--since <date>", "Backfill from this date through today in YYYY-MM-DD")
+  .option("--from <dir>", "Read transcript JSONL files from a specific directory")
+  .option("--ignore-cursor", "Ignore backfill source cursor fingerprints and force a full re-parse")
+  .option("--force", "Delete existing daily JSONL and regenerate from transcripts (picks up new fields like cached_input_tokens)")
+  .action(async (options: BackfillCommandOptions) => {
+    const result = await runBackfill({ ...options, agent: "claude-code" });
+    console.log(result.lines.join("\n"));
+    process.exitCode = result.ok ? 0 : 1;
+  });
+
 type BackfillCommandOptions = {
   date?: string;
   since?: string;
@@ -198,6 +223,21 @@ rebuildCommand
     const result = await runRebuild({
       ...options,
       agent: "copilot",
+      progress: (line) => console.log(line),
+    });
+    console.log(result.lines.join("\n"));
+    process.exitCode = result.ok ? 0 : 1;
+  });
+
+rebuildCommand
+  .command("claude-code")
+  .description("Rebuild one Claude Code date end-to-end")
+  .requiredOption("--date <date>", "Date to rebuild in YYYY-MM-DD")
+  .option("--from <dir>", "Read transcript JSONL files from a specific directory")
+  .action(async (options: RebuildCommandOptions) => {
+    const result = await runRebuild({
+      ...options,
+      agent: "claude-code",
       progress: (line) => console.log(line),
     });
     console.log(result.lines.join("\n"));

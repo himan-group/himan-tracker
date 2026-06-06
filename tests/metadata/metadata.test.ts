@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 
-import { discoverSkillMetadata } from "../../src/adapters/himan/metadata.js";
+import { discoverSkillMetadata } from "../../src/metadata/metadata.js";
 
 describe("discoverSkillMetadata", () => {
   it("reads static skill metadata from project himan.yaml files", async () => {

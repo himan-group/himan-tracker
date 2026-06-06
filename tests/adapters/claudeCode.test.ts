@@ -26,6 +26,8 @@ const config: UserConfig = {
   local_salt: "fixture-salt",
 };
 
+const OBSERVED_AT = "2026-05-12T12:02:00.000Z";
+
 describe("parseClaudeCodeHookPayload", () => {
   it("parses the Claude Code raw fixture into stable normalized events", async () => {
     const rawPayload = await readJson("tests/fixtures/claude-code/raw/session.json");
@@ -33,9 +35,9 @@ describe("parseClaudeCodeHookPayload", () => {
       "tests/fixtures/claude-code/normalized/events.json",
     )) as NormalizedEvent[];
 
-    const normalizedEvents = parseClaudeCodeHookPayload(rawPayload).map((event) =>
-      normalizeEvent(event, config),
-    );
+    const normalizedEvents = parseClaudeCodeHookPayload(rawPayload, {
+      observedAt: OBSERVED_AT,
+    }).map((event) => normalizeEvent(event, config));
 
     assert.deepEqual(normalizedEvents, expectedEvents);
     assert.equal(JSON.stringify(normalizedEvents).includes("/Users/example/project"), false);
@@ -43,14 +45,18 @@ describe("parseClaudeCodeHookPayload", () => {
 
   it("ignores unrecognized hooks without throwing", () => {
     assert.deepEqual(
-      parseClaudeCodeHookPayload({
-        events: [
-          {
-            type: "future_event",
-            response: "do not store this response",
-          },
-        ],
-      }),
+      parseClaudeCodeHookPayload(
+        {
+          events: [
+            {
+              hook_event_name: "UnknownEvent",
+              session_id: "s_001",
+              something: "do not store this",
+            },
+          ],
+        },
+        { observedAt: OBSERVED_AT },
+      ),
       [],
     );
   });

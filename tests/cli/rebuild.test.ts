@@ -101,11 +101,11 @@ describe("rebuild command", () => {
 
   it("rejects unsupported rebuild agents", async () => {
     const result = await runRebuild({
-      agent: "claude-code",
+      agent: "unknown-agent",
       date: "2026-06-04",
     });
 
     assert.equal(result.ok, false);
-    assert.match(result.lines.join("\n"), /Unsupported rebuild agent "claude-code"/);
+    assert.match(result.lines.join("\n"), /Unsupported rebuild agent "unknown-agent"/);
   });
 });

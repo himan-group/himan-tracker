@@ -20,13 +20,17 @@
 
 ## 当前支持状态
 
-| 能力                      | 状态   |
-| ------------------------- | ------ |
-| Codex hooks 采集          | 已支持 |
-| Codex transcript backfill | 已支持 |
-| 本地 JSONL + SQLite 投影  | 已支持 |
-| CLI 报表与本地 dashboard  | 已支持 |
-| Claude Code 采集          | 规划中 |
+| 能力                           | 状态   |
+| ------------------------------ | ------ |
+| Codex hooks 采集               | 已支持 |
+| Codex transcript backfill      | 已支持 |
+| Copilot hooks 采集             | 已支持 |
+| Copilot transcript backfill    | 已支持 |
+| Claude Code hooks 采集         | 已支持 |
+| Claude Code transcript backfill | 已支持 |
+| Claude Code hook 配置          | 已支持 |
+| 本地 JSONL + SQLite 投影       | 已支持 |
+| CLI 报表与本地 dashboard       | 已支持 |
 
 ## 安装
 
@@ -159,5 +163,5 @@ README 只保留上手路径。完整命令参数、Codex 集成细节、事件�
 ## 说明
 
 - 当前项目仍处于早期 MVP 阶段。
-- 当前 `collect` 入口只支持 `--agent codex`。
+- 当前 `collect` 入口支持 `--agent codex | copilot | claude-code`。
 - 默认隐私策略下，不会持久化 prompt、response、代码内容、stdout/stderr、shell 参数或明文 repo path。

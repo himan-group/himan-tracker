@@ -1,0 +1,7 @@
+{"type":"user","timestamp":"2026-05-12T12:00:00.000Z","message":{"role":"user","content":[{"type":"text","text":"Write a hello world function"}]}}
+{"type":"assistant","timestamp":"2026-05-12T12:00:01.000Z","message":{"id":"msg_001","model":"claude-sonnet-4-6","content":[{"type":"text","text":"I'll create a hello world function for you."}]}}
+{"type":"assistant","timestamp":"2026-05-12T12:00:02.000Z","message":{"id":"msg_001","model":"claude-sonnet-4-6","content":[{"type":"tool_use","id":"toolu_001","name":"Write","input":{"file_path":"hello.ts","content":"export function hello() { return 'Hello, world!'; }"}}]}}
+{"type":"assistant","timestamp":"2026-05-12T12:00:02.500Z","message":{"id":"msg_001","model":"claude-sonnet-4-6","content":[{"type":"text","text":"Now let me run the tests."}],"usage":{"input_tokens":120,"output_tokens":45,"cache_read_input_tokens":30}}}
+{"type":"user","timestamp":"2026-05-12T12:01:00.000Z","message":{"role":"user","content":[{"type":"text","text":"Now add a test"}]}}
+{"type":"assistant","timestamp":"2026-05-12T12:01:03.000Z","message":{"id":"msg_002","model":"claude-sonnet-4-6","content":[{"type":"tool_use","id":"toolu_002","name":"Bash","input":{"command":"npm test","description":"Run tests"}}]}}
+{"type":"assistant","timestamp":"2026-05-12T12:01:05.000Z","message":{"id":"msg_002","model":"claude-sonnet-4-6","content":[{"type":"text","text":"Tests passed!"}],"usage":{"input_tokens":80,"output_tokens":20,"cache_read_input_tokens":40}}}

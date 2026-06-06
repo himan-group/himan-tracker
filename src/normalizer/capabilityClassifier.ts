@@ -15,8 +15,11 @@ export type ClassifiedCapability = {
 };
 
 export const BUILTIN_TOOL_NAMES = [
+  "Agent",
   "Bash",
   "Edit",
+  "EnterPlanMode",
+  "ExitPlanMode",
   "Glob",
   "Grep",
   "LS",

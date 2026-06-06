@@ -6,7 +6,7 @@ import {
   discoverSkillMetadata,
   type SkillDefinitionMetadata,
   type SkillMetadataIssue,
-} from "../adapters/himan/metadata.js";
+} from "../metadata/metadata.js";
 import { validateNormalizedEvent } from "../normalizer/eventSchema.js";
 import {
   initializeTrackerDatabase,

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { collectCodexEnrichmentTasks } from "../../adapters/codex/enrichment.js";
+import { parseClaudeCodeHookPayload } from "../../adapters/claude-code/index.js";
 import { parseCodexHookPayload } from "../../adapters/codex/index.js";
 import { parseCopilotHookPayload } from "../../adapters/copilot/index.js";
 import {
@@ -199,7 +200,7 @@ async function parseAgentPayload(
     case "codex":
       return parseCodexHookPayload(payload, { observedAt });
     case "claude-code":
-      throw new Error('Agent "claude-code" is not supported by collect yet');
+      return parseClaudeCodeHookPayload(payload, { observedAt });
     case "copilot":
       return parseCopilotHookPayload(payload, {
         observedAt,
@@ -294,7 +295,11 @@ function resolveSupportedAgent(agent: string | undefined): AgentName {
     return resolvedAgent;
   }
 
-  throw new Error(`Unsupported agent "${resolvedAgent}". Currently "codex" and "copilot" are supported for hook collect.`);
+  if (resolvedAgent === "claude-code") {
+    return resolvedAgent;
+  }
+
+  throw new Error(`Unsupported agent "${resolvedAgent}". Currently "codex", "copilot", and "claude-code" are supported for hook collect.`);
 }
 
 function formatDrainSummary(result: DrainQueuedEventsResult): string[] {

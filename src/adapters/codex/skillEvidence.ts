@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { readNearestHimanLockSkillNames } from "../himan/lockfile.js";
+import { readNearestHimanLockSkillNames } from "../../metadata/lockfile.js";
 import type { CapabilityAttributionContextSource } from "../../types/events.js";
 
 type RawRecord = Record<string, unknown>;
