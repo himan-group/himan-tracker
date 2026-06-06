@@ -4,6 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 See [AGENTS.md](AGENTS.md) for the full project reference, architecture overview, commands, and coding workflow. This file only covers Claude Code-specific information and critical constraints not obvious from reading AGENTS.md alone.
 
+**⚠️ After every code change that affects user-visible behavior, CLI surface, or data storage, you MUST update these three files:**
+1. **[CHANGELOG.md](CHANGELOG.md)** — add entries under `## [Unreleased]` using Keep a Changelog sections (`Added`, `Changed`, `Fixed`, `Removed`).
+2. **[README.md](README.md)** — update support status tables, command descriptions, or feature lists if affected.
+3. **[AGENTS.md](AGENTS.md)** — update implementation status, commands, or architecture sections if affected.
+
 ## Project summary
 
 `himan-tracker` is a local-first TypeScript CLI + web server for AI coding agent observability. It records sessions, turns, token usage, latency, and capability usage from agent transcripts and hook payloads into local daily JSONL shards projected to SQLite.
@@ -26,18 +31,20 @@ See AGENTS.md for the full CLI smoke test commands.
 
 ## Project conventions (from `.agents/` skills)
 
-These Codex skill definitions describe project conventions. Follow the same principles when working with this repo:
+Before performing certain tasks, **read and follow** the corresponding skill definition. These are checked into the repo at `.agents/skills/<name>/SKILL.md` and define the project's workflow standards.
 
-- **common-dev-pattern** — Before editing, read 2-3 nearby files to match local conventions (naming, error handling, validation, logging patterns). Validate the change before finishing (`pnpm run verify`).
-- **common-git-commit** — Commit preparation is lightweight packaging after validation, not a second review. Keep commits focused and local (no push unless asked).
-- **common-issue-spec** — When a request is underspecified or cross-file, produce a short implementation spec before coding. If a key decision can't be inferred, ask one question; otherwise state the assumption and proceed.
-- **common-project-changelog** — Keep `CHANGELOG.md` in Keep a Changelog style. Add new entries under `## [Unreleased]` using standard sections: `Added`, `Changed`, `Fixed`, `Removed`, `Deprecated`, `Security`. Run `pnpm run changelog:release` on version bumps.
-- **common-project-blueprint** — For product positioning, target users, goals, scope, non-goals.
-- **common-project-mvp** — For splitting MVP features, defining priorities, dependencies, milestones.
-- **common-project-startup** — For onboarding to unfamiliar repos: create/update `docs/repository-map.md` and `AGENTS.md`.
-- **common-project-tech-design** — For architecture, modules, data contracts, storage, CLI/API behavior, file layout, testing strategy.
-- **common-sprint-autopilot** — For executing a named sprint: convert requirements into a dev plan, implement with dev-pattern, changelog, and commits.
-- **github-npm-publish** — For GitHub Actions npm publish workflows.
+| When you... | Read and follow this skill |
+|---|---|
+| Edit or add code | **[common-dev-pattern](.agents/skills/common-dev-pattern/SKILL.md)** — read 2-3 nearby files first, match local conventions, validate with `pnpm run verify` before finishing |
+| Commit changes | **[common-git-commit](.agents/skills/common-git-commit/SKILL.md)** — lightweight packaging after validation, no push unless asked |
+| Update CHANGELOG or docs | **[common-project-changelog](.agents/skills/common-project-changelog/SKILL.md)** — Keep a Changelog style, `## [Unreleased]` with `Added/Changed/Fixed/Removed` sections |
+| Encounter vague requirements | **[common-issue-spec](.agents/skills/common-issue-spec/SKILL.md)** — write a short spec before coding, ask one question if unclear |
+| Design architecture or data model | **[common-project-tech-design](.agents/skills/common-project-tech-design/SKILL.md)** |
+| Plan MVP / milestones | **[common-project-mvp](.agents/skills/common-project-mvp/SKILL.md)** |
+| Write product/scope docs | **[common-project-blueprint](.agents/skills/common-project-blueprint/SKILL.md)** |
+| Onboard to an unfamiliar repo | **[common-project-startup](.agents/skills/common-project-startup/SKILL.md)** |
+| Execute a sprint | **[common-sprint-autopilot](.agents/skills/common-sprint-autopilot/SKILL.md)** |
+| Set up npm publish workflow | **[github-npm-publish](.agents/skills/github-npm-publish/SKILL.md)** |
 
 ## Critical architecture rules
 

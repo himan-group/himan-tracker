@@ -64,6 +64,7 @@ async function parseTranscriptFile(
   const assistantRows = new Map<string, RawRecord[]>();
   let sessionStartedAt: string | null = null;
   let sessionEndedAt: string | null = null;
+  let repoPath: string | undefined;
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -87,6 +88,11 @@ async function parseTranscriptFile(
     }
     if (timestamp && (!sessionEndedAt || timestamp > sessionEndedAt)) {
       sessionEndedAt = timestamp;
+    }
+
+    // Capture cwd from the first record that has it
+    if (!repoPath) {
+      repoPath = getString(record.cwd);
     }
 
     if (type === "assistant") {
@@ -135,6 +141,7 @@ async function parseTranscriptFile(
         source: "claude-code-transcript",
         session_id: sessionId,
         turn_id: messageId,
+        repo_path: repoPath,
         model,
         duration_ms: computeTurnDuration(rows),
         input_tokens: getNumber(usage.input_tokens),
@@ -156,6 +163,7 @@ async function parseTranscriptFile(
         source: "claude-code-transcript",
         session_id: sessionId,
         turn_id: messageId,
+        repo_path: repoPath,
         model,
         duration_ms: computeTurnDuration(rows),
         status: "success",
@@ -181,6 +189,7 @@ async function parseTranscriptFile(
         source: "claude-code-transcript",
         session_id: sessionId,
         turn_id: messageId,
+        repo_path: repoPath,
         capability_name: toolName,
         ...(usage ? normalizeTokenUsage(usage) : {}),
         status: getStatus(rows[0]?.status),
@@ -208,6 +217,7 @@ async function parseTranscriptFile(
       source: "claude-code-transcript",
       session_id: sessionId,
       turn_id: null,
+      repo_path: repoPath,
       turn_count: assistantRows.size,
       duration_ms: computeSessionDuration(sessionStartedAt, sessionEndedAt),
       status: "success",

@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-06-06
+
 ### Added
 
 - Added Claude Code agent support: `collect --agent claude-code` for hook-based event collection, `backfill claude-code` for transcript-based backfill, `setup claude-code` for hook configuration, and `rebuild claude-code` for end-to-end data rebuild.
@@ -13,6 +15,11 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Moved Himan lockfile and metadata utilities from `src/adapters/himan/` to `src/metadata/` as they are not agent adapters.
+
+### Fixed
+
+- Claude Code transcript backfill now captures `cwd` from transcript records as `repo_path`, fixing missing project name in dashboard reports.
+- Added `Agent`, `EnterPlanMode`, and `ExitPlanMode` to built-in tool classifier so Claude Code native tools are classified as `builtin_tool` instead of `unknown`.
 
 ## [0.5.4] - 2026-06-05
 
