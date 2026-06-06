@@ -2,41 +2,53 @@
   "schema_version": "fixture-1",
   "events": [
     {
-      "type": "tool_result",
-      "occurred_at": "2026-05-12T12:02:00.000Z",
+      "hook_event_name": "PostToolUse",
       "session_id": "claude_s_001",
-      "turn_id": "claude_t_001",
-      "repo_path": "/Users/example/project",
-      "tool": {
-        "name": "Edit",
-        "capability_type": "builtin_tool"
+      "transcript_path": "/Users/example/.claude/projects/-Users-example-project/claude_s_001.jsonl",
+      "cwd": "/Users/example/project",
+      "tool_name": "Write",
+      "tool_use_id": "toolu_01ABC123",
+      "tool_input": {
+        "file_path": "/Users/example/project/src/index.ts",
+        "content": "console.log('hello');"
       },
-      "duration_ms": 120,
-      "status": "failure",
-      "attribution_confidence": "unknown"
+      "tool_response": {
+        "success": true,
+        "filePath": "/Users/example/project/src/index.ts"
+      },
+      "duration_ms": 120
     },
     {
-      "type": "message_stop",
-      "occurred_at": "2026-05-12T12:02:08.000Z",
+      "hook_event_name": "PostToolUse",
       "session_id": "claude_s_001",
-      "turn_id": "claude_t_001",
-      "repo_path": "/Users/example/project",
-      "model": "claude-sonnet-4",
-      "duration_ms": 8000,
-      "usage": {
-        "input_tokens": 80,
-        "output_tokens": 16
+      "transcript_path": "/Users/example/.claude/projects/-Users-example-project/claude_s_001.jsonl",
+      "cwd": "/Users/example/project",
+      "tool_name": "Bash",
+      "tool_use_id": "toolu_01DEF456",
+      "tool_input": {
+        "command": "npm test",
+        "description": "Run tests"
       },
-      "status": "success"
+      "tool_response": {
+        "success": false
+      },
+      "duration_ms": 3500
     },
     {
-      "type": "session_end",
-      "occurred_at": "2026-05-12T12:02:09.000Z",
+      "hook_event_name": "Stop",
       "session_id": "claude_s_001",
-      "repo_path": "/Users/example/project",
-      "turn_count": 1,
+      "transcript_path": "/Users/example/.claude/projects/-Users-example-project/claude_s_001.jsonl",
+      "cwd": "/Users/example/project",
+      "model": "claude-sonnet-4-6",
       "duration_ms": 8000,
-      "status": "success"
+      "stop_hook_active": false
+    },
+    {
+      "hook_event_name": "SessionEnd",
+      "session_id": "claude_s_001",
+      "transcript_path": "/Users/example/.claude/projects/-Users-example-project/claude_s_001.jsonl",
+      "cwd": "/Users/example/project",
+      "duration_ms": 8000
     }
   ]
 }

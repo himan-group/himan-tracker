@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const CODEX_HOOK_EVENTS = ["UserPromptSubmit", "PostToolUse", "Stop"] as const;
 const COPILOT_HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PostToolUse", "PostToolUseFailure", "Stop", "SessionEnd"] as const;
+const CLAUDE_CODE_HOOK_EVENTS = ["PostToolUse", "PostToolUseFailure", "Stop", "SessionEnd"] as const;
 const HOOK_TIMEOUT_SECONDS = 5;
 
 export type SetupCommandOptions = {
@@ -40,6 +41,8 @@ export async function runSetup(
         return setupCodex(options);
       case "copilot":
         return setupCopilot(options);
+      case "claude-code":
+        return setupClaudeCode(options);
     }
   } catch (error) {
     return {
@@ -175,6 +178,72 @@ export async function setupCopilot(
         "Next steps:",
         "1. Restart Copilot so it reloads hooks.",
         "2. Run a Copilot session that uses tools.",
+        "3. Run `himan-tracker ingest` and then `himan-tracker summary --since 7d`.",
+      ],
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      exitCode: 1,
+      lines: ["himan-tracker setup", "", `[fail] ${getErrorMessage(error)}`],
+    };
+  }
+}
+
+export async function setupClaudeCode(
+  options: SetupCommandOptions,
+): Promise<SetupCommandResult> {
+  try {
+    const scope = options.global ? "global" : "project";
+    const homeDir = options.homeDir ?? homedir();
+
+    const settingsPath =
+      scope === "global"
+        ? path.join(homeDir, ".claude", "settings.json")
+        : path.join(options.cwd ?? process.cwd(), ".claude", "settings.json");
+
+    const scriptsDir =
+      scope === "global"
+        ? path.join(homeDir, ".himan-tracker", "scripts")
+        : path.join(settingsPath, "..", "scripts");
+
+    const helperPath = path.join(scriptsDir, "himan-tracker-cc-hook.sh");
+    const hookCommand = shellQuote(helperPath);
+    const collectorCommand = "himan-tracker collect --agent claude-code --sync --quiet";
+    const fallbackCliPath = resolveFallbackCliPath(options);
+
+    const existingSettings = await readJsonFile(settingsPath);
+    const mergedSettings = mergeClaudeCodeSettings(existingSettings, hookCommand);
+    const helperScript = createClaudeCodeHelperScript(fallbackCliPath);
+
+    if (!options.dryRun) {
+      await mkdir(scriptsDir, { recursive: true, mode: 0o700 });
+      await writeFile(helperPath, helperScript, { encoding: "utf8", mode: 0o700 });
+      await chmod(helperPath, 0o700);
+      await mkdir(path.dirname(settingsPath), { recursive: true, mode: 0o700 });
+      await writeFile(settingsPath, `${JSON.stringify(mergedSettings, null, 2)}\n`, {
+        encoding: "utf8",
+        mode: 0o600,
+      });
+    }
+
+    return {
+      ok: true,
+      exitCode: 0,
+      lines: [
+        "himan-tracker setup",
+        "",
+        "Agent: claude-code",
+        `Scope: ${scope}`,
+        `Mode: ${options.dryRun ? "dry-run" : "write"}`,
+        `Settings: ${settingsPath}`,
+        `Hook helper: ${helperPath}`,
+        `Hook events: ${CLAUDE_CODE_HOOK_EVENTS.join(", ")}`,
+        `Collector command: ${collectorCommand}`,
+        "",
+        "Next steps:",
+        "1. Restart Claude Code so it reloads settings.",
+        "2. Run a Claude Code session that uses tools.",
         "3. Run `himan-tracker ingest` and then `himan-tracker summary --since 7d`.",
       ],
     };
@@ -490,13 +559,129 @@ exit 0
 `;
 }
 
-function resolveSetupAgent(agent: string | undefined): "codex" | "copilot" {
+// ── Claude Code hook helpers ──
+
+type ClaudeCodeSettingsFile = {
+  hooks?: Record<string, JsonObject[]>;
+  [key: string]: unknown;
+};
+
+function mergeClaudeCodeSettings(
+  existingSettings: unknown,
+  hookCommand: string,
+): ClaudeCodeSettingsFile {
+  const settings = normalizeClaudeCodeSettings(existingSettings);
+  const hooks = settings.hooks ?? {};
+
+  const eventsNeedingMatcher = new Set(["PostToolUse", "PostToolUseFailure"]);
+
+  for (const eventName of CLAUDE_CODE_HOOK_EVENTS) {
+    const eventGroups = hooks[eventName] ?? [];
+    if (!hasClaudeCodeHookCommand(eventGroups, hookCommand)) {
+      const hookEntry: JsonObject = {
+        hooks: [
+          {
+            type: "command",
+            command: hookCommand,
+            timeout: HOOK_TIMEOUT_SECONDS,
+          },
+        ],
+      };
+      if (eventsNeedingMatcher.has(eventName)) {
+        hookEntry.matcher = "*";
+      }
+      eventGroups.push(hookEntry);
+    }
+    hooks[eventName] = eventGroups;
+  }
+
+  return { ...settings, hooks };
+}
+
+function normalizeClaudeCodeSettings(
+  existingSettings: unknown,
+): ClaudeCodeSettingsFile {
+  if (existingSettings === null) {
+    return {};
+  }
+
+  if (!isRecord(existingSettings)) {
+    throw new Error("Existing .claude/settings.json must be a JSON object");
+  }
+
+  const hooks = existingSettings.hooks;
+  if (hooks === undefined) {
+    return { ...existingSettings } as ClaudeCodeSettingsFile;
+  }
+
+  if (!isRecord(hooks)) {
+    throw new Error(
+      "Existing .claude/settings.json field `hooks` must be a JSON object",
+    );
+  }
+
+  const normalizedHooks: Record<string, JsonObject[]> = {};
+  for (const [eventName, eventGroups] of Object.entries(hooks)) {
+    if (!Array.isArray(eventGroups) || !eventGroups.every(isRecord)) {
+      throw new Error(
+        `Existing .claude/settings.json hook event ${eventName} must be an array of objects`,
+      );
+    }
+    normalizedHooks[eventName] = eventGroups;
+  }
+
+  return {
+    ...existingSettings,
+    hooks: normalizedHooks,
+  } as ClaudeCodeSettingsFile;
+}
+
+function hasClaudeCodeHookCommand(
+  eventGroups: JsonObject[],
+  hookCommand: string,
+): boolean {
+  return eventGroups.some((group) => {
+    const hooks = group.hooks;
+    return (
+      Array.isArray(hooks) &&
+      hooks.some(
+        (hook) =>
+          isRecord(hook) && hook.command === hookCommand,
+      )
+    );
+  });
+}
+
+function createClaudeCodeHelperScript(fallbackCliPath: string): string {
+  return `#!/usr/bin/env sh
+# Generated by himan-tracker. This script must never block Claude Code.
+# Reads hook JSON from stdin and forwards to himan-tracker.
+
+if command -v himan-tracker >/dev/null 2>&1; then
+  himan-tracker collect --agent claude-code --sync --quiet
+  exit 0
+fi
+
+NODE_BIN=""
+if command -v node >/dev/null 2>&1; then
+  NODE_BIN="$(command -v node)"
+fi
+
+TRACKER_DIST_CLI=${shellQuote(fallbackCliPath)}
+if [ -n "$NODE_BIN" ] && [ -f "$TRACKER_DIST_CLI" ]; then
+  "$NODE_BIN" "$TRACKER_DIST_CLI" collect --agent claude-code --sync --quiet
+fi
+exit 0
+`;
+}
+
+function resolveSetupAgent(agent: string | undefined): "codex" | "copilot" | "claude-code" {
   const resolvedAgent = agent ?? "codex";
-  if (resolvedAgent === "codex" || resolvedAgent === "copilot") {
+  if (resolvedAgent === "codex" || resolvedAgent === "copilot" || resolvedAgent === "claude-code") {
     return resolvedAgent;
   }
 
-  throw new Error(`Unsupported setup agent "${resolvedAgent}". Currently "codex" and "copilot" are supported.`);
+  throw new Error(`Unsupported setup agent "${resolvedAgent}". Currently "codex", "copilot", and "claude-code" are supported.`);
 }
 
 async function readJsonFile(filePath: string): Promise<unknown> {

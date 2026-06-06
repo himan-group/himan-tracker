@@ -1,58 +1,108 @@
-import type { AdapterEvent, CapabilityType, EventStatus } from "../../types/events.js";
+import type { AdapterEvent, EventStatus } from "../../types/events.js";
 
 type RawRecord = Record<string, unknown>;
 
-export function parseClaudeCodeHookPayload(payload: unknown): AdapterEvent[] {
-  return getRawEvents(payload).flatMap(parseClaudeCodeEvent);
+export type ParseClaudeCodeHookPayloadOptions = {
+  observedAt?: string;
+};
+
+export function parseClaudeCodeHookPayload(
+  payload: unknown,
+  options: ParseClaudeCodeHookPayloadOptions = {},
+): AdapterEvent[] {
+  return getRawEvents(payload).flatMap((event) => parseClaudeCodeEvent(event, options));
 }
 
-function parseClaudeCodeEvent(event: RawRecord): AdapterEvent[] {
-  const type = getString(event.type) ?? getString(event.hook);
+function parseClaudeCodeEvent(
+  event: RawRecord,
+  options: ParseClaudeCodeHookPayloadOptions,
+): AdapterEvent[] {
+  const hookEventName = getString(event.hook_event_name);
 
-  switch (type) {
-    case "tool_result":
-    case "tool_use":
-      return parseToolEvent(event);
-    case "message_stop":
-      return parseMessageStop(event);
-    case "session_end":
-      return parseSessionEnd(event);
+  switch (hookEventName) {
+    case "PreToolUse":
+      return parseToolEvent(event, options);
+    case "PostToolUse":
+      return parseToolEvent(event, options);
+    case "PostToolUseFailure":
+      return parseToolFailureEvent(event, options);
+    case "Stop":
+      return parseStop(event, options);
+    case "SessionEnd":
+      return parseSessionEnd(event, options);
     default:
       return [];
   }
 }
 
-function parseToolEvent(event: RawRecord): AdapterEvent[] {
-  const base = createBaseEvent(event);
-  const tool = getRecord(event.tool);
-  const capabilityName = getString(event.tool_name) ?? getString(tool?.name);
+function parseToolEvent(
+  event: RawRecord,
+  options: ParseClaudeCodeHookPayloadOptions,
+): AdapterEvent[] {
+  const base = createBaseEvent(event, options);
+  const toolName = getToolName(event);
 
-  if (!base || !capabilityName) {
+  if (!base || !toolName) {
     return [];
   }
+
+  const toolUseId = getString(event.tool_use_id);
+  const toolResponse = getRecord(event.tool_response);
+  const status = toolResponse ? resolveToolResponseStatus(toolResponse) : undefined;
 
   return [
     {
       ...base,
       event_type: "capability_usage",
-      capability_type: getCapabilityType(event.capability_type) ?? getCapabilityType(tool?.capability_type),
-      capability_name: capabilityName,
+      capability_name: toolName,
       duration_ms: getNumber(event.duration_ms),
-      input_tokens: getNumber(event.input_tokens),
-      output_tokens: getNumber(event.output_tokens),
-      total_tokens: getNumber(event.total_tokens),
-      status: getStatus(event.status),
-      adopted: getAdopted(event.adopted),
-      attribution_confidence: getString(event.attribution_confidence) === "exact" ? "exact" : "unknown",
+      status,
+      attribution_confidence: "unknown",
       invocation_origin: "observed",
+      attribution_basis: "transcript_tool_name",
+      attribution_score: 40,
+      attribution_reason: "Tool call observed from Claude Code hook event.",
+      attribution_context_source: "none",
+      ...(toolUseId ? { turn_id: toolUseId } : {}),
     },
   ];
 }
 
-function parseMessageStop(event: RawRecord): AdapterEvent[] {
-  const base = createBaseEvent(event);
-  const usage = getRecord(event.usage);
+function parseToolFailureEvent(
+  event: RawRecord,
+  options: ParseClaudeCodeHookPayloadOptions,
+): AdapterEvent[] {
+  const base = createBaseEvent(event, options);
+  const toolName = getToolName(event);
 
+  if (!base || !toolName) {
+    return [];
+  }
+
+  const toolUseId = getString(event.tool_use_id);
+
+  return [
+    {
+      ...base,
+      event_type: "capability_usage",
+      capability_name: toolName,
+      status: "failure",
+      attribution_confidence: "unknown",
+      invocation_origin: "observed",
+      attribution_basis: "transcript_tool_name",
+      attribution_score: 40,
+      attribution_reason: "Failed tool call observed from Claude Code hook event.",
+      attribution_context_source: "none",
+      ...(toolUseId ? { turn_id: toolUseId } : {}),
+    },
+  ];
+}
+
+function parseStop(
+  event: RawRecord,
+  options: ParseClaudeCodeHookPayloadOptions,
+): AdapterEvent[] {
+  const base = createBaseEvent(event, options);
   if (!base) {
     return [];
   }
@@ -63,16 +113,22 @@ function parseMessageStop(event: RawRecord): AdapterEvent[] {
       event_type: "turn_summary",
       model: getString(event.model),
       duration_ms: getNumber(event.duration_ms),
-      input_tokens: getNumber(usage?.input_tokens),
-      output_tokens: getNumber(usage?.output_tokens),
-      total_tokens: getNumber(usage?.total_tokens),
-      status: getStatus(event.status),
+      // Claude Code hooks do not provide token usage in the Stop payload.
+      // Token data must come from transcript backfill.
+      input_tokens: null,
+      cached_input_tokens: null,
+      output_tokens: null,
+      total_tokens: null,
+      status: "success",
     },
   ];
 }
 
-function parseSessionEnd(event: RawRecord): AdapterEvent[] {
-  const base = createBaseEvent(event);
+function parseSessionEnd(
+  event: RawRecord,
+  options: ParseClaudeCodeHookPayloadOptions,
+): AdapterEvent[] {
+  const base = createBaseEvent(event, options);
   if (!base) {
     return [];
   }
@@ -82,15 +138,18 @@ function parseSessionEnd(event: RawRecord): AdapterEvent[] {
       ...base,
       event_type: "session_summary",
       turn_id: null,
-      turn_count: getNumber(event.turn_count),
+      turn_count: null,
       duration_ms: getNumber(event.duration_ms),
-      status: getStatus(event.status),
+      status: "success",
     },
   ];
 }
 
-function createBaseEvent(event: RawRecord): Omit<AdapterEvent, "event_type"> | null {
-  const occurredAt = getString(event.occurred_at);
+function createBaseEvent(
+  event: RawRecord,
+  options: ParseClaudeCodeHookPayloadOptions,
+): Omit<AdapterEvent, "event_type"> | null {
+  const occurredAt = options.observedAt;
   const sessionId = getString(event.session_id);
 
   if (!occurredAt || !sessionId) {
@@ -102,10 +161,32 @@ function createBaseEvent(event: RawRecord): Omit<AdapterEvent, "event_type"> | n
     agent: "claude-code",
     source: "claude-code-hook",
     session_id: sessionId,
-    turn_id: getString(event.turn_id),
-    repo_path: getString(event.repo_path),
-    status: getStatus(event.status),
+    turn_id: getString(event.tool_use_id) ?? null,
+    repo_path: getString(event.cwd),
+    status: "unknown",
   };
+}
+
+function getToolName(event: RawRecord): string | undefined {
+  return getString(event.tool_name) ?? getString(getRecord(event.tool)?.name);
+}
+
+function resolveToolResponseStatus(
+  toolResponse: RawRecord,
+): EventStatus | undefined {
+  if ("success" in toolResponse) {
+    return toolResponse.success === true
+      ? "success"
+      : toolResponse.success === false
+        ? "failure"
+        : undefined;
+  }
+
+  if (getString(toolResponse.status) === "failure") {
+    return "failure";
+  }
+
+  return undefined;
 }
 
 function getRawEvents(payload: unknown): RawRecord[] {
@@ -131,27 +212,6 @@ function getString(value: unknown): string | undefined {
 
 function getNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function getStatus(value: unknown): EventStatus | undefined {
-  return value === "success" || value === "failure" || value === "cancelled" || value === "unknown"
-    ? value
-    : undefined;
-}
-
-function getCapabilityType(value: unknown): CapabilityType | undefined {
-  return value === "skill" ||
-    value === "mcp_tool" ||
-    value === "plugin" ||
-    value === "builtin_tool" ||
-    value === "shell_command" ||
-    value === "unknown"
-    ? value
-    : undefined;
-}
-
-function getAdopted(value: unknown): "yes" | "no" | "unknown" | undefined {
-  return value === "yes" || value === "no" || value === "unknown" ? value : undefined;
 }
 
 function isRecord(value: unknown): value is RawRecord {
