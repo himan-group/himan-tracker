@@ -5,6 +5,7 @@ import type { AdapterEvent, EventStatus } from "../../types/events.js";
 type RawRecord = Record<string, unknown>;
 
 type TranscriptEnrichment = {
+  turn_id?: string;
   model?: string;
   input_tokens?: number;
   cached_input_tokens?: number;
@@ -129,6 +130,7 @@ async function parseStop(
     {
       ...base,
       event_type: "turn_summary",
+      turn_id: enrichment?.turn_id ?? base.turn_id,
       model: getString(event.model) ?? enrichment?.model ?? null,
       duration_ms: getNumber(event.duration_ms),
       input_tokens: enrichment?.input_tokens ?? null,
@@ -174,6 +176,7 @@ async function enrichStopFromTranscript(
       if (!usage) continue;
 
       const model = getString(message.model);
+      const messageId = getString(message.id);
       const inputTokens = getNumber(usage.input_tokens);
       const cachedInputTokens =
         getNumber(usage.cache_read_input_tokens) ??
@@ -186,6 +189,7 @@ async function enrichStopFromTranscript(
           : undefined);
 
       return {
+        ...(messageId ? { turn_id: messageId } : {}),
         ...(model ? { model } : {}),
         ...(inputTokens !== undefined ? { input_tokens: inputTokens } : {}),
         ...(cachedInputTokens !== undefined ? { cached_input_tokens: cachedInputTokens } : {}),
