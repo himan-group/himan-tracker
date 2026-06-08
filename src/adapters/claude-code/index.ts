@@ -1,22 +1,38 @@
+import { open, readFile, stat } from "node:fs/promises";
+
 import type { AdapterEvent, EventStatus } from "../../types/events.js";
 
 type RawRecord = Record<string, unknown>;
+
+type TranscriptEnrichment = {
+  model?: string;
+  input_tokens?: number;
+  cached_input_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+};
+
+const MAX_TRANSCRIPT_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
+const TAIL_READ_SIZE = 1 * 1024 * 1024; // 1 MB tail read for large files
 
 export type ParseClaudeCodeHookPayloadOptions = {
   observedAt?: string;
 };
 
-export function parseClaudeCodeHookPayload(
+export async function parseClaudeCodeHookPayload(
   payload: unknown,
   options: ParseClaudeCodeHookPayloadOptions = {},
-): AdapterEvent[] {
-  return getRawEvents(payload).flatMap((event) => parseClaudeCodeEvent(event, options));
+): Promise<AdapterEvent[]> {
+  const results = await Promise.all(
+    getRawEvents(payload).map((event) => parseClaudeCodeEvent(event, options)),
+  );
+  return results.flat();
 }
 
-function parseClaudeCodeEvent(
+async function parseClaudeCodeEvent(
   event: RawRecord,
   options: ParseClaudeCodeHookPayloadOptions,
-): AdapterEvent[] {
+): Promise<AdapterEvent[]> {
   const hookEventName = getString(event.hook_event_name);
 
   switch (hookEventName) {
@@ -27,7 +43,7 @@ function parseClaudeCodeEvent(
     case "PostToolUseFailure":
       return parseToolFailureEvent(event, options);
     case "Stop":
-      return parseStop(event, options);
+      return await parseStop(event, options);
     case "SessionEnd":
       return parseSessionEnd(event, options);
     default:
@@ -98,30 +114,118 @@ function parseToolFailureEvent(
   ];
 }
 
-function parseStop(
+async function parseStop(
   event: RawRecord,
   options: ParseClaudeCodeHookPayloadOptions,
-): AdapterEvent[] {
+): Promise<AdapterEvent[]> {
   const base = createBaseEvent(event, options);
   if (!base) {
     return [];
   }
 
+  const enrichment = await enrichStopFromTranscript(event);
+
   return [
     {
       ...base,
       event_type: "turn_summary",
-      model: getString(event.model),
+      model: getString(event.model) ?? enrichment?.model ?? null,
       duration_ms: getNumber(event.duration_ms),
-      // Claude Code hooks do not provide token usage in the Stop payload.
-      // Token data must come from transcript backfill.
-      input_tokens: null,
-      cached_input_tokens: null,
-      output_tokens: null,
-      total_tokens: null,
+      input_tokens: enrichment?.input_tokens ?? null,
+      cached_input_tokens: enrichment?.cached_input_tokens ?? null,
+      output_tokens: enrichment?.output_tokens ?? null,
+      total_tokens: enrichment?.total_tokens ?? null,
       status: "success",
     },
   ];
+}
+
+async function enrichStopFromTranscript(
+  event: RawRecord,
+): Promise<TranscriptEnrichment | null> {
+  const transcriptPath = getString(event.transcript_path);
+  if (!transcriptPath) return null;
+
+  try {
+    const content = await readTranscriptSafely(transcriptPath);
+    if (!content) return null;
+
+    // Scan from the end to find the last assistant message with usage data.
+    // Claude Code transcripts use split-block format: multiple lines for one message.
+    // Usage data (input_tokens, output_tokens, etc.) is in the last block of each message.
+    const lines = content.split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim();
+      if (!line) continue;
+
+      let record: RawRecord;
+      try {
+        record = JSON.parse(line);
+      } catch {
+        continue;
+      }
+
+      if (record.type !== "assistant") continue;
+
+      const message = getRecord(record.message);
+      if (!message) continue;
+
+      const usage = getRecord(message.usage);
+      if (!usage) continue;
+
+      const model = getString(message.model);
+      const inputTokens = getNumber(usage.input_tokens);
+      const cachedInputTokens =
+        getNumber(usage.cache_read_input_tokens) ??
+        getNumber(usage.cached_input_tokens);
+      const outputTokens = getNumber(usage.output_tokens);
+      const totalTokens =
+        getNumber(usage.total_tokens) ??
+        (inputTokens !== undefined || outputTokens !== undefined
+          ? (inputTokens ?? 0) + (outputTokens ?? 0)
+          : undefined);
+
+      return {
+        ...(model ? { model } : {}),
+        ...(inputTokens !== undefined ? { input_tokens: inputTokens } : {}),
+        ...(cachedInputTokens !== undefined ? { cached_input_tokens: cachedInputTokens } : {}),
+        ...(outputTokens !== undefined ? { output_tokens: outputTokens } : {}),
+        ...(totalTokens !== undefined ? { total_tokens: totalTokens } : {}),
+      };
+    }
+
+    return null;
+  } catch {
+    // Fail-open: any error reading/parsing the transcript is silently ignored.
+    return null;
+  }
+}
+
+async function readTranscriptSafely(filePath: string): Promise<string | null> {
+  try {
+    const fileStat = await stat(filePath);
+    if (fileStat.size === 0) return null;
+
+    if (fileStat.size <= MAX_TRANSCRIPT_FILE_SIZE) {
+      return await readFile(filePath, "utf8");
+    }
+
+    // For large files, read only the tail portion.
+    const readStart = Math.max(0, fileStat.size - TAIL_READ_SIZE);
+    const fh = await open(filePath, "r");
+    try {
+      const buf = Buffer.alloc(fileStat.size - readStart);
+      await fh.read(buf, 0, buf.length, readStart);
+      // Skip the first (potentially partial) line.
+      const raw = buf.toString("utf8");
+      const firstNewline = raw.indexOf("\n");
+      return firstNewline >= 0 ? raw.slice(firstNewline + 1) : raw;
+    } finally {
+      await fh.close();
+    }
+  } catch {
+    return null;
+  }
 }
 
 function parseSessionEnd(

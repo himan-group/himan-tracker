@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Claude Code hook `parseStop` now reads the session transcript file (`transcript_path`) in real-time to enrich turn summary events with `model` and token usage data (`input_tokens`, `output_tokens`, `cached_input_tokens`, `total_tokens`) that are not provided by the Claude Code hook Stop event itself. The enrichment is fail-open: any error reading the transcript is silently ignored and the event is still recorded.
+
 ## [0.5.5] - 2026-06-06
 
 ### Added

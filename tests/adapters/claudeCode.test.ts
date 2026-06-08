@@ -35,17 +35,17 @@ describe("parseClaudeCodeHookPayload", () => {
       "tests/fixtures/claude-code/normalized/events.json",
     )) as NormalizedEvent[];
 
-    const normalizedEvents = parseClaudeCodeHookPayload(rawPayload, {
+    const normalizedEvents = (await parseClaudeCodeHookPayload(rawPayload, {
       observedAt: OBSERVED_AT,
-    }).map((event) => normalizeEvent(event, config));
+    })).map((event) => normalizeEvent(event, config));
 
     assert.deepEqual(normalizedEvents, expectedEvents);
     assert.equal(JSON.stringify(normalizedEvents).includes("/Users/example/project"), false);
   });
 
-  it("ignores unrecognized hooks without throwing", () => {
+  it("ignores unrecognized hooks without throwing", async () => {
     assert.deepEqual(
-      parseClaudeCodeHookPayload(
+      await parseClaudeCodeHookPayload(
         {
           events: [
             {
